@@ -14,41 +14,29 @@ export default async function SettingsPage() {
       <div className="pageHeader">
         <div>
           <p className="eyebrow">Settings</p>
-          <h1>Local controls for the first version.</h1>
-          <p>Automation and notifications are intentionally placeholders until the manual loop is stable.</p>
+          <h1>Local controls</h1>
+          <p>Configure browser automation and recommendation defaults.</p>
         </div>
       </div>
 
-      <section className="grid two">
-        <div className="card">
-          <h2>Default currency</h2>
-          <p>{profile?.defaultCurrency ?? "USD"}</p>
-          <p>Currency conversion is not automatic in this version. Use matching currencies for reliable decisions.</p>
+      <section className="grid three">
+        <div className="card flat metric">
+          <span className="muted">Default currency</span>
+          <strong>{profile?.defaultCurrency ?? "USD"}</strong>
         </div>
-        <div className="card">
-          <h2>Automation status</h2>
-          <p>Chrome profile checks are available.</p>
-          <p>TripBuddy connects to a real local Chrome browser through Chrome DevTools Protocol.</p>
+        <div className="card flat metric">
+          <span className="muted">Savings threshold</span>
+          <strong>{profile?.savingsThreshold ?? 50}</strong>
         </div>
-        <div className="card">
-          <h2>Recommendation threshold</h2>
-          <p>{profile?.savingsThreshold ?? 50}</p>
-          <p>Direct rebooking recommendations require estimated savings above this value.</p>
-        </div>
-        <div className="card">
-          <h2>Notification status</h2>
-          <p>In-app dashboard only.</p>
-          <p>Email, Telegram, and calendar-aware reminders are out of scope for v0.1.</p>
+        <div className="card flat metric">
+          <span className="muted">Browser profile</span>
+          <strong>{chromeProfileName}</strong>
         </div>
       </section>
 
       <section className="card form">
         <p className="eyebrow">Browser Connector</p>
         <h2>Chrome profile</h2>
-        <p>
-          Use a dedicated Chrome data directory for hotel checks. Keep hotel logins and cookies here instead of using your
-          daily browser profile.
-        </p>
         <form action={updateChromeSettings} className="form">
           <div className="grid three">
             <div className="field">
@@ -65,7 +53,6 @@ export default async function SettingsPage() {
             </div>
           </div>
           <input type="hidden" name="chromeProfileDirectory" value={configuredDirectory} />
-          <p className="muted">Chrome will keep hotel sessions in this local directory. Use port 0 for automatic port selection.</p>
           <button type="submit">Save Chrome settings</button>
         </form>
       </section>

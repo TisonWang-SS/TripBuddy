@@ -14,7 +14,7 @@ export type CollectorInput = {
   roomType: string;
   currency: string;
   bookingUrl?: string | null;
-  inventoryTypes: InventoryType[];
+  inventoryTypes: readonly InventoryType[];
   browserMode: BrowserMode;
   chromeProfile?: ChromeProfileConfig | null;
 };

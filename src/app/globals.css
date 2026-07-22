@@ -1,16 +1,14 @@
 :root {
-  --bg: #f4f0e8;
-  --panel: #fffaf2;
-  --panel-strong: #ffffff;
-  --ink: #1d2433;
-  --muted: #687084;
-  --line: #e4d9c8;
-  --accent: #2f6f73;
-  --accent-strong: #174f55;
-  --amber: #b7791f;
-  --red: #b6403b;
-  --green: #2c7a4b;
-  --shadow: 0 24px 70px rgba(29, 36, 51, 0.12);
+  --bg: #f7f8fa;
+  --panel: #ffffff;
+  --panel-soft: #f1f4f8;
+  --ink: #151922;
+  --muted: #667085;
+  --line: #d8dee8;
+  --accent: #256f68;
+  --amber: #9a6700;
+  --red: #b42318;
+  --green: #237547;
 }
 
 * {
@@ -21,7 +19,7 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background: radial-gradient(circle at top left, #fbf4df, transparent 38%), var(--bg);
+  background: var(--bg);
   color: var(--ink);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
@@ -40,7 +38,7 @@ textarea {
 
 .shell {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 220px 1fr;
   min-height: 100vh;
 }
 
@@ -48,28 +46,28 @@ textarea {
   position: sticky;
   top: 0;
   height: 100vh;
-  padding: 28px;
+  padding: 20px 16px;
   border-right: 1px solid var(--line);
-  background: rgba(255, 250, 242, 0.78);
-  backdrop-filter: blur(20px);
+  background: var(--panel);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 36px;
+  gap: 10px;
+  margin-bottom: 28px;
 }
 
 .brandMark {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 16px;
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
   background: var(--accent);
   color: white;
-  font-weight: 800;
+  font-weight: 700;
+  font-size: 0.78rem;
 }
 
 .brand small {
@@ -79,70 +77,74 @@ textarea {
 }
 
 .nav {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .nav a {
-  padding: 11px 13px;
-  border-radius: 14px;
+  padding: 9px 10px;
+  border-radius: 6px;
   color: var(--muted);
+  font-size: 0.94rem;
 }
 
 .nav a:hover {
-  background: #efe7da;
+  background: var(--panel-soft);
   color: var(--ink);
 }
 
 .main {
-  padding: 38px;
+  width: min(1280px, 100%);
+  padding: 28px 32px;
 }
 
 .pageHeader {
   display: flex;
   justify-content: space-between;
-  gap: 24px;
+  gap: 18px;
   align-items: flex-start;
-  margin-bottom: 28px;
+  margin-bottom: 18px;
 }
 
 .eyebrow {
-  color: var(--accent-strong);
-  font-weight: 800;
-  letter-spacing: 0.12em;
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
 }
 
 h1,
 h2,
 h3 {
   margin: 0;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 h1 {
-  font-size: clamp(2.2rem, 5vw, 4.7rem);
-  line-height: 0.92;
-  max-width: 900px;
+  font-size: 1.8rem;
+  line-height: 1.15;
 }
 
 h2 {
-  font-size: 1.55rem;
+  font-size: 1.12rem;
 }
 
 h3 {
-  font-size: 1.1rem;
+  font-size: 0.98rem;
 }
 
 p {
+  margin: 8px 0 0;
   color: var(--muted);
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .grid {
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
 .grid.two {
@@ -155,44 +157,35 @@ p {
 
 .card {
   border: 1px solid var(--line);
-  border-radius: 28px;
-  background: rgba(255, 250, 242, 0.9);
-  box-shadow: var(--shadow);
-  padding: 24px;
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 18px;
 }
 
 .card.flat {
-  box-shadow: none;
-}
-
-.hero {
-  min-height: 320px;
-  display: grid;
-  align-content: end;
-  background:
-    linear-gradient(135deg, rgba(47, 111, 115, 0.12), rgba(183, 121, 31, 0.12)),
-    var(--panel);
+  background: transparent;
 }
 
 .metric {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .metric strong {
-  font-size: 2rem;
-  letter-spacing: -0.04em;
+  font-size: 1.45rem;
+  letter-spacing: 0;
 }
 
 .button,
 button {
   border: 0;
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--accent);
   color: white;
-  padding: 11px 18px;
-  font-weight: 800;
+  padding: 9px 12px;
+  font-weight: 700;
   cursor: pointer;
+  line-height: 1.2;
 }
 
 .buttonRow {
@@ -204,12 +197,12 @@ button {
 
 .button.secondary,
 button.secondary {
-  background: #efe7da;
+  background: var(--panel-soft);
   color: var(--ink);
 }
 
 button.danger {
-  background: #f8d9d6;
+  background: #fef3f2;
   color: var(--red);
 }
 
@@ -221,22 +214,33 @@ button.danger {
 .listItem {
   display: flex;
   justify-content: space-between;
-  gap: 18px;
-  padding: 16px;
+  gap: 14px;
+  padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 20px;
-  background: var(--panel-strong);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.programRow {
+  display: grid;
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.programRow:first-child {
+  border-top: 0;
 }
 
 .badge {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  padding: 6px 10px;
+  border-radius: 4px;
+  padding: 4px 7px;
   font-size: 0.78rem;
-  font-weight: 800;
-  background: #e9eee9;
-  color: var(--accent-strong);
+  font-weight: 700;
+  background: var(--panel-soft);
+  color: var(--accent);
   text-transform: capitalize;
 }
 
@@ -247,7 +251,7 @@ button.danger {
 
 .badge.rebook_direct {
   background: #dff2ef;
-  color: var(--accent-strong);
+  color: var(--accent);
 }
 
 .badge.consider_ota,
@@ -263,19 +267,19 @@ button.danger {
 
 .form {
   display: grid;
-  gap: 16px;
+  gap: 14px;
 }
 
 .field {
   display: grid;
-  gap: 7px;
+  gap: 6px;
 }
 
 .field label,
 .check label {
   color: var(--muted);
-  font-size: 0.88rem;
-  font-weight: 800;
+  font-size: 0.84rem;
+  font-weight: 700;
 }
 
 .field input,
@@ -283,8 +287,8 @@ button.danger {
 .field textarea {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 12px 13px;
+  border-radius: 6px;
+  padding: 9px 10px;
   background: white;
   color: var(--ink);
 }
@@ -301,7 +305,7 @@ button.danger {
 }
 
 .section {
-  margin-top: 24px;
+  margin-top: 18px;
 }
 
 .muted {
@@ -311,7 +315,7 @@ button.danger {
 .divider {
   height: 1px;
   background: var(--line);
-  margin: 20px 0;
+  margin: 14px 0;
 }
 
 .table {
@@ -336,10 +340,10 @@ button.danger {
 
 .empty {
   border: 1px dashed var(--line);
-  border-radius: 24px;
-  padding: 32px;
+  border-radius: 8px;
+  padding: 20px;
   text-align: center;
-  background: rgba(255, 255, 255, 0.45);
+  background: var(--panel);
 }
 
 @media (max-width: 920px) {

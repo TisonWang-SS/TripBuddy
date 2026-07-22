@@ -97,7 +97,7 @@ export default async function ProfilePage() {
             {HOTEL_GROUPS.map((group) => {
               const account = accountByGroup.get(group);
               return (
-                <div className="card flat" key={group}>
+                <div className="programRow" key={group}>
                   <h3>{group}</h3>
                   <div className="grid three">
                     <div className="field">

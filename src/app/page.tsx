@@ -25,19 +25,18 @@ export default async function DashboardPage() {
 
   return (
     <div className="grid">
-      <section className="card hero">
+      <div className="pageHeader">
         <div>
-          <p className="eyebrow">Local-first travel decisions</p>
-          <h1>Guard every hotel booking before the cancellation window closes.</h1>
-          <p>
-            Track direct hotel prices, loyalty value, promotions, credit card benefits, and OTA reference prices in one
-            private workspace.
-          </p>
+          <p className="eyebrow">Dashboard</p>
+          <h1>Hotel watchlist</h1>
+          <p>Track active bookings, current decisions, and prices that need action.</p>
+        </div>
+        <div className="buttonRow">
           <Link className="button" href="/bookings/new">
             Add a booking
           </Link>
         </div>
-      </section>
+      </div>
 
       <section className="grid three">
         <div className="card flat metric">
@@ -59,7 +58,7 @@ export default async function DashboardPage() {
           <div className="pageHeader">
             <div>
               <p className="eyebrow">Bookings</p>
-              <h2>Active watchlist</h2>
+              <h2>Active</h2>
             </div>
           </div>
           {bookings.length === 0 ? (
@@ -93,7 +92,7 @@ export default async function DashboardPage() {
 
         <div className="card">
           <p className="eyebrow">Recommendations</p>
-          <h2>Latest decisions</h2>
+          <h2>Latest</h2>
           <div className="divider" />
           {latestRecommendations.length === 0 ? (
             <div className="empty">

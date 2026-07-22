@@ -184,7 +184,7 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
 
       <section className="card">
         <p className="eyebrow">Browser Import</p>
-        <h2>Import from your real Chrome profile</h2>
+        <h2>Chrome import</h2>
         <div className="divider" />
         <div className="grid two">
           <div>
@@ -196,10 +196,6 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
             <code>http://localhost:3000</code>
           </div>
         </div>
-        <p>
-          Load the unpacked extension from <code>browser-extension</code>, open the hotel rate page in your TripBuddy Chrome
-          profile, paste this booking ID into the extension, and import the current page.
-        </p>
         {browserImportUrl ? (
           <a className="button secondary" href={browserImportUrl} target="_blank" rel="noreferrer">
             Open source and auto import
@@ -250,10 +246,6 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
               </tr>
             </tbody>
           </table>
-          <p>
-            Recommended workflow: book the better rate first, verify the confirmation, then make that price the new
-            baseline here.
-          </p>
           {candidateObservation ? (
             <form action={promoteObservationToBooking}>
               <input type="hidden" name="bookingId" value={booking.id} />
