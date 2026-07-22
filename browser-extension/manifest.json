@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "TripBuddy Browser Companion",
+  "version": "0.1.0",
+  "description": "Import visible hotel rate evidence from the user's real browser into the local TripBuddy app.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Import to TripBuddy"
+  },
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*",
+    "https://www.hyatt.com/*"
+  ],
+  "content_scripts": [
+    {
+      "js": [
+        "content.js"
+      ],
+      "matches": [
+        "https://www.hyatt.com/*"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ]
+}

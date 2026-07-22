@@ -1,0 +1,1 @@
+ALTER TABLE WatchPlan ADD COLUMN browserMode TEXT NOT NULL DEFAULT 'headless';
