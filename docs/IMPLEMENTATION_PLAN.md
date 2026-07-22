@@ -170,7 +170,7 @@ The first Hyatt tool should:
 - Add a `browser-extension` unpacked Chrome extension that reads the active tab only after a user click, extracts Hyatt visible text and candidate rates, and posts evidence to `POST /api/browser-evidence`.
 - Add a content-script auto-import mode. Booking detail pages should open the hotel source URL with `tripbuddyBookingId` in the URL hash; the extension should wait for readable rate text, then POST page evidence to the local API without clicking hotel controls.
 - Auto-import readiness should require rate-like tokens, not generic page controls. Accept examples include `Avg/Night`, `Avg / Night`, `per night`, points rates, `Total Cash`, `Price Summary`, and related final-total labels.
-- For Hyatt auto-import, attempt a conservative two-step navigation from room list to rate plan to pre-payment price summary. If final total evidence appears, import the final total and suppress room-list nightly estimates for the same page import.
+- For Hyatt auto-import, attempt a conservative staged navigation from room list to rate plan to pre-payment price summary. If final total evidence appears, import only observation-ready final/detail evidence and suppress room-list nightly estimates for the same page import.
 - Store the booking ID and local endpoint in tab-scoped session storage after opening the auto-import URL so the content script can continue across Hyatt navigations even when the URL hash is dropped.
 - Use a state-machine-like content script loop: wait for room-list rates, click the lowest safe rate selector, detect rate-plan pages, click a safe rate-plan selector, then import only after final-total evidence appears or the fallback timeout expires.
 - Maintain hard click guardrails for payment, confirmation, purchase, complete-reservation, place-order, and submit-payment controls.
@@ -190,7 +190,12 @@ The first Hyatt tool should:
 - Mark cancellation policy as unknown when it is not visible in the Hyatt room list. Do not infer a policy from the existence of a rate.
 - In Chrome profile mode, use a conservative multi-step Hyatt flow: read the room list, identify the lowest visible safe cash rate, click its `Select & Book` control, wait for a pre-payment detail or review page, and extract final total, tax/fee text, and cancellation policy text when visible.
 - Add a hard automation guardrail: never click payment, purchase, confirm booking, place order, submit payment, or equivalent final-booking controls.
-- Treat room-list totals as estimates when detail-page final total is unavailable. Detail-page totals should override room-list nightly-rate estimates.
+- Treat room-list totals as transient estimates when detail-page final total is unavailable. Detail-page totals should override room-list nightly-rate estimates, and estimates must not be stored as `PriceObservation` rows when a final total was captured in the same import.
+- Split Hyatt extraction into two explicit phases:
+  1. Inventory phase: collect all visible room-list room/rate estimates, including rooms and suites. These are candidate-selection facts, not final observations.
+  2. Detail phase: select one or more backup candidates, navigate each selected candidate to its rate/detail or pre-payment page, and capture final total, tax/fee inclusion, breakfast inclusion, and cancellation policy.
+- The initial deterministic candidate selector can choose the closest matching current room and the cheapest safe candidate. Future LLM selection should choose candidates from the inventory phase using current booking details, party type, room preferences, breakfast preference, and cancellation sensitivity.
+- Future Hyatt detail extraction may use multiple TripBuddy-owned tabs or windows to collect final totals for selected candidates in parallel, provided all tabs preserve the original booking dates, guest count, currency, and no final booking action is clicked.
 - Parse any visible Hyatt cash or award candidate from the same loaded page when either inventory mode is enabled, because Hyatt award searches can still render cash rates.
 - Support award text variants such as `points`, `point/night`, and `pts/night`.
 - Store a short page-text sample in failed or partial run details when no rate token can be parsed.
@@ -261,6 +266,13 @@ Before final recommendation, introduce an LLM-assisted candidate selector that c
 
 The selector should choose or rank candidates and explain tradeoffs. Numeric cost calculations should remain deterministic.
 
+Until the LLM selector exists, keep a deterministic fallback:
+
+- First prefer exact or near-exact current room matches.
+- Also consider the cheapest safe room-list candidate.
+- For family or larger-party trips, include suite or larger-room candidates only after the detail phase can capture final total and policy.
+- Do not surface room-list estimates as final recommendations when their tax/fee inclusion is unknown.
+
 ### Future LLM Layer
 
 Do not add the LLM decision layer until automated evidence is stable.
@@ -293,6 +305,13 @@ Dashboard should continue showing only the latest recommendation per booking.
 Manual observation forms should stay available, but should be visually secondary once automated checks exist. Existing observations should remain list-first: show summary rows, keep edit/delete/promote actions explicit, and avoid rendering full raw edit forms inline on the booking detail page.
 
 ### Tests
+
+Data extraction changes have an additional real-browser requirement:
+
+- Hyatt extraction work must use the real Chrome `TripBuddy` profile plus the TripBuddy Browser Companion extension as the primary tested path.
+- Any behavior-changing parser, content-script, navigation, or evidence-import change must be tested once against a real Hyatt page through that profile and extension before being considered done.
+- CDP profile automation is experimental for Hyatt. Do not replace the Browser Companion path with CDP unless a fresh real-world test shows CDP reliably renders Hyatt and extracts the same or better evidence.
+- If a real-browser test cannot be completed, explicitly report that limitation and do not describe the extraction change as verified.
 
 Add unit tests for:
 
@@ -327,6 +346,7 @@ Add UI smoke tests for:
 7. Add first real direct collector behind the same interface.
 8. Add UI for run status, candidate evidence, and failures.
 9. Add tests and run `npm test` and `npm run build`.
+10. For data extraction changes, reload the Browser Companion extension and run one real Hyatt import test through the Chrome `TripBuddy` profile.
 
 ## Assumptions
 

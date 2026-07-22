@@ -167,7 +167,7 @@ export async function runPriceCheck(formData: FormData) {
           roomMatch: candidate.room.match,
           cancellationPolicyRaw: candidate.cancellation.rawPolicy,
           cancellationMatch: candidate.cancellation.match,
-          breakfastIncluded: false,
+          breakfastIncluded: candidate.breakfastIncluded,
           taxesIncluded: candidate.price.taxesIncluded ?? false,
           loyaltyEligible: candidate.loyalty.eligible ?? false,
           sourceUrl: candidate.source.url,

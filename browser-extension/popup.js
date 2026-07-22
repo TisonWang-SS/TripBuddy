@@ -49,7 +49,7 @@ async function importCurrentPage() {
       throw new Error("No page evidence was returned.");
     }
 
-    setStatus(`Sending ${evidence.candidates.length} candidate rate${evidence.candidates.length === 1 ? "" : "s"}...`);
+    setStatus("Sending page evidence for TripBuddy parsing...");
     const response = await fetch(`${endpoint}/api/browser-evidence`, {
       body: JSON.stringify({
         ...evidence,
@@ -81,10 +81,9 @@ function setStatus(message) {
 function collectTripBuddyPageEvidence() {
   const pageText = document.body?.innerText?.replace(/\s+/g, " ").trim() || "";
   const sourceUrl = location.href;
-  const candidates = location.hostname.includes("hyatt.com") ? parseHyattCandidates(pageText, sourceUrl) : [];
 
   return {
-    candidates,
+    candidates: [],
     capturedAt: new Date().toISOString(),
     hotelGroup: location.hostname.includes("hyatt.com") ? "Hyatt" : null,
     pageText,

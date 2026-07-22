@@ -17,6 +17,7 @@ const booking: DecisionBooking = {
   hotelName: "Grand Hyatt Test",
   checkIn: new Date("2026-09-10T00:00:00.000Z"),
   checkOut: new Date("2026-09-13T00:00:00.000Z"),
+  guests: 2,
   roomType: "King Room",
   originalPrice: 900,
   currency: "USD",
@@ -222,5 +223,54 @@ describe("decision engine", () => {
 
     expect(decision.verdict).toBe("needs_review");
     expect(decision.explanation).toContain("taxes");
+  });
+
+  it("chooses the best comparable candidate across imported room rates", () => {
+    const decision = generateRecommendation({
+      booking,
+      profile,
+      loyaltyAccount,
+      loyaltyRule,
+      creditCards: [],
+      promotions: [],
+      now: new Date("2026-08-01T00:00:00.000Z"),
+      observations: [
+        {
+          id: "obs-latest",
+          observedAt: new Date("2026-08-01T00:05:00.000Z"),
+          sourceName: "Hyatt official site",
+          sourceType: "direct",
+          price: 880,
+          currency: "USD",
+          roomTypeRaw: "King Room",
+          roomMatch: "exact",
+          cancellationPolicyRaw: "Free cancellation",
+          cancellationMatch: "same_or_better",
+          breakfastIncluded: false,
+          taxesIncluded: true,
+          loyaltyEligible: true,
+          confidence: 0.9
+        },
+        {
+          id: "obs-best",
+          observedAt: new Date("2026-08-01T00:00:00.000Z"),
+          sourceName: "Hyatt official site",
+          sourceType: "direct",
+          price: 720,
+          currency: "USD",
+          roomTypeRaw: "King Room",
+          roomMatch: "exact",
+          cancellationPolicyRaw: "Free cancellation",
+          cancellationMatch: "same_or_better",
+          breakfastIncluded: true,
+          taxesIncluded: true,
+          loyaltyEligible: true,
+          confidence: 0.9
+        }
+      ]
+    });
+
+    expect(decision.candidateObservationId).toBe("obs-best");
+    expect(decision.verdict).toBe("rebook_direct");
   });
 });

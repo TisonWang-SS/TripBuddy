@@ -102,10 +102,10 @@ export async function POST(request: Request) {
         rawRateName: candidate.rawRateName,
         ratePlanName: candidate.ratePlanName,
         roomTypeRaw: candidate.roomTypeRaw,
-        roomMatch: "unknown",
+        roomMatch: inferRoomMatch(booking.roomType, candidate.roomTypeRaw),
         cancellationPolicyRaw: candidate.cancellationPolicyRaw,
         cancellationMatch: "unknown",
-        breakfastIncluded: false,
+        breakfastIncluded: candidate.breakfastIncluded,
         taxesIncluded: candidate.taxesIncluded,
         loyaltyEligible: true,
         sourceUrl: normalized.sourceUrl,
@@ -138,6 +138,39 @@ export async function POST(request: Request) {
 function createEvidenceNote(pageTitle: string | null, pageText: string) {
   const title = pageTitle ? `Browser page: ${pageTitle}` : "Browser page evidence";
   return `${title}\nText sample: ${pageText.slice(0, 900)}`;
+}
+
+function inferRoomMatch(currentRoomType: string, observedRoomType: string) {
+  const current = normalizeComparableRoom(currentRoomType);
+  const observed = normalizeComparableRoom(observedRoomType);
+  if (!current || !observed || /not captured|unknown/.test(observed)) {
+    return "unknown";
+  }
+  if (current === observed || current.includes(observed) || observed.includes(current)) {
+    return "exact";
+  }
+  if (shareRoomBedType(current, observed)) {
+    return "similar";
+  }
+  return "unknown";
+}
+
+function normalizeComparableRoom(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(?:room|rooms|standard|view|details|hyatt|place|select|book)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function shareRoomBedType(current: string, observed: string) {
+  for (const token of ["king", "queen", "twin", "double", "suite"]) {
+    if (current.includes(token) && observed.includes(token)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function json(body: unknown, status = 200) {

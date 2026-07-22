@@ -4,6 +4,7 @@ import {
   calculateStayNights,
   extractHyattHotelCode,
   extractBestHyattCashRate,
+  extractHyattCashRates,
   extractHyattFinalTotal,
   extractHyattTaxesAndFees,
   extractLowestCashRate,
@@ -104,6 +105,62 @@ describe("hotel price tools", () => {
     });
   });
 
+  it("extracts all visible Hyatt cash rates with room and breakfast details", () => {
+    const rates = extractHyattCashRates(
+      "ROOMS (2) SUITES (1) 1 King Bed Work or unwind. View Room Details Member Rate MYR 399 Avg/Night Free cancellation Select & Book 1 King Bed, Balcony Enjoy the view. View Room Details Bed and Breakfast MYR 608 Avg/Night Includes breakfast Cancel before arrival Select & Book Family Suite Relax together. View Room Details Standard Rate MYR 720 Avg/Night Select & Book",
+      { ...input, checkIn: new Date("2026-07-27T00:00:00.000Z"), checkOut: new Date("2026-08-03T00:00:00.000Z"), roomType: "1 King Bed" }
+    );
+
+    expect(rates).toHaveLength(3);
+    expect(rates.map((rate) => rate.roomName)).toEqual(["1 King Bed", "1 King Bed, Balcony", "Family Suite"]);
+    expect(rates[1]).toMatchObject({
+      breakfastIncluded: true,
+      nightlyAmount: 608,
+      ratePlanName: "Bed and Breakfast"
+    });
+  });
+
+  it("extracts real Hyatt Members Save More rates from compact room-list text", () => {
+    const rates = extractHyattCashRates(
+      "1 King Bed Work or unwind in this spacious 32 sqm room overlooking Bukit Jalil, featuring a king-size bed. View Room Details Members Save More MYR 345 Avg/Night Members Save MYR 38 Standard Rate MYR 383 Avg/Night +3 more rates SELECT & BOOK 2 Twin Beds Work or unwind in this spacious 32 sqm room overlooking Bukit Jalil, featuring two twin beds. View Room Details Members Save More MYR 345 Avg/Night Members Save MYR 38 Standard Rate MYR 383 Avg/Night +3 more rates SELECT & BOOK 1 King Bed, Balcony Enjoy a restful stay in this 42 sqm room. View Room Details Members Save More MYR 557 Avg/Night Members Save MYR 61 Standard Rate MYR 618 Avg/Night +3 more rates SELECT & BOOK",
+      { ...input, checkIn: new Date("2026-08-24T00:00:00.000Z"), checkOut: new Date("2026-08-26T00:00:00.000Z"), roomType: "1 King Bed" }
+    );
+
+    expect(rates.map((rate) => [rate.roomName, rate.ratePlanName, rate.nightlyAmount])).toEqual([
+      ["1 King Bed", "Members Save More", 345],
+      ["2 Twin Beds", "Members Save More", 345],
+      ["1 King Bed", "Standard Rate", 383],
+      ["2 Twin Beds", "Standard Rate", 383],
+      ["1 King Bed, Balcony", "Members Save More", 557],
+      ["1 King Bed, Balcony", "Standard Rate", 618]
+    ]);
+  });
+
+  it("parses real Hyatt room-list text into all visible cash candidates", () => {
+    const candidates = parseHyattCandidates(
+      "1 King Bed Work or unwind in this spacious 32 sqm room overlooking Bukit Jalil, featuring a king-size bed. View Room Details Members Save More MYR 345 Avg/Night Members Save MYR 38 Standard Rate MYR 383 Avg/Night +3 more rates SELECT & BOOK 2 Twin Beds Work or unwind in this spacious 32 sqm room overlooking Bukit Jalil, featuring two twin beds. View Room Details Members Save More MYR 345 Avg/Night Members Save MYR 38 Standard Rate MYR 383 Avg/Night +3 more rates SELECT & BOOK 1 King Bed, Balcony Enjoy a restful stay in this 42 sqm room. View Room Details Members Save More MYR 557 Avg/Night Members Save MYR 61 Standard Rate MYR 618 Avg/Night +3 more rates SELECT & BOOK",
+      {
+        ...input,
+        checkIn: new Date("2026-08-24T00:00:00.000Z"),
+        checkOut: new Date("2026-08-26T00:00:00.000Z"),
+        currency: "MYR"
+      },
+      "https://www.hyatt.com/en-US/shop/rooms/kulzk"
+    );
+
+    expect(candidates.filter((candidate) => candidate.inventoryType === "cash")).toHaveLength(6);
+    expect(candidates[0]).toMatchObject({
+      price: {
+        base: 345,
+        total: 690
+      },
+      ratePlanName: "Members Save More",
+      room: {
+        rawName: "1 King Bed"
+      }
+    });
+  });
+
   it("extracts Hyatt final totals from detail page text", () => {
     expect(extractHyattFinalTotal("Price Summary Taxes and fees MYR 312 Total MYR 3,119", "MYR")).toEqual({
       amount: 3119,
@@ -157,12 +214,13 @@ describe("hotel price tools", () => {
       "https://www.hyatt.com/en-US/shop/rooms/kulzk"
     );
 
-    expect(candidates).toHaveLength(1);
+    expect(candidates).toHaveLength(2);
     expect(candidates[0].inventoryType).toBe("cash");
     expect(candidates[0].price.base).toBe(399);
     expect(candidates[0].price.total).toBe(2793);
     expect(candidates[0].price.currency).toBe("MYR");
     expect(candidates[0].ratePlanName).toBe("Long Stay Rate");
+    expect(candidates.find((candidate) => candidate.price.base === 608)?.room.rawName).toBe("1 King Bed, Balcony");
   });
 
   it("uses Hyatt detail page totals when available", () => {
@@ -187,5 +245,77 @@ describe("hotel price tools", () => {
     expect(candidates[0].price.taxesIncluded).toBe(true);
     expect(candidates[0].source.url).toBe("https://www.hyatt.com/booking");
     expect(candidates[0].cancellation.rawPolicy).toContain("Cancellation");
+  });
+
+  it("applies Hyatt detail page totals only to the selected room-list rate", () => {
+    const candidates = parseHyattCandidates(
+      "ROOMS (2) SUITES (1) 1 King Bed Work or unwind. View Room Details Long Stay Rate MYR 399 Avg/Night Select & Book 1 King Bed, Balcony Enjoy the view. View Room Details Long Stay Rate MYR 608 Avg/Night Select & Book",
+      {
+        ...input,
+        checkIn: new Date("2026-07-27T00:00:00.000Z"),
+        checkOut: new Date("2026-08-03T00:00:00.000Z"),
+        currency: "MYR"
+      },
+      "https://www.hyatt.com/en-US/shop/rooms/kulzk",
+      "Booking Summary Room total MYR 2,793 Taxes and fees MYR 326 Grand total MYR 3,119 Cancellation is allowed until 24 hours before arrival.",
+      "https://www.hyatt.com/booking",
+      {
+        amount: 399,
+        clicked: true,
+        reason: null,
+        snippet: "1 King Bed Long Stay Rate MYR 399 Avg/Night"
+      }
+    );
+
+    const selected = candidates.find((candidate) => candidate.price.base === 399);
+    const otherRoom = candidates.find((candidate) => candidate.price.base === 608);
+
+    expect(selected).toMatchObject({
+      price: {
+        taxesIncluded: true,
+        total: 3119
+      }
+    });
+    expect(otherRoom).toMatchObject({
+      cancellation: {
+        rawPolicy: "Policy not visible in Hyatt detail page"
+      },
+      price: {
+        taxesIncluded: false,
+        total: 4256
+      }
+    });
+  });
+
+  it("adds selected Hyatt rate-plan breakfast candidates with policy", () => {
+    const candidates = parseHyattCandidates(
+      "1 King Bed View Room Details Members Save More MYR 345 Avg/Night Members Save MYR 38 Standard Rate MYR 383 Avg/Night +3 more rates SELECT & BOOK 1 King Bed Hyatt Place Kuala Lumpur Bukit Jalil Award Category 1 Looking for room details? SEE MORE Choose Your Rate Showing rates for Mon, Aug 24, 2026 - Wed, Aug 26, 2026 Members Save More Members Save More MYR 345 Exclusive rate for World of Hyatt Members. Members Save MYR 38 Member Rate MYR 345 Members Save MYR 38 Standard Rate MYR 383 Member Bed and Breakfast MYR 431 Bed and Breakfast MYR 453 See more MYR 345 Avg/Night Cancellation Policy FULL PREPAYMENT/NO REFUND/NO CHANGES Deposit Policy FULL PREPAYMENT JOIN WHILE YOU BOOK SIGN IN & BOOK",
+      {
+        ...input,
+        checkIn: new Date("2026-08-24T00:00:00.000Z"),
+        checkOut: new Date("2026-08-26T00:00:00.000Z"),
+        currency: "MYR"
+      },
+      "https://www.hyatt.com/en-US/shop/rooms/kulzk"
+    );
+
+    expect(candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          breakfastIncluded: true,
+          cancellation: expect.objectContaining({
+            rawPolicy: expect.stringContaining("FULL PREPAYMENT")
+          }),
+          price: expect.objectContaining({
+            base: 431,
+            total: 862
+          }),
+          ratePlanName: "Member Bed and Breakfast",
+          room: expect.objectContaining({
+            rawName: "1 King Bed"
+          })
+        })
+      ])
+    );
   });
 });

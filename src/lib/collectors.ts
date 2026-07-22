@@ -49,6 +49,7 @@ export type CollectorRateCandidate = {
     match: "same_or_better" | "worse" | "unknown";
     matchReason: string;
   };
+  breakfastIncluded: boolean;
   loyalty: {
     eligible: boolean | null;
     loginState: "not_required" | "anonymous" | "member" | "unknown";
@@ -244,10 +245,16 @@ export function parseHyattCandidates(
   const shouldParseVisibleInventory = input.inventoryTypes.length > 0;
 
   if (shouldParseVisibleInventory) {
-    const cashRate = extractBestHyattCashRate(compactText, input);
-    if (cashRate !== null) {
-      const detailTotal = compactDetailText ? extractHyattFinalTotal(compactDetailText, cashRate.currency) : null;
-      const detailTaxesAndFees = compactDetailText ? extractHyattTaxesAndFees(compactDetailText, cashRate.currency) : null;
+    const detailRateText = compactDetailText ?? (/Choose Your Rate/i.test(compactText) ? compactText : undefined);
+    const cashRates = mergeHyattCashRates(
+      extractHyattCashRates(compactText, input),
+      detailRateText ? extractHyattDetailCashRates(detailRateText, input) : []
+    );
+    for (const cashRate of cashRates) {
+      const detailTextForRate =
+        compactDetailText && (cashRates.length === 1 || isDetailForHyattCashRate(cashRate, selectedRate)) ? compactDetailText : null;
+      const detailTotal = detailTextForRate ? extractHyattFinalTotal(detailTextForRate, cashRate.currency) : null;
+      const detailTaxesAndFees = detailTextForRate ? extractHyattTaxesAndFees(detailTextForRate, cashRate.currency) : null;
       const totalAmount = detailTotal?.amount ?? cashRate.totalAmount;
       candidates.push({
         sourceName: "Hyatt official site",
@@ -276,13 +283,14 @@ export function parseHyattCandidates(
             : "The Hyatt page text exposed a price, but no nearby room name was parsed."
         },
         cancellation: {
-          rawPolicy: compactDetailText ? extractHyattCancellationPolicy(compactDetailText) : "Policy not visible in Hyatt room list",
+          rawPolicy: detailTextForRate ? extractHyattCancellationPolicy(detailTextForRate) : (cashRate.cancellationPolicy ?? extractHyattCancellationPolicy(cashRate.snippet)),
           deadline: null,
           match: "unknown",
-          matchReason: compactDetailText
+          matchReason: detailTextForRate
             ? "The Hyatt detail page exposed policy text, but equivalence still requires review."
-            : "The Hyatt room list did not expose a comparable cancellation policy before selecting a rate."
+            : "The Hyatt room list candidate was captured without a selected detail-page comparison."
         },
+        breakfastIncluded: cashRate.breakfastIncluded,
         loyalty: {
           eligible: true,
           loginState: "anonymous"
@@ -342,6 +350,7 @@ export function parseHyattCandidates(
           match: "unknown",
           matchReason: "The Hyatt page text did not expose a comparable award cancellation policy."
         },
+        breakfastIncluded: false,
         loyalty: {
           eligible: true,
           loginState: "anonymous"
@@ -361,6 +370,19 @@ export function parseHyattCandidates(
   return candidates;
 }
 
+function isDetailForHyattCashRate(cashRate: HyattCashRate, selectedRate: unknown) {
+  if (!selectedRate || typeof selectedRate !== "object") {
+    return false;
+  }
+  const selected = selectedRate as { amount?: unknown; snippet?: unknown };
+  const selectedAmount = typeof selected.amount === "number" ? selected.amount : null;
+  if (selectedAmount !== null) {
+    return Math.abs(selectedAmount - cashRate.nightlyAmount) < 0.01;
+  }
+  const snippet = typeof selected.snippet === "string" ? selected.snippet : "";
+  return Boolean(snippet && snippet.includes(cashRate.ratePlanName) && snippet.includes(String(cashRate.nightlyAmount)));
+}
+
 export function extractLowestCashPrice(text: string) {
   return extractLowestCashRate(text)?.amount ?? null;
 }
@@ -372,6 +394,8 @@ export function calculateStayNights(checkIn: Date, checkOut: Date) {
 }
 
 type HyattCashRate = {
+  breakfastIncluded: boolean;
+  cancellationPolicy: string | null;
   nightlyAmount: number;
   totalAmount: number;
   currency: string;
@@ -382,17 +406,23 @@ type HyattCashRate = {
 };
 
 export function extractBestHyattCashRate(text: string, input: Pick<CollectorInput, "checkIn" | "checkOut" | "roomType">): HyattCashRate | null {
+  return extractHyattCashRates(text, input)[0] ?? null;
+}
+
+export function extractHyattCashRates(text: string, input: Pick<CollectorInput, "checkIn" | "checkOut" | "roomType">): HyattCashRate[] {
   const compactText = text.replace(/\s+/g, " ");
   const ratePattern =
-    /\b(Long Stay Rate|Member Rate|Standard Rate|Advance Purchase Rate|Hyatt Member Rate|Flexible Rate|Best Available Rate)\s+(US\$|USD|CA\$|CAD|A\$|AUD|HK\$|HKD|S\$|SGD|MYR|RM|JPY|¥|￥|CNY|RMB|EUR|€|GBP|£|THB|฿|KRW|₩|\$)\s?([0-9][0-9,]{1,8})(?:\.\d{2})?\s*Avg\/Night/gi;
+    /\b(Long Stay Rate|Members Save More|Members Save|Member Rate with Breakfast|Breakfast Rate|Bed and Breakfast|Member Rate|Standard Rate|Advance Purchase Rate|Hyatt Member Rate|Flexible Rate|Best Available Rate)\s+(US\$|USD|CA\$|CAD|A\$|AUD|HK\$|HKD|S\$|SGD|MYR|RM|JPY|¥|￥|CNY|RMB|EUR|€|GBP|£|THB|฿|KRW|₩|\$)\s?([0-9][0-9,]{1,8})(?:\.\d{2})?\s*Avg\/Night/gi;
   const nights = calculateStayNights(input.checkIn, input.checkOut);
   const rates = [...compactText.matchAll(ratePattern)]
-    .map((match) => {
+        .map((match) => {
       const nightlyAmount = Number(match[3].replace(/,/g, ""));
       const index = match.index ?? 0;
-      const before = compactText.slice(Math.max(0, index - 600), index);
+      const before = extractCurrentHyattRoomScope(compactText, index);
       const snippet = compactText.slice(Math.max(0, index - 220), Math.min(compactText.length, index + 260));
       return {
+        breakfastIncluded: hasBreakfastIncluded(snippet) || hasBreakfastIncluded(match[1]),
+        cancellationPolicy: null,
         nightlyAmount,
         totalAmount: nightlyAmount * nights,
         currency: normalizeCurrencyToken(match[2]),
@@ -407,7 +437,10 @@ export function extractBestHyattCashRate(text: string, input: Pick<CollectorInpu
   if (rates.length === 0) {
     const fallback = extractLowestCashRate(compactText);
     return fallback
-      ? {
+      ? [
+          {
+            breakfastIncluded: false,
+            cancellationPolicy: null,
           nightlyAmount: fallback.amount,
           totalAmount: fallback.amount * nights,
           currency: fallback.currency ?? "USD",
@@ -415,11 +448,69 @@ export function extractBestHyattCashRate(text: string, input: Pick<CollectorInpu
           roomName: null,
           ratePlanName: "Visible nightly rate",
           snippet: createTextSample(compactText)
-        }
-      : null;
+          }
+        ]
+      : [];
   }
 
-  return rates.sort((a, b) => a.totalAmount - b.totalAmount)[0];
+  return dedupeHyattCashRates(rates.sort((a, b) => a.totalAmount - b.totalAmount));
+}
+
+export function extractHyattDetailCashRates(text: string, input: Pick<CollectorInput, "checkIn" | "checkOut" | "roomType">): HyattCashRate[] {
+  const compactText = text.replace(/\s+/g, " ");
+  if (!/Choose Your Rate/i.test(compactText)) {
+    return [];
+  }
+  const detailBlock = extractFirstHyattRateDetailBlock(compactText);
+  const roomName = extractHyattDetailRoomName(detailBlock) ?? input.roomType;
+  const policy = extractHyattCancellationPolicy(detailBlock);
+  const nights = calculateStayNights(input.checkIn, input.checkOut);
+  const currencyPattern = "(US\\$|USD|CA\\$|CAD|A\\$|AUD|HK\\$|HKD|S\\$|SGD|MYR|RM|JPY|¥|￥|CNY|RMB|EUR|€|GBP|£|THB|฿|KRW|₩|\\$)";
+  const detailRatePattern = new RegExp(
+    "\\b(Members Save More|Member Rate|Standard Rate|Member Bed and Breakfast|Bed and Breakfast)\\s+" +
+      currencyPattern +
+      "\\s?([0-9][0-9,]{1,8})(?:\\.\\d{2})?\\b",
+    "gi"
+  );
+
+  const rates = [...detailBlock.matchAll(detailRatePattern)]
+    .map((match) => {
+      const ratePlanName = match[1].trim();
+      const nightlyAmount = Number(match[3].replace(/,/g, ""));
+      const index = match.index ?? 0;
+      return {
+        breakfastIncluded: hasBreakfastIncluded(ratePlanName),
+        cancellationPolicy: policy,
+        nightlyAmount,
+        totalAmount: nightlyAmount * nights,
+        currency: normalizeCurrencyToken(match[2]),
+        nights,
+        roomName,
+        ratePlanName,
+        snippet: detailBlock.slice(Math.max(0, index - 220), Math.min(detailBlock.length, index + 520))
+      };
+    })
+    .filter((rate) => rate.nightlyAmount >= 20 && rate.nightlyAmount <= 5000000);
+
+  return dedupeHyattCashRates(rates.sort((a, b) => a.totalAmount - b.totalAmount));
+}
+
+function extractHyattDetailRoomName(text: string) {
+  const matches = [...text.matchAll(/SELECT & BOOK\s+(.{3,90}?)\s+Hyatt Place Kuala Lumpur Bukit Jalil Award Category/gi)].map((match) =>
+    cleanRoomName(match[1])
+  );
+  return matches.find((name) => name && !/rate|price|guarantee/i.test(name)) ?? null;
+}
+
+function extractFirstHyattRateDetailBlock(text: string) {
+  const startMatch = text.match(/SELECT & BOOK\s+.{3,90}?\s+Hyatt [^]{0,500}?Choose Your Rate/i);
+  const start = startMatch?.index ?? text.search(/Choose Your Rate/i);
+  if (start < 0) {
+    return text;
+  }
+  const rest = text.slice(start);
+  const endMatch = rest.match(/JOIN WHILE YOU BOOK\s+SIGN IN & BOOK/i);
+  return endMatch?.index && endMatch.index > 0 ? rest.slice(0, endMatch.index) : rest;
 }
 
 export function extractHyattFinalTotal(text: string, expectedCurrency: string) {
@@ -491,14 +582,103 @@ function escapeRegExp(value: string) {
 function extractNearbyHyattRoomName(textBeforeRate: string) {
   const roomPatterns = [
     /(?:ROOMS \(\d+\) SUITES \(\d+\)|SELECT & BOOK)\s+([^.!?]{3,80}?)\s+(?:Work|Enjoy|Relax|Unwind|View Room Details)/gi,
-    /(?:^|\s)([0-9]\s+[A-Z][A-Za-z, &/-]{2,60}?)\s+(?:Work|Enjoy|Relax|Unwind|View Room Details)/gi
+    /(?:^|\s)([0-9]\s+[A-Z][A-Za-z, &/-]{2,60}?)\s+(?:Work|Enjoy|Relax|Unwind|View Room Details)/gi,
+    /(?:SELECT & BOOK\s+)?([A-Z][A-Za-z0-9, &/-]{2,70}?(?:Room|Suite|King|Queen|Twin|Bed|Balcony))\s+(?:Work|Enjoy|Relax|Unwind|View Room Details)/gi,
+    /(?:SELECT & BOOK\s+)?([0-9]\s+[A-Z][A-Za-z0-9, &/-]{2,70}?(?:Room|Suite|King|Queen|Twin|Bed|Balcony))\s+(?:Long Stay Rate|Members Save More|Members Save|Member Rate|Standard Rate|Advance Purchase Rate|Hyatt Member Rate|Flexible Rate|Best Available Rate)?$/gi
   ];
-  const matches = roomPatterns.flatMap((pattern) => [...textBeforeRate.matchAll(pattern)].map((match) => cleanRoomName(match[1])));
-  return matches.length > 0 ? matches[matches.length - 1] : null;
+  const matches = roomPatterns.flatMap((pattern) =>
+    [...textBeforeRate.matchAll(pattern)].map((match) => ({
+      index: match.index ?? 0,
+      name: cleanRoomName(match[1]),
+      score: roomNameScore(cleanRoomName(match[1]))
+    }))
+  );
+  const validMatches = matches.filter((match) => !/rate|avg\/night|cancellation|breakfast/i.test(match.name));
+  const selected = validMatches
+    .sort((a, b) => {
+      if (Math.abs(b.index - a.index) <= 3 && b.score !== a.score) {
+        return b.score - a.score;
+      }
+      if (b.index !== a.index) {
+        return b.index - a.index;
+      }
+      return b.name.length - a.name.length;
+    })[0]?.name;
+  if (selected) {
+    return selected;
+  }
+
+  const selectBookFallback = textBeforeRate.match(/Select & Book\s+(.{3,90})$/i);
+  return selectBookFallback ? cleanRoomName(selectBookFallback[1]) : null;
+}
+
+function extractCurrentHyattRoomScope(text: string, rateIndex: number) {
+  const before = text.slice(Math.max(0, rateIndex - 1200), rateIndex);
+  const previousSelectIndex = before.lastIndexOf("SELECT & BOOK");
+  if (previousSelectIndex >= 0) {
+    return before.slice(previousSelectIndex);
+  }
+  const roomsMarker = before.match(/(?:ROOMS \(\d+\) SUITES \(\d+\)|Use Points ROOMS \(\d+\) SUITES \(\d+\))/gi);
+  if (roomsMarker?.length) {
+    const marker = roomsMarker[roomsMarker.length - 1];
+    const markerIndex = before.lastIndexOf(marker);
+    return before.slice(markerIndex);
+  }
+  return before;
+}
+
+function roomNameScore(name: string) {
+  let score = 0;
+  if (/^[0-9]\s/.test(name)) {
+    score += 4;
+  }
+  if (/\b(?:suite|family|balcony|view|club|premium|deluxe)\b/i.test(name)) {
+    score += 2;
+  }
+  if (/\b(?:room|king|queen|twin|bed)\b/i.test(name)) {
+    score += 1;
+  }
+  return score;
+}
+
+function hasBreakfastIncluded(text: string) {
+  return /\b(?:breakfast included|includes breakfast|with breakfast|bed and breakfast|breakfast rate)\b/i.test(text) &&
+    !/\b(?:breakfast available|breakfast excluded|without breakfast|no breakfast)\b/i.test(text);
+}
+
+function dedupeHyattCashRates(rates: HyattCashRate[]) {
+  const seen = new Set<string>();
+  const result: HyattCashRate[] = [];
+  for (const rate of rates) {
+    const key = [rate.currency, rate.nightlyAmount, rate.roomName ?? "", rate.ratePlanName, rate.breakfastIncluded ? "breakfast" : "room-only"].join("|");
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(rate);
+    }
+  }
+  return result.slice(0, 24);
+}
+
+function mergeHyattCashRates(listRates: HyattCashRate[], detailRates: HyattCashRate[]) {
+  const byKey = new Map<string, HyattCashRate>();
+  for (const rate of listRates) {
+    byKey.set(hyattCashRateKey(rate), rate);
+  }
+  for (const rate of detailRates) {
+    byKey.set(hyattCashRateKey(rate), rate);
+  }
+  return [...byKey.values()].sort((a, b) => a.totalAmount - b.totalAmount).slice(0, 24);
+}
+
+function hyattCashRateKey(rate: HyattCashRate) {
+  return [rate.currency, rate.nightlyAmount, rate.roomName ?? "", rate.ratePlanName, rate.breakfastIncluded ? "breakfast" : "room-only"].join("|");
 }
 
 function cleanRoomName(value: string) {
-  return value.replace(/^(ROOMS \(\d+\) SUITES \(\d+\)\s*)/i, "").trim();
+  return value
+    .replace(/^(ROOMS \(\d+\) SUITES \(\d+\)|SELECT & BOOK)\s*/i, "")
+    .replace(/\s+(?:Long Stay Rate|Members Save More|Members Save|Member Rate with Breakfast|Breakfast Rate|Bed and Breakfast|Member Rate|Standard Rate|Advance Purchase Rate|Hyatt Member Rate|Flexible Rate|Best Available Rate).*$/i, "")
+    .trim();
 }
 
 function roomNamesLookSimilar(expectedRoomName: string, observedRoomName: string | null) {

@@ -1,6 +1,8 @@
 const TRIPBUDDY_AUTO_IMPORT_FLAG = "tripbuddyAutoImportedUrl";
 const TRIPBUDDY_BOOKING_ID_KEY = "tripbuddyBookingId";
 const TRIPBUDDY_ENDPOINT_KEY = "tripbuddyEndpoint";
+const TRIPBUDDY_ROOM_LIST_TEXT_KEY = "tripbuddyHyattRoomListText";
+const TRIPBUDDY_SOURCE_URL_KEY = "tripbuddyHyattSourceUrl";
 
 runTripBuddyAutoImport();
 
@@ -14,6 +16,7 @@ async function runTripBuddyAutoImport() {
   if (!bookingId) {
     return;
   }
+  rememberHyattSourceUrl(location.href);
 
   const stored = await chrome.storage.local.get(["endpoint"]);
   const hashEndpoint = params.get("tripbuddyEndpoint");
@@ -42,6 +45,8 @@ async function runTripBuddyAutoImport() {
     await advanceHyattTowardPriceSummary();
   }
 
+  const pageText = buildEvidencePageText();
+  const sourceUrl = buildEvidenceSourceUrl();
   sessionStorage.setItem(TRIPBUDDY_AUTO_IMPORT_FLAG, importKey);
   showTripBuddyStatus("TripBuddy is importing this page...");
 
@@ -51,9 +56,9 @@ async function runTripBuddyAutoImport() {
         bookingId,
         capturedAt: new Date().toISOString(),
         hotelGroup: "Hyatt",
-        pageText: getPageText(),
+        pageText,
         pageTitle: document.title,
-        sourceUrl: location.href
+        sourceUrl
       }),
       headers: {
         "Content-Type": "application/json"
@@ -112,6 +117,7 @@ async function advanceHyattTowardPriceSummary() {
     }
 
     if (!roomSelectionClicked && hasRoomListRateToken(text)) {
+      rememberHyattRoomListText(text);
       const selection = clickLowestSafeHyattRate();
       if (selection.clicked) {
         roomSelectionClicked = true;
@@ -127,6 +133,32 @@ async function advanceHyattTowardPriceSummary() {
   }
 
   return false;
+}
+
+function rememberHyattRoomListText(text) {
+  if (text.length > 1000) {
+    sessionStorage.setItem(TRIPBUDDY_ROOM_LIST_TEXT_KEY, text.slice(0, 50000));
+  }
+}
+
+function rememberHyattSourceUrl(url) {
+  if (/checkinDate=|checkoutDate=/i.test(url)) {
+    sessionStorage.setItem(TRIPBUDDY_SOURCE_URL_KEY, url);
+  }
+}
+
+function buildEvidenceSourceUrl() {
+  const storedSourceUrl = sessionStorage.getItem(TRIPBUDDY_SOURCE_URL_KEY);
+  return storedSourceUrl || location.href;
+}
+
+function buildEvidencePageText() {
+  const currentText = getPageText();
+  const roomListText = sessionStorage.getItem(TRIPBUDDY_ROOM_LIST_TEXT_KEY);
+  if (!roomListText || currentText.includes(roomListText.slice(0, 500))) {
+    return currentText;
+  }
+  return `${roomListText} __TRIPBUDDY_FINAL_DETAIL_PAGE__ ${currentText}`;
 }
 
 async function waitForFinalTotalPage() {

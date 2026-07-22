@@ -1,5 +1,6 @@
 export type BrowserEvidenceCandidateInput = {
   basePrice?: number | null;
+  breakfastIncluded?: boolean | null;
   cancellationPolicyRaw?: string | null;
   currency: string;
   fees?: number | null;
@@ -25,6 +26,7 @@ export type BrowserEvidencePayload = {
 
 export type NormalizedBrowserEvidenceCandidate = {
   basePrice: number | null;
+  breakfastIncluded: boolean;
   cancellationPolicyRaw: string;
   currency: string;
   fees: number | null;
@@ -59,39 +61,50 @@ export function normalizeBrowserEvidencePayload(payload: BrowserEvidencePayload)
 export function parseHyattEvidenceFromText(text: string, sourceUrl: string) {
   const candidates: BrowserEvidenceCandidateInput[] = [];
   const normalizedText = text.replace(/\s+/g, " ").trim();
-  const nights = parseStayNights(sourceUrl);
-  const finalTotal = extractFinalTotal(normalizedText);
-  const finalTaxes = extractTaxesAndFees(normalizedText);
+  const [roomListText, detailText] = normalizedText.split("__TRIPBUDDY_FINAL_DETAIL_PAGE__").map((part) => part.trim());
+  const listTextForEstimates = detailText ? roomListText : normalizedText;
+  const detailTextForTotals = detailText || normalizedText;
+  const nights = parseStayNights(sourceUrl, normalizedText);
+  const finalTotal = extractFinalTotal(detailTextForTotals);
+  const finalTaxes = extractTaxesAndFees(detailTextForTotals);
+  const detailRateCandidates = detailText || /Choose Your Rate/i.test(normalizedText) ? extractHyattDetailRateCandidates(detailTextForTotals, nights) : [];
 
   if (finalTotal) {
     candidates.push({
-      cancellationPolicyRaw: extractPolicyText(normalizedText),
+      breakfastIncluded: false,
+      cancellationPolicyRaw: extractPolicyText(detailTextForTotals),
       currency: finalTotal.currency,
       inventoryType: "cash",
-      roomTypeRaw: extractRoomName(normalizedText),
+      roomTypeRaw: extractHyattFinalRoomName(detailTextForTotals) ?? extractHyattDetailRoomName(detailTextForTotals) ?? extractRoomName(detailTextForTotals),
       taxes: finalTaxes?.currency === finalTotal.currency ? finalTaxes.amount : null,
       taxesIncluded: true,
       totalPrice: finalTotal.amount
     });
   }
 
-  if (!finalTotal) {
-    for (const rate of extractNightlyRates(normalizedText)) {
+  if (!finalTotal && detailRateCandidates.length === 0) {
+    for (const rate of extractHyattVisibleRateCandidates(listTextForEstimates)) {
       candidates.push({
         basePrice: rate.amount,
+        breakfastIncluded: rate.breakfastIncluded,
         cancellationPolicyRaw: extractPolicyText(rate.context),
         currency: rate.currency,
         inventoryType: "cash",
-        ratePlanName: extractRateName(rate.context),
-        roomTypeRaw: extractRoomName(rate.context),
+        ratePlanName: rate.ratePlanName,
+        roomTypeRaw: rate.roomName,
         taxesIncluded: false,
         totalPrice: rate.amount * nights
       });
     }
   }
 
+  if (!finalTotal) {
+    candidates.push(...detailRateCandidates);
+  }
+
   for (const award of extractAwardRates(normalizedText)) {
     candidates.push({
+      breakfastIncluded: hasBreakfastIncluded(award.context),
       cancellationPolicyRaw: extractPolicyText(award.context),
       currency: finalTotal?.currency ?? "USD",
       inventoryType: "award",
@@ -103,7 +116,7 @@ export function parseHyattEvidenceFromText(text: string, sourceUrl: string) {
     });
   }
 
-  return dedupeCandidates(candidates);
+  return dedupeCandidates(mergeSimilarCashCandidates(candidates));
 }
 
 function normalizeBrowserEvidenceCandidate(candidate: BrowserEvidenceCandidateInput) {
@@ -119,6 +132,7 @@ function normalizeBrowserEvidenceCandidate(candidate: BrowserEvidenceCandidateIn
 
   return {
     basePrice: numericOrNull(candidate.basePrice),
+    breakfastIncluded: candidate.breakfastIncluded === true || hasBreakfastIncluded(candidate.ratePlanName ?? ""),
     cancellationPolicyRaw: candidate.cancellationPolicyRaw?.trim() || "Policy not captured",
     currency: normalizeCurrency(candidate.currency),
     fees: numericOrNull(candidate.fees),
@@ -127,7 +141,7 @@ function normalizeBrowserEvidenceCandidate(candidate: BrowserEvidenceCandidateIn
     price: totalPrice ?? 0,
     ratePlanName: candidate.ratePlanName?.trim() || null,
     rawRateName: candidate.rawRateName?.trim() || candidate.ratePlanName?.trim() || null,
-    roomTypeRaw: candidate.roomTypeRaw?.trim() || "Room not captured",
+    roomTypeRaw: cleanRoomTypeLabel(candidate.roomTypeRaw?.trim() || "Room not captured"),
     taxes: numericOrNull(candidate.taxes),
     taxesIncluded: candidate.taxesIncluded === true || Boolean(candidate.taxes)
   };
@@ -159,20 +173,36 @@ function parseCapturedAt(value?: string | null) {
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
-function parseStayNights(sourceUrl: string) {
+function parseStayNights(sourceUrl: string, text?: string) {
+  return parseStayNightsFromUrl(sourceUrl) ?? parseStayNightsFromText(text) ?? 1;
+}
+
+function parseStayNightsFromText(text?: string) {
+  if (!text) {
+    return null;
+  }
+  const match = text.match(/\b([1-9][0-9]?)\s*(?:Night|Nights|Night Stay|Night Total|晚)\b/i);
+  if (!match) {
+    return null;
+  }
+  const nights = Number(match[1]);
+  return Number.isInteger(nights) && nights > 0 ? nights : null;
+}
+
+function parseStayNightsFromUrl(sourceUrl: string) {
   try {
     const url = new URL(sourceUrl);
     const checkIn = url.searchParams.get("checkinDate");
     const checkOut = url.searchParams.get("checkoutDate");
     if (!checkIn || !checkOut) {
-      return 1;
+      return null;
     }
     const start = new Date(`${checkIn}T00:00:00.000Z`);
     const end = new Date(`${checkOut}T00:00:00.000Z`);
     const nights = Math.round((end.getTime() - start.getTime()) / 86_400_000);
-    return nights > 0 ? nights : 1;
+    return nights > 0 ? nights : null;
   } catch {
-    return 1;
+    return null;
   }
 }
 
@@ -200,16 +230,20 @@ function extractTaxesAndFees(text: string) {
   return match ? { amount: parseAmount(match[2]), currency: normalizeCurrency(match[1]) } : null;
 }
 
-function extractNightlyRates(text: string) {
+function extractHyattVisibleRateCandidates(text: string) {
   const currencyPattern = CASH_CURRENCIES.join("|");
   const pattern = new RegExp(`(${currencyPattern})\\s*([0-9][0-9,]*(?:\\.\\d{2})?)\\s*(?:Avg\\s*\\/\\s*Night|Average\\s*\\/\\s*Night|per\\s*night|\\/\\s*night)`, "gi");
-  const rates: Array<{ amount: number; context: string; currency: string }> = [];
+  const rates: Array<{ amount: number; breakfastIncluded: boolean; context: string; currency: string; ratePlanName: string | null; roomName: string }> = [];
   for (const match of text.matchAll(pattern)) {
     const index = match.index ?? 0;
+    const context = text.slice(Math.max(0, index - 700), Math.min(text.length, index + 900));
     rates.push({
       amount: parseAmount(match[2]),
-      context: text.slice(Math.max(0, index - 700), Math.min(text.length, index + 900)),
-      currency: normalizeCurrency(match[1])
+      breakfastIncluded: hasBreakfastIncluded(context),
+      context,
+      currency: normalizeCurrency(match[1]),
+      ratePlanName: extractRateName(context),
+      roomName: extractRoomName(context)
     });
   }
   return rates;
@@ -228,8 +262,70 @@ function extractAwardRates(text: string) {
   return rates;
 }
 
+function extractHyattDetailRateCandidates(text: string, nights: number) {
+  const detailBlock = extractFirstHyattRateDetailBlock(text);
+  if (!/Choose Your Rate/i.test(detailBlock)) {
+    return [];
+  }
+  const roomName = extractHyattDetailRoomName(detailBlock) ?? extractRoomName(detailBlock);
+  const policy = extractPolicyText(detailBlock);
+  const currencyPattern = CASH_CURRENCIES.join("|");
+  const pattern = new RegExp(
+    `\\b(Members Save More|Member Rate|Standard Rate|Member Bed and Breakfast|Bed and Breakfast)\\s+(${currencyPattern})\\s*([0-9][0-9,]*(?:\\.\\d{2})?)\\b`,
+    "gi"
+  );
+
+  return [...detailBlock.matchAll(pattern)].map((match) => ({
+    basePrice: parseAmount(match[3]),
+    breakfastIncluded: hasBreakfastIncluded(match[1]),
+    cancellationPolicyRaw: policy,
+    currency: normalizeCurrency(match[2]),
+    inventoryType: "cash" as const,
+    ratePlanName: cleanLabel(match[1]),
+    roomTypeRaw: roomName,
+    taxesIncluded: false,
+    totalPrice: parseAmount(match[3]) * nights
+  }));
+}
+
+function extractHyattDetailRoomName(text: string) {
+  const match = text.match(/SELECT & BOOK\s+(.{3,90}?)\s+Hyatt [^]{0,500}?Choose Your Rate/i);
+  return match ? cleanLabel(match[1]) : null;
+}
+
+function extractHyattFinalRoomName(text: string) {
+  const roomPattern =
+    "[0-9]\\s+(?:King|Queen|Twin|Double)[A-Za-z0-9 ,/-]{0,50}?(?:Bed|Beds)(?:,\\s*Balcony)?|[A-Z][A-Za-z0-9 ,/-]{0,50}\\s+Suite";
+  const patterns = [
+    new RegExp(`\\b(${roomPattern})\\s+(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat),`, "i"),
+    new RegExp(`SELECT & BOOK\\s+(${roomPattern})\\s+Hyatt\\b`, "i"),
+    new RegExp(`\\b(${roomPattern})\\s+Hyatt\\b`, "i")
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      return cleanRoomTypeLabel(match[1]);
+    }
+  }
+
+  return null;
+}
+
+function extractFirstHyattRateDetailBlock(text: string) {
+  const startMatch = text.match(/SELECT & BOOK\s+.{3,90}?\s+Hyatt [^]{0,500}?Choose Your Rate/i);
+  const start = startMatch?.index ?? text.search(/Choose Your Rate/i);
+  if (start < 0) {
+    return text;
+  }
+  const rest = text.slice(start);
+  const endMatch = rest.match(/JOIN WHILE YOU BOOK\s+SIGN IN & BOOK/i);
+  return endMatch?.index && endMatch.index > 0 ? rest.slice(0, endMatch.index) : rest;
+}
+
 function extractRoomName(text: string) {
   const candidates = [
+    /(?:SELECT & BOOK\s+)?([0-9]\s+(?:King|Queen|Twin)[A-Za-z0-9 ,/-]{0,50}?(?:Bed|Beds)(?:,\s*Balcony)?)\s+(?:Work|Enjoy|Relax|Unwind|View Room Details|Hyatt Place|Choose Your Rate|Members|Member Rate|Standard Rate)/i,
     /(?:Room|Suite)\s+([A-Z][A-Za-z0-9 ,/-]{4,90})/,
     /([A-Z][A-Za-z0-9 ,/-]{4,90}(?:Room|Suite|King|Queen|Twin|Bed))/,
     /(Standard [A-Za-z0-9 ,/-]{3,80})/
@@ -247,6 +343,11 @@ function extractRoomName(text: string) {
 
 function extractRateName(text: string) {
   const patterns = [
+    /(Members Save More[^.]{0,80})/i,
+    /(Members Save[^.]{0,80})/i,
+    /(Member Rate with Breakfast[^.]{0,80})/i,
+    /(Bed and Breakfast[^.]{0,80})/i,
+    /(Breakfast Rate[^.]{0,80})/i,
     /(Member Rate[^.]{0,80})/i,
     /(Standard Rate[^.]{0,80})/i,
     /(Advance Purchase[^.]{0,80})/i,
@@ -266,8 +367,43 @@ function extractPolicyText(text: string) {
   return match ? cleanLabel(match[1]) : "Policy not captured";
 }
 
+function hasBreakfastIncluded(text: string) {
+  return /\b(?:breakfast included|includes breakfast|with breakfast|bed and breakfast|breakfast rate)\b/i.test(text) &&
+    !/\b(?:breakfast available|breakfast excluded|without breakfast|no breakfast)\b/i.test(text);
+}
+
 function cleanLabel(value: string) {
-  return value.replace(/\s+/g, " ").replace(/\s+\|.*$/, "").trim().slice(0, 180);
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/^BOOK\s+/i, "")
+    .replace(/\s+\|.*$/, "")
+    .trim()
+    .slice(0, 180);
+}
+
+function cleanRoomTypeLabel(value: string) {
+  const label = cleanLabel(value)
+    .replace(/\s+(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat),\s+[A-Za-z]{3}\s+\d{1,2},\s+\d{4}.*$/i, "")
+    .replace(/\s+\d+\s+Room(?:s)?$/i, "")
+    .trim();
+
+  if (!label || /Room not captured/i.test(label)) {
+    return "Room not captured";
+  }
+
+  const concisePatterns = [
+    /\b([0-9]\s+(?:King|Queen|Twin|Double)[A-Za-z0-9 ,/-]{0,50}?(?:Bed|Beds)(?:,\s*Balcony)?)\b/i,
+    /\b([A-Z][A-Za-z0-9 ,/-]{0,50}\s+Suite)\b/
+  ];
+
+  for (const pattern of concisePatterns) {
+    const match = label.match(pattern);
+    if (match && (/Hyatt|,\s*(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)|\d+\s+Room/i.test(label) || label.length > 70)) {
+      return cleanLabel(match[1]);
+    }
+  }
+
+  return label;
 }
 
 function parseAmount(value: string) {
@@ -284,7 +420,8 @@ function dedupeCandidates(candidates: BrowserEvidenceCandidateInput[]) {
       candidate.totalPrice ?? "",
       candidate.pointsPrice ?? "",
       candidate.basePrice ?? "",
-      candidate.roomTypeRaw ?? ""
+      candidate.roomTypeRaw ?? "",
+      candidate.ratePlanName ?? ""
     ].join("|");
     if (!seen.has(key)) {
       seen.add(key);
@@ -292,4 +429,50 @@ function dedupeCandidates(candidates: BrowserEvidenceCandidateInput[]) {
     }
   }
   return result.slice(0, 12);
+}
+
+function mergeSimilarCashCandidates(candidates: BrowserEvidenceCandidateInput[]) {
+  const byComparablePrice = new Map<string, BrowserEvidenceCandidateInput>();
+  const result: BrowserEvidenceCandidateInput[] = [];
+
+  for (const candidate of candidates) {
+    if ((candidate.inventoryType ?? "cash") !== "cash" || candidate.basePrice === undefined || candidate.basePrice === null) {
+      result.push(candidate);
+      continue;
+    }
+
+    const key = [
+      normalizeCurrency(candidate.currency),
+      candidate.basePrice,
+      candidate.totalPrice ?? "",
+      cleanLabel(candidate.roomTypeRaw ?? ""),
+      candidate.breakfastIncluded ? "breakfast" : "room-only"
+    ].join("|");
+    const existing = byComparablePrice.get(key);
+    if (!existing) {
+      byComparablePrice.set(key, candidate);
+      result.push(candidate);
+      continue;
+    }
+
+    const preferred = preferBrowserEvidenceCandidate(existing, candidate);
+    byComparablePrice.set(key, preferred);
+    const index = result.indexOf(existing);
+    if (index >= 0) {
+      result[index] = preferred;
+    }
+  }
+
+  return result;
+}
+
+function preferBrowserEvidenceCandidate(a: BrowserEvidenceCandidateInput, b: BrowserEvidenceCandidateInput) {
+  const aPolicyScore = a.cancellationPolicyRaw && !/Policy not captured/i.test(a.cancellationPolicyRaw) ? 1 : 0;
+  const bPolicyScore = b.cancellationPolicyRaw && !/Policy not captured/i.test(b.cancellationPolicyRaw) ? 1 : 0;
+  if (aPolicyScore !== bPolicyScore) {
+    return bPolicyScore > aPolicyScore ? b : a;
+  }
+  const aNameScore = a.ratePlanName && !/Avg\/Night|SELECT & BOOK/i.test(a.ratePlanName) ? 1 : 0;
+  const bNameScore = b.ratePlanName && !/Avg\/Night|SELECT & BOOK/i.test(b.ratePlanName) ? 1 : 0;
+  return bNameScore > aNameScore ? b : a;
 }

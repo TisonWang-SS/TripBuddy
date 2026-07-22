@@ -18,6 +18,7 @@ export type DecisionBooking = {
   hotelName: string;
   checkIn: Date;
   checkOut: Date;
+  guests: number;
   roomType: string;
   originalPrice: number;
   currency: string;
@@ -189,10 +190,7 @@ export function generateRecommendation(input: {
     breakfastIncluded: input.booking.breakfastIncluded
   });
 
-  const sortedObservations = [...input.observations].sort((a, b) => b.observedAt.getTime() - a.observedAt.getTime());
-  const direct = sortedObservations.find((observation) => observation.sourceType === "direct");
-  const ota = sortedObservations.find((observation) => observation.sourceType === "ota");
-  const candidate = direct ?? ota ?? null;
+  const candidate = selectRecommendationCandidate(input.observations, input, originalCost);
 
   if (!candidate) {
     return buildResult({
@@ -305,6 +303,92 @@ export function generateRecommendation(input: {
     confidence: Math.min(candidate.confidence, 0.85),
     explanation: "The observed price does not clear your savings threshold after adjustments."
   });
+}
+
+function selectRecommendationCandidate(
+  observations: DecisionObservation[],
+  input: {
+    booking: DecisionBooking;
+    profile: DecisionProfile;
+    loyaltyAccount?: DecisionLoyaltyAccount | null;
+    loyaltyRule?: DecisionLoyaltyRule | null;
+    creditCards: DecisionCreditCardBenefit[];
+    promotions: DecisionPromotion[];
+  },
+  originalCost: CostBreakdown
+) {
+  return observations
+    .map((observation) => {
+      const cost = calculateStayCost({
+        price: observation.price,
+        currency: observation.currency,
+        booking: input.booking,
+        profile: input.profile,
+        loyaltyAccount: input.loyaltyAccount,
+        loyaltyRule: input.loyaltyRule,
+        creditCards: input.creditCards,
+        promotions: input.promotions,
+        loyaltyEligible: observation.loyaltyEligible,
+        breakfastIncluded: observation.breakfastIncluded
+      });
+      const estimatedSavings = originalCost.effectiveCost - cost.effectiveCost;
+      const comparableScore = getComparableScore(observation, input.booking);
+      const sourceScore = observation.sourceType === "direct" ? 20 : observation.sourceType === "ota" ? 10 : 0;
+      const roomUpgradeScore = getRoomUpgradeScore(input.booking.roomType, observation.roomTypeRaw, input.booking.guests);
+      const score = comparableScore + sourceScore + estimatedSavings + roomUpgradeScore + observation.confidence;
+      return { cost, estimatedSavings, observation, score };
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      return b.observation.observedAt.getTime() - a.observation.observedAt.getTime();
+    })[0]?.observation ?? null;
+}
+
+function getComparableScore(observation: DecisionObservation, booking: DecisionBooking) {
+  let score = 0;
+  if (observation.currency === booking.currency) {
+    score += 200;
+  }
+  if (observation.taxesIncluded) {
+    score += 200;
+  }
+  if (observation.roomMatch === "exact") {
+    score += 160;
+  } else if (observation.roomMatch === "similar") {
+    score += 120;
+  }
+  if (observation.cancellationMatch === "same_or_better") {
+    score += 160;
+  } else if (observation.cancellationMatch === "worse") {
+    score -= 120;
+  }
+  return score;
+}
+
+function getRoomUpgradeScore(currentRoomType: string, candidateRoomType: string, guests: number) {
+  const current = roomQualityScore(currentRoomType, guests);
+  const candidate = roomQualityScore(candidateRoomType, guests);
+  return Math.max(0, candidate - current) * 25;
+}
+
+function roomQualityScore(roomType: string, guests: number) {
+  const normalized = roomType.toLowerCase();
+  let score = 0;
+  if (/\bsuite\b|residence|apartment/.test(normalized)) {
+    score += 4;
+  }
+  if (/family|connecting|sofa bed|two bedroom|2 bedroom|kids/.test(normalized)) {
+    score += guests >= 3 ? 4 : 2;
+  }
+  if (/club|regency|executive|premium|deluxe|balcony|view/.test(normalized)) {
+    score += 2;
+  }
+  if (/king|queen|twin|bed/.test(normalized)) {
+    score += 1;
+  }
+  return score;
 }
 
 function buildResult(input: {

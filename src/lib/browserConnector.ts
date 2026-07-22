@@ -631,7 +631,6 @@ export async function extractRateDetailWithChromeProfile(url: string, config: Ch
       const secondSelection = await clickHyattRatePageBook(client);
       detailSelection = secondSelection;
       if (secondSelection.clicked) {
-        selectedRate = secondSelection;
         await waitForPageChange(client, detailSignature, 20000);
         await waitForTextPattern(client, "price summary|total cash|contact information|payment information|taxes|fees", 30000);
         detail = await readPageText(client);

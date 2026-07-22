@@ -482,13 +482,13 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
                     ) : null}
                   </td>
                   <td>
-                    Room: {observation.roomMatch}
+                    Room: {formatObservedRoom(observation.roomTypeRaw)}
                     <br />
-                    <span className="muted">{observation.roomTypeRaw}</span>
+                    <span className="muted">{formatRoomMatchLabel(observation.roomMatch)}</span>
                     <br />
-                    Policy: {observation.cancellationMatch}
+                    Policy: {formatPolicyStatus(observation.cancellationMatch, observation.cancellationPolicyRaw)}
                     <br />
-                    <span className="muted">{observation.cancellationPolicyRaw}</span>
+                    <span className="muted">{formatPolicyText(observation.cancellationPolicyRaw)}</span>
                   </td>
                   <td>
                     {observation.loyaltyEligible ? "Loyalty eligible" : "No loyalty credit"}
@@ -570,4 +570,40 @@ function createBrowserImportUrl(sourceUrl: string, bookingId: string) {
   } catch {
     return sourceUrl;
   }
+}
+
+function formatObservedRoom(value: string) {
+  const room = value.trim();
+  return room && !/^(?:unknown|room not captured)$/i.test(room) ? room : "Not captured";
+}
+
+function formatRoomMatchLabel(value: string) {
+  if (value === "exact") {
+    return "Matches current room";
+  }
+  if (value === "similar") {
+    return "Similar to current room";
+  }
+  return "Needs review";
+}
+
+function formatPolicyStatus(match: string, policy: string) {
+  if (!policy || /policy not captured/i.test(policy)) {
+    return "Not captured";
+  }
+  if (match === "same_or_better") {
+    return "Same or better";
+  }
+  if (match === "worse") {
+    return "Worse than current";
+  }
+  return "Captured";
+}
+
+function formatPolicyText(value: string) {
+  const policy = value
+    .replace(/\s+/g, " ")
+    .replace(/\s+I accept the deposit and cancellation policy\b.*$/i, "")
+    .trim();
+  return policy || "Policy not captured";
 }
