@@ -3,6 +3,8 @@ const TRIPBUDDY_BOOKING_ID_KEY = "tripbuddyBookingId";
 const TRIPBUDDY_ENDPOINT_KEY = "tripbuddyEndpoint";
 const TRIPBUDDY_ROOM_LIST_TEXT_KEY = "tripbuddyHyattRoomListText";
 const TRIPBUDDY_SOURCE_URL_KEY = "tripbuddyHyattSourceUrl";
+const CASH_CURRENCY_PATTERN =
+  "US\\$|USD|CA\\$|CAD|A\\$|AUD|HK\\$|HKD|S\\$|SGD|MYR|RM|JPY|¥|￥|CN¥|CNY|RMB|EUR|€|GBP|£|THB|฿|KRW|₩|\\$";
 
 runTripBuddyAutoImport();
 
@@ -88,7 +90,10 @@ async function waitForReadablePage() {
   const startedAt = Date.now();
   while (Date.now() - startedAt < 90000) {
     const text = getPageText();
-    if (text.length > 1000 && hasRateToken(text)) {
+    if (text.length > 300 && (hasRateToken(text) || hasHyattBookingSurface(text))) {
+      return true;
+    }
+    if (Date.now() - startedAt > 20000 && text.length > 1000 && hasHyattPageShell(text)) {
       return true;
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -174,7 +179,7 @@ async function waitForFinalTotalPage() {
 }
 
 function hasRateToken(text) {
-  return /(?:MYR|RM|USD|JPY|SGD|HKD|EUR|GBP|THB|KRW|CNY)\s*[0-9][0-9,]*(?:\.\d{2})?\s*(?:Avg\s*\/\s*Night|Average\s*\/\s*Night|per\s*night|\/\s*night)/i.test(text) ||
+  return new RegExp(`(?:${CASH_CURRENCY_PATTERN})\\s*[0-9][0-9,]*(?:\\.\\d{2})?\\s*(?:Avg\\s*\\/\\s*Night|Average\\s*\\/\\s*Night|per\\s*night|\\/\\s*night)`, "i").test(text) ||
     /[0-9][0-9,]{3,8}\s*(?:points|pts)/i.test(text) ||
     /Total Cash|Price Summary|Stay Total|Total for Stay|Grand Total|Amount Due/i.test(text);
 }
@@ -184,8 +189,17 @@ function hasFinalTotalToken(text) {
 }
 
 function hasRoomListRateToken(text) {
-  return /(?:MYR|RM|USD|JPY|SGD|HKD|EUR|GBP|THB|KRW|CNY)\s*[0-9][0-9,]*(?:\.\d{2})?\s*(?:Avg\s*\/\s*Night|Average\s*\/\s*Night|per\s*night|\/\s*night)/i.test(text) ||
+  return new RegExp(`(?:${CASH_CURRENCY_PATTERN})\\s*[0-9][0-9,]*(?:\\.\\d{2})?\\s*(?:Avg\\s*\\/\\s*Night|Average\\s*\\/\\s*Night|per\\s*night|\\/\\s*night)`, "i").test(text) ||
     /[0-9][0-9,]{3,8}\s*(?:points|pts)/i.test(text);
+}
+
+function hasHyattBookingSurface(text) {
+  return /Select\s*&\s*Book|Choose Your Rate|View Room Details|Member Rate|Standard Rate|Award Category|Rooms\s*\(\d+\)|Suites\s*\(\d+\)/i.test(text) ||
+    hasSafeRateSelectionControl();
+}
+
+function hasHyattPageShell(text) {
+  return /Hyatt|World of Hyatt|Find Hotels|Rooms|Rates|View Room Details|Select/i.test(text);
 }
 
 function isHyattRatePlanPage(text) {
@@ -225,6 +239,13 @@ function clickLowestSafeHyattRate() {
   selected.control.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, cancelable: true, view: window }));
   selected.control.click();
   return { clicked: true, reason: null };
+}
+
+function hasSafeRateSelectionControl() {
+  return Array.from(document.querySelectorAll("button,a,[role='button']")).some((element) => {
+    const label = getElementText(element);
+    return /^(select|select\s*&\s*book|book)$/i.test(label) && !/(payment|pay|confirm|purchase|place order|complete reservation|book now)/i.test(label);
+  });
 }
 
 function clickSafeHyattRatePageBook() {
@@ -283,7 +304,7 @@ function findRateContext(control) {
   let container = control;
   for (let index = 0; index < 10 && container; index += 1) {
     const text = getElementText(container);
-    if (/(?:MYR|RM|USD|JPY|SGD|HKD|EUR|GBP|THB|KRW|CNY)\s*[0-9][0-9,]*(?:\.\d{2})?\s*(?:Avg\s*\/\s*Night|Average\s*\/\s*Night|per\s*night|\/\s*night)/i.test(text)) {
+    if (new RegExp(`(?:${CASH_CURRENCY_PATTERN})\\s*[0-9][0-9,]*(?:\\.\\d{2})?\\s*(?:Avg\\s*\\/\\s*Night|Average\\s*\\/\\s*Night|per\\s*night|\\/\\s*night)`, "i").test(text)) {
       return text;
     }
     container = container.parentElement;
@@ -292,7 +313,7 @@ function findRateContext(control) {
 }
 
 function extractNightlyAmount(text) {
-  const match = text.match(/(?:MYR|RM|USD|JPY|SGD|HKD|EUR|GBP|THB|KRW|CNY)\s*([0-9][0-9,]*(?:\.\d{2})?)\s*(?:Avg\s*\/\s*Night|Average\s*\/\s*Night|per\s*night|\/\s*night)/i);
+  const match = text.match(new RegExp(`(?:${CASH_CURRENCY_PATTERN})\\s*([0-9][0-9,]*(?:\\.\\d{2})?)\\s*(?:Avg\\s*\\/\\s*Night|Average\\s*\\/\\s*Night|per\\s*night|\\/\\s*night)`, "i"));
   return match ? Number(match[1].replace(/,/g, "")) : null;
 }
 

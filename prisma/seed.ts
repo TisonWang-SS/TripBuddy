@@ -32,6 +32,15 @@ const loyaltyRules = [
 ] as const;
 
 async function main() {
+  await prisma.systemSetting.upsert({
+    where: { id: "primary" },
+    update: {},
+    create: {
+      id: "primary",
+      displayCurrency: "USD"
+    }
+  });
+
   for (const rule of loyaltyRules) {
     await prisma.loyaltyRule.upsert({
       where: {

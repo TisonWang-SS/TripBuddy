@@ -10,6 +10,7 @@ import {
   updateWatchPlan
 } from "@/lib/actions";
 import { CANCELLATION_MATCHES, CHANNELS, HOTEL_GROUPS, ROOM_MATCHES } from "@/lib/constants";
+import { buildHyattSearchUrl, type InventoryType } from "@/lib/collectors";
 import { prisma } from "@/lib/db";
 import { formatDate, formatDateInput, formatDateTime, formatDateTimeInput, formatMoney } from "@/lib/format";
 
@@ -35,7 +36,7 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
   const candidateObservation = latestRecommendation?.candidateObservationId
     ? booking.observations.find((item) => item.id === latestRecommendation.candidateObservationId)
     : null;
-  const browserImportUrl = booking.bookingUrl ? createBrowserImportUrl(booking.bookingUrl, booking.id) : null;
+  const browserImportUrl = createBrowserImportUrl(booking);
 
   return (
     <div className="grid">
@@ -45,7 +46,7 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
           <h1>{booking.hotelName}</h1>
           <p>
             {booking.city} · {formatDate(booking.checkIn)} to {formatDate(booking.checkOut)} · {booking.guests} guest
-            {booking.guests === 1 ? "" : "s"}
+            {booking.guests === 1 ? "" : "s"} · {booking.isSuite ? "Suite" : "Standard room"}
           </p>
         </div>
         <div className="buttonRow">
@@ -183,24 +184,9 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
       </section>
 
       <section className="card">
-        <p className="eyebrow">Browser Import</p>
-        <h2>Chrome import</h2>
-        <div className="divider" />
-        <div className="grid two">
-          <div>
-            <p className="muted">Booking ID</p>
-            <code>{booking.id}</code>
-          </div>
-          <div>
-            <p className="muted">Local endpoint</p>
-            <code>http://localhost:3000</code>
-          </div>
-        </div>
-        {browserImportUrl ? (
-          <a className="button secondary" href={browserImportUrl} target="_blank" rel="noreferrer">
-            Open source and auto import
-          </a>
-        ) : null}
+        <a className="button secondary" href={browserImportUrl} target="_blank" rel="noreferrer">
+          Chrome import
+        </a>
       </section>
 
       {latestRecommendation ? (
@@ -314,10 +300,6 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
               />
             </div>
             <div className="field">
-              <label htmlFor="currency">Currency</label>
-              <input id="currency" name="currency" defaultValue={booking.currency} required />
-            </div>
-            <div className="field">
               <label htmlFor="bookingChannel">Booking channel</label>
               <select id="bookingChannel" name="bookingChannel" defaultValue={booking.bookingChannel} required>
                 {CHANNELS.map((channel) => (
@@ -340,6 +322,10 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
               <label htmlFor="bookingUrl">Booking URL</label>
               <input id="bookingUrl" name="bookingUrl" type="url" defaultValue={booking.bookingUrl ?? ""} />
             </div>
+          </div>
+          <div className="check">
+            <input id="isSuite" name="isSuite" type="checkbox" defaultChecked={booking.isSuite} />
+            <label htmlFor="isSuite">Booked room is a suite</label>
           </div>
           <div className="check">
             <input id="breakfastIncluded" name="breakfastIncluded" type="checkbox" defaultChecked={booking.breakfastIncluded} />
@@ -417,6 +403,10 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
             <input id="sourceUrl" name="sourceUrl" type="url" placeholder="https://..." />
           </div>
           <div className="check">
+            <input id="observationIsSuite" name="isSuite" type="checkbox" />
+            <label htmlFor="observationIsSuite">Observed room is a suite</label>
+          </div>
+          <div className="check">
             <input id="taxesIncluded" name="taxesIncluded" type="checkbox" defaultChecked />
             <label htmlFor="taxesIncluded">Taxes are included</label>
           </div>
@@ -482,7 +472,7 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
                     ) : null}
                   </td>
                   <td>
-                    Room: {formatObservedRoom(observation.roomTypeRaw)}
+                    Room: {formatObservedRoom(observation.roomTypeRaw)} · {observation.isSuite ? "Suite" : "Standard room"}
                     <br />
                     <span className="muted">{formatRoomMatchLabel(observation.roomMatch)}</span>
                     <br />
@@ -559,17 +549,75 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
   );
 }
 
-function createBrowserImportUrl(sourceUrl: string, bookingId: string) {
+function createBrowserImportUrl(booking: {
+  bookingUrl: string | null;
+  checkIn: Date;
+  checkOut: Date;
+  city: string;
+  currency: string;
+  guests: number;
+  hotelGroup: string;
+  hotelName: string;
+  id: string;
+  roomType: string;
+  watchPlan: {
+    awardEnabled: boolean;
+    browserMode: string;
+    cashEnabled: boolean;
+  } | null;
+}) {
+  const sourceUrl = booking.hotelGroup === "Hyatt" ? buildHyattImportUrl(booking) : booking.bookingUrl;
   try {
+    if (!sourceUrl) {
+      return "#";
+    }
     const url = new URL(sourceUrl);
     const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
-    hashParams.set("tripbuddyBookingId", bookingId);
+    hashParams.set("tripbuddyBookingId", booking.id);
     hashParams.set("tripbuddyEndpoint", "http://localhost:3000");
     url.hash = hashParams.toString();
     return url.toString();
   } catch {
-    return sourceUrl;
+    return "#";
   }
+}
+
+function buildHyattImportUrl(booking: {
+  bookingUrl: string | null;
+  checkIn: Date;
+  checkOut: Date;
+  city: string;
+  currency: string;
+  guests: number;
+  hotelGroup: string;
+  hotelName: string;
+  id: string;
+  roomType: string;
+  watchPlan: {
+    awardEnabled: boolean;
+    browserMode: string;
+    cashEnabled: boolean;
+  } | null;
+}) {
+  const inventoryTypes: InventoryType[] = [
+    ...((booking.watchPlan?.cashEnabled ?? true) ? (["cash"] as const) : []),
+    ...((booking.watchPlan?.awardEnabled ?? true) ? (["award"] as const) : [])
+  ];
+
+  return buildHyattSearchUrl({
+    bookingId: booking.id,
+    bookingUrl: booking.bookingUrl,
+    browserMode: booking.watchPlan?.browserMode === "interactive" ? "interactive" : "chrome_profile",
+    checkIn: booking.checkIn,
+    checkOut: booking.checkOut,
+    city: booking.city,
+    currency: booking.currency,
+    guests: booking.guests,
+    hotelGroup: booking.hotelGroup,
+    hotelName: booking.hotelName,
+    inventoryTypes,
+    roomType: booking.roomType
+  });
 }
 
 function formatObservedRoom(value: string) {

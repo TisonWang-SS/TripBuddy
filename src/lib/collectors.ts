@@ -1,4 +1,5 @@
 import { extractRateDetailWithChromeProfile, extractTextWithChromeProfile, type ChromeProfileConfig } from "@/lib/browserConnector";
+import { externalCurrencyCode } from "@/lib/currency";
 
 export type InventoryType = "cash" | "award";
 export type BrowserMode = "headless" | "interactive" | "persistent" | "chrome_profile";
@@ -175,7 +176,7 @@ export function buildHyattSearchUrl(input: CollectorInput) {
     rooms: "1",
     adults: String(input.guests),
     kids: "0",
-    currency: input.currency
+    currency: externalCurrencyCode(input.currency)
   });
 
   if (input.inventoryTypes.includes("award")) {

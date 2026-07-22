@@ -4,8 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { DEFAULT_PROFILE_ID } from "@/lib/constants";
+import { inferIsSuite, supportedCurrencyValue } from "@/lib/currency";
 import { getHotelPriceTool, type InventoryType } from "@/lib/collectors";
 import { createRecommendationForBooking } from "@/lib/recommendations";
+import { getSystemCurrency, normalizeMoneyToSystemCurrency } from "@/lib/systemSettings";
 
 function value(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -43,6 +45,8 @@ function dateValue(formData: FormData, key: string) {
 }
 
 export async function createBooking(formData: FormData) {
+  const currency = await getSystemCurrency();
+  const roomType = value(formData, "roomType");
   const booking = await prisma.hotelBooking.create({
     data: {
       hotelGroup: value(formData, "hotelGroup"),
@@ -51,9 +55,10 @@ export async function createBooking(formData: FormData) {
       checkIn: new Date(value(formData, "checkIn")),
       checkOut: new Date(value(formData, "checkOut")),
       guests: numberValue(formData, "guests", 1),
-      roomType: value(formData, "roomType"),
+      roomType,
+      isSuite: boolValue(formData, "isSuite") || inferIsSuite(roomType),
       originalPrice: numberValue(formData, "originalPrice"),
-      currency: value(formData, "currency") || "USD",
+      currency,
       bookingChannel: value(formData, "bookingChannel") || "direct",
       cancellationDeadline: dateValue(formData, "cancellationDeadline"),
       breakfastIncluded: boolValue(formData, "breakfastIncluded"),
@@ -109,6 +114,7 @@ export async function runPriceCheck(formData: FormData) {
   ];
   const tool = getHotelPriceTool(booking.hotelGroup);
   const browserMode = browserModeValue(watchPlan.browserMode);
+  const systemCurrency = await getSystemCurrency();
   const run = await prisma.priceCheckRun.create({
     data: {
       bookingId: booking.id,
@@ -143,6 +149,15 @@ export async function runPriceCheck(formData: FormData) {
     });
 
     for (const candidate of result.candidates) {
+      const money = await normalizeMoneyToSystemCurrency({
+        amount: candidate.price.total,
+        basePrice: candidate.price.base,
+        taxAmount: candidate.price.taxes,
+        feeAmount: candidate.price.fees,
+        totalPrice: candidate.price.total,
+        cashCopay: candidate.price.cashCopay,
+        sourceCurrency: candidate.price.currency || systemCurrency
+      });
       await prisma.priceObservation.create({
         data: {
           bookingId: booking.id,
@@ -153,17 +168,21 @@ export async function runPriceCheck(formData: FormData) {
           collectedBy: "collector",
           collectorName: result.collectorName,
           inventoryType: candidate.inventoryType,
-          price: candidate.price.total,
-          basePrice: candidate.price.base,
-          taxAmount: candidate.price.taxes,
-          feeAmount: candidate.price.fees,
-          totalPrice: candidate.price.total,
+          price: money.price,
+          basePrice: money.basePrice,
+          taxAmount: money.taxAmount,
+          feeAmount: money.feeAmount,
+          totalPrice: money.totalPrice,
           pointsPrice: candidate.price.points,
-          cashCopay: candidate.price.cashCopay,
-          currency: candidate.price.currency,
+          cashCopay: money.cashCopay,
+          currency: money.currency,
+          observedCurrency: money.observedCurrency,
+          observedPrice: money.observedPrice,
+          conversionRate: money.conversionRate,
           rawRateName: candidate.rawRateName,
           ratePlanName: candidate.ratePlanName,
           roomTypeRaw: candidate.room.rawName,
+          isSuite: inferIsSuite(candidate.room.rawName),
           roomMatch: candidate.room.match,
           cancellationPolicyRaw: candidate.cancellation.rawPolicy,
           cancellationMatch: candidate.cancellation.match,
@@ -245,6 +264,8 @@ export async function updateWatchPlan(formData: FormData) {
 
 export async function updateBooking(formData: FormData) {
   const bookingId = value(formData, "bookingId");
+  const currency = await getSystemCurrency();
+  const roomType = value(formData, "roomType");
   await prisma.hotelBooking.update({
     where: { id: bookingId },
     data: {
@@ -254,9 +275,10 @@ export async function updateBooking(formData: FormData) {
       checkIn: new Date(value(formData, "checkIn")),
       checkOut: new Date(value(formData, "checkOut")),
       guests: numberValue(formData, "guests", 1),
-      roomType: value(formData, "roomType"),
+      roomType,
+      isSuite: boolValue(formData, "isSuite") || inferIsSuite(roomType),
       originalPrice: numberValue(formData, "originalPrice"),
-      currency: value(formData, "currency") || "USD",
+      currency,
       bookingChannel: value(formData, "bookingChannel") || "direct",
       cancellationDeadline: dateValue(formData, "cancellationDeadline"),
       breakfastIncluded: boolValue(formData, "breakfastIncluded"),
@@ -273,14 +295,24 @@ export async function updateBooking(formData: FormData) {
 
 export async function addObservation(formData: FormData) {
   const bookingId = value(formData, "bookingId");
+  const sourceCurrency = value(formData, "currency");
+  const money = await normalizeMoneyToSystemCurrency({
+    amount: numberValue(formData, "price"),
+    sourceCurrency
+  });
+  const roomTypeRaw = value(formData, "roomTypeRaw");
   await prisma.priceObservation.create({
     data: {
       bookingId,
       sourceName: value(formData, "sourceName"),
       sourceType: value(formData, "sourceType") || "direct",
-      price: numberValue(formData, "price"),
-      currency: value(formData, "currency") || "USD",
-      roomTypeRaw: value(formData, "roomTypeRaw"),
+      price: money.price,
+      currency: money.currency,
+      observedCurrency: money.observedCurrency,
+      observedPrice: money.observedPrice,
+      conversionRate: money.conversionRate,
+      roomTypeRaw,
+      isSuite: boolValue(formData, "isSuite") || inferIsSuite(roomTypeRaw),
       roomMatch: value(formData, "roomMatch") || "unknown",
       cancellationPolicyRaw: value(formData, "cancellationPolicyRaw"),
       cancellationMatch: value(formData, "cancellationMatch") || "unknown",
@@ -301,14 +333,24 @@ export async function addObservation(formData: FormData) {
 export async function updateObservation(formData: FormData) {
   const observationId = value(formData, "observationId");
   const bookingId = value(formData, "bookingId");
+  const sourceCurrency = value(formData, "currency");
+  const money = await normalizeMoneyToSystemCurrency({
+    amount: numberValue(formData, "price"),
+    sourceCurrency
+  });
+  const roomTypeRaw = value(formData, "roomTypeRaw");
   await prisma.priceObservation.update({
     where: { id: observationId },
     data: {
       sourceName: value(formData, "sourceName"),
       sourceType: value(formData, "sourceType") || "direct",
-      price: numberValue(formData, "price"),
-      currency: value(formData, "currency") || "USD",
-      roomTypeRaw: value(formData, "roomTypeRaw"),
+      price: money.price,
+      currency: money.currency,
+      observedCurrency: money.observedCurrency,
+      observedPrice: money.observedPrice,
+      conversionRate: money.conversionRate,
+      roomTypeRaw,
+      isSuite: boolValue(formData, "isSuite") || inferIsSuite(roomTypeRaw),
       roomMatch: value(formData, "roomMatch") || "unknown",
       cancellationPolicyRaw: value(formData, "cancellationPolicyRaw"),
       cancellationMatch: value(formData, "cancellationMatch") || "unknown",
@@ -365,6 +407,7 @@ export async function promoteObservationToBooking(formData: FormData) {
       currency: observation.currency,
       bookingChannel: observation.sourceType,
       roomType: observation.roomTypeRaw,
+      isSuite: observation.isSuite,
       breakfastIncluded: observation.breakfastIncluded,
       loyaltyEligible: observation.loyaltyEligible,
       bookingUrl: observation.sourceUrl
@@ -397,11 +440,18 @@ export async function createPromotion(formData: FormData) {
 }
 
 export async function updateProfile(formData: FormData) {
+  const defaultCurrency = supportedCurrencyValue(formData.get("defaultCurrency"));
+  await prisma.systemSetting.upsert({
+    where: { id: "primary" },
+    update: { displayCurrency: defaultCurrency },
+    create: { id: "primary", displayCurrency: defaultCurrency }
+  });
+
   await prisma.userProfile.upsert({
     where: { id: DEFAULT_PROFILE_ID },
     update: {
       name: value(formData, "name") || "Primary Traveler",
-      defaultCurrency: value(formData, "defaultCurrency") || "USD",
+      defaultCurrency,
       savingsThreshold: numberValue(formData, "savingsThreshold", 50),
       urgentWindowHours: numberValue(formData, "urgentWindowHours", 24),
       breakfastValue: numberValue(formData, "breakfastValue", 25),
@@ -413,7 +463,7 @@ export async function updateProfile(formData: FormData) {
     create: {
       id: DEFAULT_PROFILE_ID,
       name: value(formData, "name") || "Primary Traveler",
-      defaultCurrency: value(formData, "defaultCurrency") || "USD",
+      defaultCurrency,
       savingsThreshold: numberValue(formData, "savingsThreshold", 50),
       urgentWindowHours: numberValue(formData, "urgentWindowHours", 24),
       breakfastValue: numberValue(formData, "breakfastValue", 25),

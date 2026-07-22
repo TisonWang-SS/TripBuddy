@@ -1,5 +1,5 @@
 import { createCreditCardBenefit, updateProfile } from "@/lib/actions";
-import { DEFAULT_PROFILE_ID, HOTEL_GROUPS, HOTEL_GROUP_TIERS } from "@/lib/constants";
+import { DEFAULT_PROFILE_ID, HOTEL_GROUPS, HOTEL_GROUP_TIERS, SUPPORTED_CURRENCIES } from "@/lib/constants";
 import { prisma } from "@/lib/db";
 
 export default async function ProfilePage() {
@@ -46,7 +46,13 @@ export default async function ProfilePage() {
           </div>
           <div className="field">
             <label htmlFor="defaultCurrency">Default currency</label>
-            <input id="defaultCurrency" name="defaultCurrency" defaultValue={profile.defaultCurrency} />
+            <select id="defaultCurrency" name="defaultCurrency" defaultValue={profile.defaultCurrency}>
+              {SUPPORTED_CURRENCIES.map((currency) => (
+                <option key={currency} value={currency}>
+                  {currency}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="field">
             <label htmlFor="savingsThreshold">Savings threshold</label>

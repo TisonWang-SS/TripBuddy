@@ -40,7 +40,7 @@ export type NormalizedBrowserEvidenceCandidate = {
   taxesIncluded: boolean;
 };
 
-const CASH_CURRENCIES = ["MYR", "RM", "USD", "JPY", "SGD", "HKD", "EUR", "GBP", "THB", "KRW", "CNY"];
+const CASH_CURRENCIES = ["MYR", "RM", "USD", "$", "JPY", "¥", "￥", "SGD", "HKD", "EUR", "GBP", "THB", "KRW", "CNY", "CN¥", "RMB"];
 
 export function normalizeBrowserEvidencePayload(payload: BrowserEvidencePayload) {
   const candidates = (payload.candidates ?? [])
@@ -162,6 +162,12 @@ function normalizeCurrency(value: string) {
   if (normalized === "RM") {
     return "MYR";
   }
+  if (normalized === "$") {
+    return "USD";
+  }
+  if (normalized === "RMB" || normalized === "CN¥" || normalized === "¥" || normalized === "￥") {
+    return "CNY";
+  }
   return CASH_CURRENCIES.includes(normalized) ? normalized : normalized.slice(0, 3) || "USD";
 }
 
@@ -207,7 +213,7 @@ function parseStayNightsFromUrl(sourceUrl: string) {
 }
 
 function extractFinalTotal(text: string) {
-  const currencyPattern = CASH_CURRENCIES.join("|");
+  const currencyPattern = currencyPatternSource();
   const patterns = [
     new RegExp(`(?:Total Cash|Stay Total|Total for Stay|Grand Total|Amount Due|Total Including Taxes[^A-Z]{0,20})\\s*(${currencyPattern})\\s*([0-9][0-9,]*(?:\\.\\d{2})?)`, "i"),
     new RegExp(`(${currencyPattern})\\s*([0-9][0-9,]*(?:\\.\\d{2})?)\\s*(?:Total Cash|Stay Total|Total for Stay|Grand Total|Amount Due)`, "i")
@@ -224,14 +230,14 @@ function extractFinalTotal(text: string) {
 }
 
 function extractTaxesAndFees(text: string) {
-  const currencyPattern = CASH_CURRENCIES.join("|");
+  const currencyPattern = currencyPatternSource();
   const pattern = new RegExp(`(?:Taxes? (?:&|and) Fees?|Fees? (?:&|and) Taxes?)\\s*(${currencyPattern})\\s*([0-9][0-9,]*(?:\\.\\d{2})?)`, "i");
   const match = text.match(pattern);
   return match ? { amount: parseAmount(match[2]), currency: normalizeCurrency(match[1]) } : null;
 }
 
 function extractHyattVisibleRateCandidates(text: string) {
-  const currencyPattern = CASH_CURRENCIES.join("|");
+  const currencyPattern = currencyPatternSource();
   const pattern = new RegExp(`(${currencyPattern})\\s*([0-9][0-9,]*(?:\\.\\d{2})?)\\s*(?:Avg\\s*\\/\\s*Night|Average\\s*\\/\\s*Night|per\\s*night|\\/\\s*night)`, "gi");
   const rates: Array<{ amount: number; breakfastIncluded: boolean; context: string; currency: string; ratePlanName: string | null; roomName: string }> = [];
   for (const match of text.matchAll(pattern)) {
@@ -269,7 +275,7 @@ function extractHyattDetailRateCandidates(text: string, nights: number) {
   }
   const roomName = extractHyattDetailRoomName(detailBlock) ?? extractRoomName(detailBlock);
   const policy = extractPolicyText(detailBlock);
-  const currencyPattern = CASH_CURRENCIES.join("|");
+  const currencyPattern = currencyPatternSource();
   const pattern = new RegExp(
     `\\b(Members Save More|Member Rate|Standard Rate|Member Bed and Breakfast|Bed and Breakfast)\\s+(${currencyPattern})\\s*([0-9][0-9,]*(?:\\.\\d{2})?)\\b`,
     "gi"
@@ -408,6 +414,14 @@ function cleanRoomTypeLabel(value: string) {
 
 function parseAmount(value: string) {
   return Number(value.replace(/,/g, ""));
+}
+
+function currencyPatternSource() {
+  return CASH_CURRENCIES.map(escapeRegExp).join("|");
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function dedupeCandidates(candidates: BrowserEvidenceCandidateInput[]) {

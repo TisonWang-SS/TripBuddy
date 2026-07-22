@@ -6,6 +6,7 @@ const statusBox = document.querySelector("#status");
 chrome.storage.local.get(["bookingId", "endpoint"], (stored) => {
   bookingIdInput.value = stored.bookingId || "";
   endpointInput.value = stored.endpoint || "http://localhost:3000";
+  hydrateSettingsFromActiveTab();
 });
 
 bookingIdInput.addEventListener("input", saveSettings);
@@ -17,6 +18,57 @@ function saveSettings() {
     bookingId: bookingIdInput.value.trim(),
     endpoint: endpointInput.value.trim()
   });
+}
+
+async function hydrateSettingsFromActiveTab() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) {
+      return;
+    }
+
+    const urlSettings = readTripBuddySettingsFromUrl(tab.url || "");
+    const [sessionSettings] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: readTripBuddySessionSettings
+    });
+    const settings = {
+      bookingId: urlSettings.bookingId || sessionSettings?.result?.bookingId || "",
+      endpoint: urlSettings.endpoint || sessionSettings?.result?.endpoint || ""
+    };
+
+    if (settings.bookingId) {
+      bookingIdInput.value = settings.bookingId;
+    }
+    if (settings.endpoint) {
+      endpointInput.value = settings.endpoint;
+    }
+    if (settings.bookingId || settings.endpoint) {
+      saveSettings();
+    }
+  } catch {
+    // The popup can still work from saved settings if the active tab cannot be inspected.
+  }
+}
+
+function readTripBuddySettingsFromUrl(value) {
+  try {
+    const url = new URL(value);
+    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+    return {
+      bookingId: hashParams.get("tripbuddyBookingId") || hashParams.get("tbBookingId") || "",
+      endpoint: hashParams.get("tripbuddyEndpoint") || ""
+    };
+  } catch {
+    return { bookingId: "", endpoint: "" };
+  }
+}
+
+function readTripBuddySessionSettings() {
+  return {
+    bookingId: sessionStorage.getItem("tripbuddyBookingId") || "",
+    endpoint: sessionStorage.getItem("tripbuddyEndpoint") || ""
+  };
 }
 
 async function importCurrentPage() {

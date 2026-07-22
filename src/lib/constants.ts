@@ -2,6 +2,8 @@ export const HOTEL_GROUPS = ["Hyatt", "IHG", "Marriott", "Hilton", "Accor"] as c
 
 export const CHANNELS = ["direct", "ota", "other"] as const;
 
+export const SUPPORTED_CURRENCIES = ["USD", "CNY"] as const;
+
 export const ROOM_MATCHES = ["exact", "similar", "unknown"] as const;
 
 export const CANCELLATION_MATCHES = ["same_or_better", "worse", "unknown"] as const;
@@ -9,6 +11,8 @@ export const CANCELLATION_MATCHES = ["same_or_better", "worse", "unknown"] as co
 export const VERDICTS = ["keep", "rebook_direct", "consider_ota", "needs_review", "urgent"] as const;
 
 export const DEFAULT_PROFILE_ID = "primary";
+
+export const DEFAULT_SYSTEM_SETTING_ID = "primary";
 
 export const HOTEL_GROUP_TIERS: Record<string, string[]> = {
   Hyatt: ["Member", "Discoverist", "Explorist", "Globalist"],

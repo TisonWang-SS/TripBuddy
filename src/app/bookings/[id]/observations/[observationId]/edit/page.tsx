@@ -103,6 +103,10 @@ export default async function EditObservationPage({
           <textarea id="notes" name="notes" defaultValue={observation.notes ?? ""} />
         </div>
         <div className="check">
+          <input id="isSuite" name="isSuite" type="checkbox" defaultChecked={observation.isSuite} />
+          <label htmlFor="isSuite">Observed room is a suite</label>
+        </div>
+        <div className="check">
           <input id="taxesIncluded" name="taxesIncluded" type="checkbox" defaultChecked={observation.taxesIncluded} />
           <label htmlFor="taxesIncluded">Taxes are included</label>
         </div>

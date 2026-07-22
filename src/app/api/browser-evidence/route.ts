@@ -1,8 +1,10 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { normalizeBrowserEvidencePayload, parseHyattEvidenceFromText, type BrowserEvidencePayload } from "@/lib/browserEvidence";
+import { inferIsSuite } from "@/lib/currency";
 import { prisma } from "@/lib/db";
 import { createRecommendationForBooking } from "@/lib/recommendations";
+import { normalizeMoneyToSystemCurrency } from "@/lib/systemSettings";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +83,14 @@ export async function POST(request: Request) {
   });
 
   for (const candidate of normalized.candidates) {
+    const money = await normalizeMoneyToSystemCurrency({
+      amount: candidate.price,
+      basePrice: candidate.basePrice,
+      taxAmount: candidate.taxes,
+      feeAmount: candidate.fees,
+      totalPrice: candidate.price,
+      sourceCurrency: candidate.currency
+    });
     await prisma.priceObservation.create({
       data: {
         bookingId: booking.id,
@@ -91,17 +101,21 @@ export async function POST(request: Request) {
         collectedBy: "browser_extension",
         collectorName: "browser-extension",
         inventoryType: candidate.inventoryType,
-        price: candidate.price,
-        basePrice: candidate.basePrice,
-        taxAmount: candidate.taxes,
-        feeAmount: candidate.fees,
-        totalPrice: candidate.price,
+        price: money.price,
+        basePrice: money.basePrice,
+        taxAmount: money.taxAmount,
+        feeAmount: money.feeAmount,
+        totalPrice: money.totalPrice,
         pointsPrice: candidate.pointsPrice,
         cashCopay: null,
-        currency: candidate.currency,
+        currency: money.currency,
+        observedCurrency: money.observedCurrency,
+        observedPrice: money.observedPrice,
+        conversionRate: money.conversionRate,
         rawRateName: candidate.rawRateName,
         ratePlanName: candidate.ratePlanName,
         roomTypeRaw: candidate.roomTypeRaw,
+        isSuite: inferIsSuite(candidate.roomTypeRaw),
         roomMatch: inferRoomMatch(booking.roomType, candidate.roomTypeRaw),
         cancellationPolicyRaw: candidate.cancellationPolicyRaw,
         cancellationMatch: "unknown",

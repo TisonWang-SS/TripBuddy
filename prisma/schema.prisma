@@ -7,203 +7,236 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum SupportedCurrency {
+  USD
+  CNY
+}
+
+model SystemSetting {
+  id              String                   @id @default("primary")
+  displayCurrency SupportedCurrency        @default(USD)
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  conversionRates CurrencyConversionRate[]
+}
+
+model CurrencyConversionRate {
+  id              String            @id @default(cuid())
+  systemSettingId String            @default("primary")
+  sourceCurrency  String
+  targetCurrency  SupportedCurrency
+  rate            Float
+  sourceName      String?
+  asOf            DateTime
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  systemSetting   SystemSetting     @relation(fields: [systemSettingId], references: [id], onDelete: Cascade)
+
+  @@unique([systemSettingId, sourceCurrency, targetCurrency])
+}
+
 model UserProfile {
-  id                         String   @id @default(cuid())
-  name                       String   @default("Primary Traveler")
-  defaultCurrency            String   @default("USD")
-  savingsThreshold           Float    @default(50)
-  urgentWindowHours          Int      @default(24)
-  breakfastValue             Float    @default(25)
-  loungeValue                Float    @default(35)
-  lateCheckoutValue          Float    @default(15)
-  upgradeValue               Float    @default(40)
-  eliteNightValue            Float    @default(10)
-  chromeProfileName          String   @default("TripBuddy")
-  chromeProfileDirectory     String?
-  chromeUserDataDir          String?
-  chromeDebugPort            Int      @default(0)
-  createdAt                  DateTime @default(now())
-  updatedAt                  DateTime @updatedAt
-  loyaltyAccounts            LoyaltyAccount[]
-  creditCardBenefits         CreditCardBenefit[]
+  id                     String              @id @default(cuid())
+  name                   String              @default("Primary Traveler")
+  defaultCurrency        SupportedCurrency   @default(USD)
+  savingsThreshold       Float               @default(50)
+  urgentWindowHours      Int                 @default(24)
+  breakfastValue         Float               @default(25)
+  loungeValue            Float               @default(35)
+  lateCheckoutValue      Float               @default(15)
+  upgradeValue           Float               @default(40)
+  eliteNightValue        Float               @default(10)
+  chromeProfileName      String              @default("TripBuddy")
+  chromeProfileDirectory String?
+  chromeUserDataDir      String?
+  chromeDebugPort        Int                 @default(0)
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  loyaltyAccounts        LoyaltyAccount[]
+  creditCardBenefits     CreditCardBenefit[]
 }
 
 model LoyaltyAccount {
-  id                         String   @id @default(cuid())
-  profileId                  String
-  hotelGroup                 String
-  tier                       String
-  currentNights              Int      @default(0)
-  currentPoints              Int      @default(0)
-  currentSpend               Float    @default(0)
-  targetTier                 String?
-  pointValue                 Float    @default(0.005)
-  createdAt                  DateTime @default(now())
-  updatedAt                  DateTime @updatedAt
-  profile                    UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  id            String      @id @default(cuid())
+  profileId     String
+  hotelGroup    String
+  tier          String
+  currentNights Int         @default(0)
+  currentPoints Int         @default(0)
+  currentSpend  Float       @default(0)
+  targetTier    String?
+  pointValue    Float       @default(0.005)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  profile       UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
   @@unique([profileId, hotelGroup])
 }
 
 model CreditCardBenefit {
-  id                         String   @id @default(cuid())
-  profileId                  String
-  name                       String
-  hotelGroup                 String?
-  cashBackRate               Float    @default(0)
-  pointMultiplier            Float    @default(0)
-  eliteNightCredits          Int      @default(0)
-  notes                      String?
-  createdAt                  DateTime @default(now())
-  updatedAt                  DateTime @updatedAt
-  profile                    UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  id                String      @id @default(cuid())
+  profileId         String
+  name              String
+  hotelGroup        String?
+  cashBackRate      Float       @default(0)
+  pointMultiplier   Float       @default(0)
+  eliteNightCredits Int         @default(0)
+  notes             String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  profile           UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 }
 
 model HotelBooking {
-  id                         String   @id @default(cuid())
-  hotelGroup                 String
-  hotelName                  String
-  city                       String
-  checkIn                    DateTime
-  checkOut                   DateTime
-  guests                     Int      @default(1)
-  roomType                   String
-  originalPrice              Float
-  currency                   String
-  bookingChannel             String
-  cancellationDeadline       DateTime?
-  breakfastIncluded          Boolean  @default(false)
-  loyaltyEligible            Boolean  @default(true)
-  bookingUrl                 String?
-  notes                      String?
-  createdAt                  DateTime @default(now())
-  updatedAt                  DateTime @updatedAt
-  watchPlan                  WatchPlan?
-  priceCheckRuns             PriceCheckRun[]
-  observations               PriceObservation[]
-  recommendations            Recommendation[]
+  id                   String             @id @default(cuid())
+  hotelGroup           String
+  hotelName            String
+  city                 String
+  checkIn              DateTime
+  checkOut             DateTime
+  guests               Int                @default(1)
+  roomType             String
+  isSuite              Boolean            @default(false)
+  originalPrice        Float
+  currency             SupportedCurrency  @default(USD)
+  bookingChannel       String
+  cancellationDeadline DateTime?
+  breakfastIncluded    Boolean            @default(false)
+  loyaltyEligible      Boolean            @default(true)
+  bookingUrl           String?
+  notes                String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  watchPlan            WatchPlan?
+  priceCheckRuns       PriceCheckRun[]
+  observations         PriceObservation[]
+  recommendations      Recommendation[]
 }
 
 model WatchPlan {
-  id                         String   @id @default(cuid())
-  bookingId                  String   @unique
-  enabled                    Boolean  @default(true)
-  cashEnabled                Boolean  @default(true)
-  awardEnabled               Boolean  @default(true)
-  directEnabled              Boolean  @default(true)
-  otaReferenceEnabled        Boolean  @default(false)
-  browserMode                String   @default("chrome_profile")
-  normalCadenceHours         Int      @default(24)
-  urgentCadenceHours         Int      @default(6)
-  urgentWindowHours          Int      @default(72)
-  lastCheckedAt              DateTime?
-  createdAt                  DateTime @default(now())
-  updatedAt                  DateTime @updatedAt
-  booking                    HotelBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  priceCheckRuns             PriceCheckRun[]
+  id                  String          @id @default(cuid())
+  bookingId           String          @unique
+  enabled             Boolean         @default(true)
+  cashEnabled         Boolean         @default(true)
+  awardEnabled        Boolean         @default(true)
+  directEnabled       Boolean         @default(true)
+  otaReferenceEnabled Boolean         @default(false)
+  browserMode         String          @default("chrome_profile")
+  normalCadenceHours  Int             @default(24)
+  urgentCadenceHours  Int             @default(6)
+  urgentWindowHours   Int             @default(72)
+  lastCheckedAt       DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  booking             HotelBooking    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  priceCheckRuns      PriceCheckRun[]
 }
 
 model PriceCheckRun {
-  id                         String   @id @default(cuid())
-  bookingId                  String
-  watchPlanId                String?
-  startedAt                  DateTime @default(now())
-  finishedAt                 DateTime?
-  status                     String
-  trigger                    String
-  inventoryTypesJson         String
-  collectorName              String
-  sourceUrl                  String?
-  summary                    String?
-  errorMessage               String?
-  booking                    HotelBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  watchPlan                  WatchPlan? @relation(fields: [watchPlanId], references: [id], onDelete: SetNull)
-  observations               PriceObservation[]
+  id                 String             @id @default(cuid())
+  bookingId          String
+  watchPlanId        String?
+  startedAt          DateTime           @default(now())
+  finishedAt         DateTime?
+  status             String
+  trigger            String
+  inventoryTypesJson String
+  collectorName      String
+  sourceUrl          String?
+  summary            String?
+  errorMessage       String?
+  booking            HotelBooking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  watchPlan          WatchPlan?         @relation(fields: [watchPlanId], references: [id], onDelete: SetNull)
+  observations       PriceObservation[]
 }
 
 model PriceObservation {
-  id                         String   @id @default(cuid())
-  bookingId                  String
-  priceCheckRunId            String?
-  observedAt                 DateTime @default(now())
-  sourceName                 String
-  sourceType                 String
-  collectedBy                String   @default("manual")
-  collectorName              String?
-  inventoryType              String   @default("cash")
-  price                      Float
-  basePrice                  Float?
-  taxAmount                  Float?
-  feeAmount                  Float?
-  totalPrice                 Float?
-  pointsPrice                Int?
-  cashCopay                  Float?
-  currency                   String
-  rawRateName                String?
-  ratePlanName               String?
-  roomTypeRaw                String
-  roomMatch                  String
-  cancellationPolicyRaw      String
-  cancellationMatch          String
-  breakfastIncluded          Boolean  @default(false)
-  taxesIncluded              Boolean  @default(true)
-  loyaltyEligible            Boolean  @default(false)
-  sourceUrl                  String?
-  confidence                 Float    @default(0.7)
-  notes                      String?
-  booking                    HotelBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  priceCheckRun              PriceCheckRun? @relation(fields: [priceCheckRunId], references: [id], onDelete: SetNull)
+  id                    String            @id @default(cuid())
+  bookingId             String
+  priceCheckRunId       String?
+  observedAt            DateTime          @default(now())
+  sourceName            String
+  sourceType            String
+  collectedBy           String            @default("manual")
+  collectorName         String?
+  inventoryType         String            @default("cash")
+  price                 Float
+  basePrice             Float?
+  taxAmount             Float?
+  feeAmount             Float?
+  totalPrice            Float?
+  pointsPrice           Int?
+  cashCopay             Float?
+  currency              SupportedCurrency @default(USD)
+  observedCurrency      String?
+  observedPrice         Float?
+  conversionRate        Float?
+  rawRateName           String?
+  ratePlanName          String?
+  roomTypeRaw           String
+  isSuite               Boolean           @default(false)
+  roomMatch             String
+  cancellationPolicyRaw String
+  cancellationMatch     String
+  breakfastIncluded     Boolean           @default(false)
+  taxesIncluded         Boolean           @default(true)
+  loyaltyEligible       Boolean           @default(false)
+  sourceUrl             String?
+  confidence            Float             @default(0.7)
+  notes                 String?
+  booking               HotelBooking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  priceCheckRun         PriceCheckRun?    @relation(fields: [priceCheckRunId], references: [id], onDelete: SetNull)
 }
 
 model Promotion {
-  id                         String   @id @default(cuid())
-  hotelGroup                 String
-  title                      String
-  description                String?
-  startDate                  DateTime?
-  endDate                    DateTime?
-  bonusMultiplier            Float    @default(0)
-  flatValue                  Float    @default(0)
-  requiresRegistration       Boolean  @default(false)
-  appliesToExistingBookings  Boolean  @default(false)
-  sourceUrl                  String?
-  createdAt                  DateTime @default(now())
-  updatedAt                  DateTime @updatedAt
+  id                        String    @id @default(cuid())
+  hotelGroup                String
+  title                     String
+  description               String?
+  startDate                 DateTime?
+  endDate                   DateTime?
+  bonusMultiplier           Float     @default(0)
+  flatValue                 Float     @default(0)
+  requiresRegistration      Boolean   @default(false)
+  appliesToExistingBookings Boolean   @default(false)
+  sourceUrl                 String?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 }
 
 model Recommendation {
-  id                         String   @id @default(cuid())
-  bookingId                  String
-  candidateObservationId     String?
-  generatedAt                DateTime @default(now())
-  verdict                    String
-  estimatedSavings           Float
-  confidence                 Float
-  cashDifference             Float
-  pointsValueDifference      Float
-  promotionValueDifference   Float
-  creditCardValueDifference  Float
-  eliteProgressDifference    Float
-  benefitValueDifference     Float
-  explanation                String
-  booking                    HotelBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  id                        String       @id @default(cuid())
+  bookingId                 String
+  candidateObservationId    String?
+  generatedAt               DateTime     @default(now())
+  verdict                   String
+  estimatedSavings          Float
+  confidence                Float
+  cashDifference            Float
+  pointsValueDifference     Float
+  promotionValueDifference  Float
+  creditCardValueDifference Float
+  eliteProgressDifference   Float
+  benefitValueDifference    Float
+  explanation               String
+  booking                   HotelBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 }
 
 model LoyaltyRule {
-  id                         String   @id @default(cuid())
-  hotelGroup                 String
-  tier                       String
-  nightsRequired             Int?
-  pointsRequired             Int?
-  spendRequired              Float?
-  basePointsPerUsd           Float
-  bonusRate                  Float
-  breakfastBenefit           Boolean  @default(false)
-  loungeBenefit              Boolean  @default(false)
-  lateCheckoutBenefit        Boolean  @default(false)
-  upgradeBenefit             Boolean  @default(false)
-  sourceUrl                  String
-  lastReviewedAt             DateTime
+  id                  String   @id @default(cuid())
+  hotelGroup          String
+  tier                String
+  nightsRequired      Int?
+  pointsRequired      Int?
+  spendRequired       Float?
+  basePointsPerUsd    Float
+  bonusRate           Float
+  breakfastBenefit    Boolean  @default(false)
+  loungeBenefit       Boolean  @default(false)
+  lateCheckoutBenefit Boolean  @default(false)
+  upgradeBenefit      Boolean  @default(false)
+  sourceUrl           String
+  lastReviewedAt      DateTime
 
   @@unique([hotelGroup, tier])
 }

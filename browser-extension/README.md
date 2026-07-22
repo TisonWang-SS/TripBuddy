@@ -14,7 +14,7 @@ This unpacked Chrome extension imports visible hotel rate evidence from the user
 
 1. Run the local TripBuddy app at `http://localhost:3000`.
 2. Open a TripBuddy booking detail page.
-3. Click `Open source and auto import` in the Browser Import card.
+3. Click `Chrome import`.
 4. Wait for the hotel page to render. The extension first tries to select a safe visible rate and wait for a price summary. If a final total appears, it imports that final total instead of the room-list nightly estimate.
 
 The automatic link passes the booking ID in the URL hash, so it is not sent to the hotel server.
@@ -24,9 +24,8 @@ The extension must not click final payment, confirmation, purchase, or submit co
 ## Manual Import
 
 1. Run the local TripBuddy app at `http://localhost:3000`.
-2. Open a TripBuddy booking detail page and copy the booking ID from the Browser Import card.
-3. In the same Chrome profile, open the hotel rate page.
-4. Click the TripBuddy extension icon.
-5. Paste the booking ID and click `Import current page`.
+2. Open a TripBuddy booking detail page and click `Chrome import`.
+3. Click the TripBuddy extension icon on the opened hotel page.
+4. Confirm the booking ID was filled automatically and click `Import current page`.
 
 The extension only reads the active tab when the user clicks the import button. It does not book, cancel, pay, or submit hotel forms.

@@ -53,10 +53,6 @@ export default function NewBookingPage() {
             <input id="originalPrice" name="originalPrice" type="number" min="0" step="0.01" required />
           </div>
           <div className="field">
-            <label htmlFor="currency">Currency</label>
-            <input id="currency" name="currency" defaultValue="USD" required />
-          </div>
-          <div className="field">
             <label htmlFor="bookingChannel">Booking channel</label>
             <select id="bookingChannel" name="bookingChannel" required>
               {CHANNELS.map((channel) => (
@@ -74,6 +70,10 @@ export default function NewBookingPage() {
             <label htmlFor="bookingUrl">Booking URL</label>
             <input id="bookingUrl" name="bookingUrl" type="url" placeholder="https://..." />
           </div>
+        </div>
+        <div className="check">
+          <input id="isSuite" name="isSuite" type="checkbox" />
+          <label htmlFor="isSuite">Booked room is a suite</label>
         </div>
         <div className="check">
           <input id="breakfastIncluded" name="breakfastIncluded" type="checkbox" />

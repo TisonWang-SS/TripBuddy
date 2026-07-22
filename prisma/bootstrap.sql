@@ -1,3 +1,26 @@
+CREATE TABLE IF NOT EXISTS SystemSetting (
+  id TEXT PRIMARY KEY NOT NULL DEFAULT 'primary',
+  displayCurrency TEXT NOT NULL DEFAULT 'USD',
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS CurrencyConversionRate (
+  id TEXT PRIMARY KEY NOT NULL,
+  systemSettingId TEXT NOT NULL DEFAULT 'primary',
+  sourceCurrency TEXT NOT NULL,
+  targetCurrency TEXT NOT NULL,
+  rate REAL NOT NULL,
+  sourceName TEXT,
+  asOf DATETIME NOT NULL,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (systemSettingId) REFERENCES SystemSetting(id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS CurrencyConversionRate_systemSettingId_sourceCurrency_targetCurrency_key
+  ON CurrencyConversionRate(systemSettingId, sourceCurrency, targetCurrency);
+
 CREATE TABLE IF NOT EXISTS UserProfile (
   id TEXT PRIMARY KEY NOT NULL,
   name TEXT NOT NULL DEFAULT 'Primary Traveler',
@@ -57,8 +80,9 @@ CREATE TABLE IF NOT EXISTS HotelBooking (
   checkOut DATETIME NOT NULL,
   guests INTEGER NOT NULL DEFAULT 1,
   roomType TEXT NOT NULL,
+  isSuite BOOLEAN NOT NULL DEFAULT false,
   originalPrice REAL NOT NULL,
-  currency TEXT NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'USD',
   bookingChannel TEXT NOT NULL,
   cancellationDeadline DATETIME,
   breakfastIncluded BOOLEAN NOT NULL DEFAULT false,
@@ -123,10 +147,14 @@ CREATE TABLE IF NOT EXISTS PriceObservation (
   totalPrice REAL,
   pointsPrice INTEGER,
   cashCopay REAL,
-  currency TEXT NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  observedCurrency TEXT,
+  observedPrice REAL,
+  conversionRate REAL,
   rawRateName TEXT,
   ratePlanName TEXT,
   roomTypeRaw TEXT NOT NULL,
+  isSuite BOOLEAN NOT NULL DEFAULT false,
   roomMatch TEXT NOT NULL,
   cancellationPolicyRaw TEXT NOT NULL,
   cancellationMatch TEXT NOT NULL,

@@ -1,7 +1,9 @@
+import { displayCurrencyCode } from "@/lib/currency";
+
 export function formatMoney(value: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency,
+    currency: displayCurrencyCode(currency),
     maximumFractionDigits: 0
   }).format(value);
 }

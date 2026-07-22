@@ -44,6 +44,11 @@ describe("hotel price tools", () => {
     expect(url).toContain("usePoints=true");
   });
 
+  it("uses CNY as the Hyatt query currency for China yuan", () => {
+    const url = buildHyattSearchUrl({ ...input, currency: "CNY" });
+    expect(url).toContain("currency=CNY");
+  });
+
   it("builds a hotel-specific Hyatt shop URL when a booking URL has a code", () => {
     const url = buildHyattSearchUrl({
       ...input,

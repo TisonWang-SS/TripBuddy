@@ -60,6 +60,19 @@ describe("browser evidence", () => {
     });
   });
 
+  it("supports Hyatt CNY symbol rates", () => {
+    const candidates = parseHyattEvidenceFromText(
+      "Standard King Room Member Rate CN¥ 401.00 Avg / Night Select & Book",
+      "https://www.hyatt.com/en-US/shop/rooms/kulzk?checkinDate=2026-07-27&checkoutDate=2026-08-03"
+    );
+
+    expect(candidates[0]).toMatchObject({
+      basePrice: 401,
+      currency: "CNY",
+      totalPrice: 2807
+    });
+  });
+
   it("prefers final totals over nightly estimates", () => {
     const candidates = parseHyattEvidenceFromText(
       "Standard King Room Member Rate RM 401.00 Avg / Night Price Summary Total Cash MYR3,031.23 Taxes & Fees MYR224.53",
