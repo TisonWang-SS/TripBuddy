@@ -260,6 +260,7 @@ export async function updateWatchPlan(formData: FormData) {
 
   revalidatePath("/");
   revalidatePath(`/bookings/${bookingId}`);
+  redirect(`/bookings/${bookingId}`);
 }
 
 export async function updateBooking(formData: FormData) {
@@ -291,6 +292,7 @@ export async function updateBooking(formData: FormData) {
   await createRecommendationForBooking(bookingId);
   revalidatePath("/");
   revalidatePath(`/bookings/${bookingId}`);
+  redirect(`/bookings/${bookingId}`);
 }
 
 export async function addObservation(formData: FormData) {
@@ -328,6 +330,7 @@ export async function addObservation(formData: FormData) {
   await createRecommendationForBooking(bookingId);
   revalidatePath("/");
   revalidatePath(`/bookings/${bookingId}`);
+  redirect(`/bookings/${bookingId}`);
 }
 
 export async function updateObservation(formData: FormData) {

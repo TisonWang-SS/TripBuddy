@@ -195,6 +195,23 @@ button {
   justify-content: flex-end;
 }
 
+.subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-bottom: 4px;
+}
+
+.subnav a {
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.subnav a:hover {
+  color: var(--ink);
+}
+
 .button.secondary,
 button.secondary {
   background: var(--panel-soft);
