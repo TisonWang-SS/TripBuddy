@@ -315,6 +315,10 @@ button.danger {
   resize: vertical;
 }
 
+.actionField {
+  align-self: end;
+}
+
 .check {
   display: flex;
   align-items: center;

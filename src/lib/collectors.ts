@@ -184,10 +184,10 @@ export function buildHyattSearchUrl(input: CollectorInput) {
   }
 
   if (hotelCode) {
-    return `https://www.hyatt.com/en-US/shop/rooms/${hotelCode}?${params.toString()}`;
+    return `https://www.hyatt.com/shop/rooms/${hotelCode}?${params.toString()}`;
   }
 
-  return `https://www.hyatt.com/search?${params.toString()}`;
+  return `https://www.hyatt.com/search/hotels/en-US/${encodeURIComponent(`${input.hotelName} ${input.city}`)}?${params.toString()}`;
 }
 
 const KNOWN_HYATT_HOTEL_CODES: Record<string, string> = {

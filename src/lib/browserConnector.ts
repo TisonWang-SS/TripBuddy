@@ -3,6 +3,12 @@ import { readFile, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import {
+  buildHyattCitySearchUrl,
+  parseHyattCitySearchCards,
+  type HyattCitySearchQuery,
+  type HyattCitySearchRun
+} from "@/lib/hyattCitySearch";
 
 const execFileAsync = promisify(execFile);
 
@@ -43,6 +49,12 @@ export type PageReadinessDiagnostics = {
   url: string;
 };
 
+type HyattCitySearchPageSnapshot = {
+  pageText: string;
+  title: string;
+  url: string;
+};
+
 type ChromeTarget = {
   id: string;
   type?: string;
@@ -58,6 +70,10 @@ type CdpResponse = {
 
 export function chromeLocalStatePath() {
   return path.join(homedir(), "Library", "Application Support", "Google", "Chrome", "Local State");
+}
+
+export function standardChromeUserDataDir() {
+  return path.dirname(chromeLocalStatePath());
 }
 
 export function defaultChromeUserDataDir() {
@@ -313,6 +329,130 @@ async function readPageText(client: CdpPageClient) {
   }
 
   return JSON.parse(value) as ExtractedPageText;
+}
+
+async function collectHyattCitySearchSnapshot(client: CdpPageClient): Promise<HyattCitySearchPageSnapshot> {
+  const result = (await client.send("Runtime.evaluate", {
+    expression: `(async () => {
+      await scrollResults();
+      return JSON.stringify({
+        pageText: document.body?.innerText?.replace(/\\s+/g, ' ').trim() || '',
+        title: document.title,
+        url: location.href
+      });
+
+      async function scrollResults() {
+        let previousHeight = 0;
+        for (let index = 0; index < 8; index += 1) {
+          window.scrollTo(0, document.body.scrollHeight);
+          await new Promise((resolve) => setTimeout(resolve, 900));
+          const currentHeight = document.body.scrollHeight;
+          if (currentHeight === previousHeight) {
+            break;
+          }
+          previousHeight = currentHeight;
+        }
+        window.scrollTo(0, 0);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    })()`,
+    awaitPromise: true,
+    returnByValue: true
+  })) as { result?: { value?: string } };
+
+  const value = result.result?.value;
+  if (!value) {
+    return { pageText: "", title: "", url: "" };
+  }
+
+  return JSON.parse(value) as HyattCitySearchPageSnapshot;
+}
+
+async function selectHyattCitySearchCurrency(client: CdpPageClient, currency: string) {
+  const result = (await client.send("Runtime.evaluate", {
+    expression: `(async () => {
+      const requestedCurrency = ${JSON.stringify(currency)};
+      const selects = Array.from(document.querySelectorAll('select')).filter((select) =>
+        /currency/i.test(select.innerText || select.textContent || '')
+      );
+      const select = selects.find((candidate) =>
+        Array.from(candidate.options).some((option) => option.value.toUpperCase() === requestedCurrency)
+      );
+      if (!select) {
+        return { changed: false, found: false };
+      }
+      const option = Array.from(select.options).find((candidate) => candidate.value.toUpperCase() === requestedCurrency);
+      if (!option) {
+        return { changed: false, found: false };
+      }
+      if (select.value.toUpperCase() === requestedCurrency) {
+        await waitForRequestedCurrencyText();
+        return { changed: false, found: true };
+      }
+      select.value = option.value;
+      select.dispatchEvent(new Event('input', { bubbles: true }));
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      await waitForRequestedCurrencyText();
+      return { changed: true, found: true };
+
+      async function waitForRequestedCurrencyText() {
+        const tokenPattern = currencyPattern(requestedCurrency);
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < 10000) {
+          const text = document.body?.innerText || '';
+          if (tokenPattern.test(text)) {
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+      }
+
+      function currencyPattern(code) {
+        const symbols = {
+          AUD: 'A\\\\$',
+          CAD: 'CA\\\\$',
+          CNY: 'CNY|RMB|¥|￥',
+          EUR: 'EUR|€',
+          GBP: 'GBP|£',
+          HKD: 'HK\\\\$',
+          JPY: 'JPY|¥|￥',
+          KRW: 'KRW|₩',
+          MYR: 'MYR|RM',
+          SGD: 'S\\\\$',
+          THB: 'THB|฿',
+          USD: 'US\\\\$|USD|\\\\$'
+        };
+        return new RegExp('(?:' + (symbols[code] || code) + ')\\\\s?[0-9][0-9,]{1,8}\\\\s*(?:Avg\\\\s*\\\\/\\\\s*Night|Average\\\\s*\\\\/\\\\s*Night|per\\\\s*night|\\\\/\\\\s*night)', 'i');
+      }
+    })()`,
+    awaitPromise: true,
+    returnByValue: true
+  })) as { result?: { value?: { changed?: boolean; found?: boolean } } };
+
+  return Boolean(result.result?.value?.found);
+}
+
+async function waitForHyattCitySearchPage(client: CdpPageClient, timeoutMs: number) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const result = (await client.send("Runtime.evaluate", {
+      expression:
+        "(() => { const text = document.body?.innerText?.replace(/\\s+/g, ' ').trim() ?? ''; return { isNotFound: /Page Not Found|link you followed may be broken/i.test(text), length: text.length, hasHotelSignal: /Avg\\s*\\/\\s*Night|Average\\s*\\/\\s*Night|per\\s*night|Hyatt|Andaz|Alila|Thompson|Dream/i.test(text), title: document.title, url: location.href }; })()",
+      returnByValue: true
+    })) as { result?: { value?: { hasHotelSignal?: boolean; isNotFound?: boolean; length?: number } } };
+
+    const value = result.result?.value;
+    if ((value?.length ?? 0) > 500 && value?.hasHotelSignal && !value.isNotFound) {
+      return true;
+    }
+    if (value?.isNotFound) {
+      return false;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  }
+
+  return false;
 }
 
 async function readPageReadinessDiagnostics(client: CdpPageClient) {
@@ -638,6 +778,48 @@ export async function extractRateDetailWithChromeProfile(url: string, config: Ch
     }
 
     return { detail, detailSelection, list, selectedRate };
+  } finally {
+    client.close();
+    await closeChromeTarget(endpoint, target.id);
+  }
+}
+
+export async function searchHyattCityRatesWithChromeProfile(
+  query: HyattCitySearchQuery,
+  config: ChromeProfileConfig
+): Promise<HyattCitySearchRun> {
+  const endpoint = await ensureChromeDebugEndpoint(config);
+  const target = await getOrCreateChromeTarget(endpoint);
+  const client = await CdpPageClient.connect(target.webSocketDebuggerUrl);
+  const searchUrl = buildHyattCitySearchUrl(query);
+
+  try {
+    await client.send("Page.enable");
+    await client.send("Runtime.enable");
+    await client.send("Page.navigate", { url: searchUrl });
+    const ready = await waitForHyattCitySearchPage(client, 45000);
+    const requestedCurrencyFound = ready ? await selectHyattCitySearchCurrency(client, query.currency) : false;
+    const snapshot = ready ? await collectHyattCitySearchSnapshot(client) : { pageText: "", title: "", url: searchUrl };
+    const results = parseHyattCitySearchCards([snapshot.pageText].filter(Boolean), snapshot.url || searchUrl);
+
+    return {
+      capturedAt: new Date(),
+      results,
+      searchUrl,
+      status: results.length > 0 ? "succeeded" : ready ? "partial" : "failed",
+      summary:
+        results.length > 0
+          ? `Hyatt official search returned ${results.length} visible hotel rate${results.length === 1 ? "" : "s"}.`
+          : ready
+            ? "Hyatt opened, but no visible Avg/Night hotel results were found."
+            : "Hyatt did not expose a readable city-search result page.",
+      warning:
+        results.length > 0 && !requestedCurrencyFound
+          ? `Hyatt did not expose a selectable ${query.currency} currency control; returned the currency shown by Hyatt.`
+          : results.length > 0
+          ? null
+          : "Hyatt may have changed the search page structure, blocked automated extraction, or returned no available hotels for these dates."
+    };
   } finally {
     client.close();
     await closeChromeTarget(endpoint, target.id);

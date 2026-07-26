@@ -15,6 +15,7 @@ import {
   isHyattAutomationBlocked,
   parseHyattCandidates
 } from "@/lib/collectors";
+import { buildHyattCitySearchUrl, parseHyattCitySearchCards } from "@/lib/hyattCitySearch";
 
 const input = {
   bookingId: "booking-1",
@@ -37,7 +38,7 @@ describe("hotel price tools", () => {
 
   it("builds a Hyatt search URL with dates and points mode", () => {
     const url = buildHyattSearchUrl(input);
-    expect(url).toContain("hyatt.com/search");
+    expect(url).toContain("hyatt.com/search/hotels/en-US/");
     expect(url).toContain("checkinDate=2026-09-10");
     expect(url).toContain("checkoutDate=2026-09-13");
     expect(url).toContain("currency=USD");
@@ -54,7 +55,7 @@ describe("hotel price tools", () => {
       ...input,
       bookingUrl: "https://www.hyatt.com/grand-hyatt/en-US/tyogh-grand-hyatt-tokyo"
     });
-    expect(url).toContain("hyatt.com/en-US/shop/rooms/tyogh");
+    expect(url).toContain("hyatt.com/shop/rooms/tyogh");
   });
 
   it("builds a hotel-specific Hyatt shop URL for known hotel names", () => {
@@ -63,7 +64,41 @@ describe("hotel price tools", () => {
       hotelName: "Hyatt Place Kuala Lumpur Bukit Jalil",
       city: "Kuala Lumpur"
     });
-    expect(url).toContain("hyatt.com/en-US/shop/rooms/kulzk");
+    expect(url).toContain("hyatt.com/shop/rooms/kulzk");
+  });
+
+  it("builds the standalone Hyatt city search URL with the requested currency", () => {
+    const url = buildHyattCitySearchUrl({
+      adults: 2,
+      checkIn: "2026-09-10",
+      checkOut: "2026-09-13",
+      city: "Tokyo",
+      currency: "USD"
+    });
+
+    expect(url).toContain("hyatt.com/search/hotels/en-US/Tokyo");
+    expect(url).not.toContain("hyatt.com/shop");
+    expect(url).toContain("checkinDate=2026-09-10");
+    expect(url).toContain("adults=2");
+    expect(url).toContain("currency=USD");
+  });
+
+  it("parses all visible Hyatt city search cards with a consistent Avg/Night basis", () => {
+    const results = parseHyattCitySearchCards(
+      [
+        "Grand Hyatt Tokyo Member Rate JPY 72,000 Avg/Night View Hotel",
+        "Hyatt Centric Ginza Tokyo Standard Rate JPY 64,000 Avg/Night View Hotel",
+        "Andaz Tokyo Available JPY 81,000 Avg/Night Select"
+      ],
+      "https://www.hyatt.com/shop?location=Tokyo"
+    );
+
+    expect(results.map((result) => [result.hotelName, result.avgNightlyRate, result.currency])).toEqual([
+      ["Hyatt Centric Ginza Tokyo", 64000, "JPY"],
+      ["Grand Hyatt Tokyo", 72000, "JPY"],
+      ["Andaz Tokyo", 81000, "JPY"]
+    ]);
+    expect(results.every((result) => result.priceBasis.includes("Avg/Night"))).toBe(true);
   });
 
   it("extracts Hyatt hotel codes from official hotel URLs", () => {

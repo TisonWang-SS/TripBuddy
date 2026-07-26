@@ -1,13 +1,14 @@
 import { DEFAULT_PROFILE_ID } from "@/lib/constants";
 import { prisma } from "@/lib/db";
 import { updateChromeSettings } from "@/lib/actions";
-import { defaultChromeUserDataDir } from "@/lib/browserConnector";
+import { standardChromeUserDataDir } from "@/lib/browserConnector";
 
 export default async function SettingsPage() {
   const profile = await prisma.userProfile.findUnique({ where: { id: DEFAULT_PROFILE_ID } });
   const chromeProfileName = profile?.chromeProfileName ?? "TripBuddy";
   const configuredDirectory = profile?.chromeProfileDirectory ?? "";
-  const chromeUserDataDir = profile?.chromeUserDataDir ?? defaultChromeUserDataDir();
+  const chromeUserDataDir = profile?.chromeUserDataDir ?? standardChromeUserDataDir();
+  const chromeDebugPort = profile?.chromeDebugPort || 9222;
 
   return (
     <div className="grid">
@@ -49,7 +50,7 @@ export default async function SettingsPage() {
             </div>
             <div className="field">
               <label htmlFor="chromeDebugPort">Debug port</label>
-              <input id="chromeDebugPort" name="chromeDebugPort" type="number" min="0" max="65535" defaultValue={profile?.chromeDebugPort ?? 0} />
+              <input id="chromeDebugPort" name="chromeDebugPort" type="number" min="0" max="65535" defaultValue={chromeDebugPort} />
             </div>
           </div>
           <input type="hidden" name="chromeProfileDirectory" value={configuredDirectory} />
