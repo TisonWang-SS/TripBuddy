@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { createRecommendationAction, promoteObservationToBooking } from "@/lib/actions";
+import { formatBookingBaseline } from "@/lib/bookingPrice";
 import { buildHyattSearchUrl, type InventoryType } from "@/lib/collectors";
 import { prisma } from "@/lib/db";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
@@ -57,7 +58,7 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
       <section className="grid three">
         <div className="card flat metric">
           <span className="muted">Current baseline</span>
-          <strong>{formatMoney(booking.originalPrice, booking.currency)}</strong>
+          <strong>{formatBookingBaseline(booking)}</strong>
         </div>
         <div className="card flat metric">
           <span className="muted">Latest direct</span>

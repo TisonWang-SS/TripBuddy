@@ -49,6 +49,14 @@ export type PageReadinessDiagnostics = {
   url: string;
 };
 
+export type AccountPageSnapshot = {
+  detailLinks?: string[];
+  links: Array<{ href: string; text: string }>;
+  text: string;
+  title: string;
+  url: string;
+};
+
 type HyattCitySearchPageSnapshot = {
   pageText: string;
   title: string;
@@ -329,6 +337,56 @@ async function readPageText(client: CdpPageClient) {
   }
 
   return JSON.parse(value) as ExtractedPageText;
+}
+
+async function readAccountPageSnapshot(client: CdpPageClient) {
+  const result = (await client.send("Runtime.evaluate", {
+    expression: `JSON.stringify({
+      detailLinks: Array.from(new Set(Array.from(document.querySelectorAll('a[href]'))
+        .filter((anchor) => /^Stay Details$/i.test((anchor.innerText || anchor.textContent || '').replace(/\\s+/g, ' ').trim()))
+        .map((anchor) => anchor.href)
+        .filter((href) => /\\/res\\/[^/]+\\/detail\\//i.test(href)))),
+      links: Array.from(document.querySelectorAll('a[href]')).map((anchor) => ({
+        href: anchor.href,
+        text: (anchor.innerText || anchor.textContent || '').replace(/\\s+/g, ' ').trim()
+      })).filter((link) => link.href || link.text).slice(0, 120),
+      text: document.body?.innerText ?? '',
+      title: document.title,
+      url: location.href
+    })`,
+    returnByValue: true
+  })) as { result?: { value?: string } };
+
+  const value = result.result?.value;
+  if (!value) {
+    throw new Error("Chrome account page extraction returned no value.");
+  }
+
+  return JSON.parse(value) as AccountPageSnapshot;
+}
+
+async function waitForAccountPageText(client: CdpPageClient, timeoutMs: number) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const result = (await client.send("Runtime.evaluate", {
+      expression:
+        "(() => { const text = document.body?.innerText?.replace(/\\s+/g, ' ').trim() ?? ''; return { readyState: document.readyState, textLength: text.length, hasAccountSignal: /World of Hyatt|Sign In|Account|Reservations?|Stays?|Confirmation|Upcoming/i.test(text) }; })()",
+      returnByValue: true
+    })) as { result?: { value?: { hasAccountSignal?: boolean; readyState?: string; textLength?: number } } };
+
+    const value = result.result?.value;
+    if (
+      (value?.readyState === "interactive" || value?.readyState === "complete") &&
+      (value.textLength ?? 0) > 200 &&
+      value.hasAccountSignal
+    ) {
+      return true;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  return false;
 }
 
 async function collectHyattCitySearchSnapshot(client: CdpPageClient): Promise<HyattCitySearchPageSnapshot> {
@@ -738,6 +796,150 @@ export async function extractTextWithChromeProfile(url: string, config: ChromePr
     client.close();
     await closeChromeTarget(endpoint, target.id);
   }
+}
+
+export async function extractHyattAccountSnapshotsWithChromeProfile(config: ChromeProfileConfig): Promise<AccountPageSnapshot[]> {
+  const endpoint = await ensureChromeDebugEndpoint(config);
+  const target = await getOrCreateHyattAccountTarget(endpoint);
+  const client = await CdpPageClient.connect(target.webSocketDebuggerUrl);
+  const snapshots: AccountPageSnapshot[] = [];
+  const accountUrl = "https://www.hyatt.com/profile/en-US/account-overview";
+
+  try {
+    await client.send("Page.enable");
+    await client.send("Runtime.enable");
+    const overview = await navigateAndReadAccountPage(client, accountUrl).catch(() =>
+      navigateAndReadAccountPage(client, "https://www.hyatt.com/profile/en-US/my-stays#upcoming-stays")
+    );
+    snapshots.push(overview);
+
+    if (isLikelySignedOutHyattAccountPage(overview.text, overview.url)) {
+      return snapshots;
+    }
+
+    const reservationUrl = findHyattReservationUrl(overview) ?? "https://www.hyatt.com/profile/en-US/my-stays#upcoming-stays";
+    if (reservationUrl !== overview.url) {
+      await navigateAndReadAccountPage(client, reservationUrl);
+      await refreshHyattStaysPage(client);
+      const staysSnapshot = await readAccountPageSnapshot(client);
+      snapshots.push(staysSnapshot);
+      const detailLinks = staysSnapshot.detailLinks ?? [];
+      snapshots.push(...(await collectHyattStayDetailSnapshots(endpoint, detailLinks)));
+    }
+
+    return snapshots;
+  } finally {
+    client.close();
+    await closeChromeTarget(endpoint, target.id);
+  }
+}
+
+async function collectHyattStayDetailSnapshots(endpoint: string, detailLinks: string[]) {
+  const uniqueLinks = Array.from(new Set(detailLinks));
+  return (
+    await Promise.all(
+      uniqueLinks.map(async (detailUrl) => {
+        const target = await createChromeTarget(endpoint, detailUrl);
+        const client = await CdpPageClient.connect(target.webSocketDebuggerUrl);
+        try {
+          await client.send("Page.enable");
+          await client.send("Runtime.enable");
+          await waitForAccountPageText(client, 30000);
+          const snapshot = await readAccountPageSnapshot(client);
+          return snapshot.text.replace(/\s+/g, " ").trim().length > 200 ? snapshot : null;
+        } finally {
+          client.close();
+          await closeChromeTarget(endpoint, target.id);
+        }
+      })
+    )
+  ).filter((snapshot): snapshot is AccountPageSnapshot => snapshot !== null);
+}
+
+async function getOrCreateHyattAccountTarget(endpoint: string) {
+  const targets = await listChromeTargets(endpoint);
+  const existingHyattTarget = targets.find((target) => {
+    const targetUrl = target.url ?? "";
+    return target.type === "page" && /https:\/\/www\.hyatt\.com\/(?:profile|res)\//i.test(targetUrl);
+  });
+
+  return existingHyattTarget ?? (await getOrCreateChromeTarget(endpoint));
+}
+
+async function navigateAndReadAccountPage(client: CdpPageClient, url: string) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await client.send("Page.navigate", { url });
+    await waitForAccountPageText(client, 25000);
+    const snapshot = await readAccountPageSnapshot(client);
+    if (snapshot.text.replace(/\s+/g, " ").trim().length > 200) {
+      return snapshot;
+    }
+  }
+
+  throw new Error("Hyatt account page did not expose readable account text.");
+}
+
+async function refreshHyattStaysPage(client: CdpPageClient) {
+  const clicked = (await client.send("Runtime.evaluate", {
+    expression: `(async () => {
+      if (!/\\/my-stays/i.test(location.href)) {
+        return false;
+      }
+      const controls = Array.from(document.querySelectorAll('button,a,[role="button"]'));
+      const refresh = controls.find((element) => /\\bRefresh\\b/i.test((element.textContent || '').replace(/\\s+/g, ' ').trim()));
+      if (!refresh) {
+        return false;
+      }
+      refresh.scrollIntoView({ block: 'center' });
+      refresh.click();
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      return true;
+    })()`,
+    awaitPromise: true,
+    returnByValue: true
+  })) as { result?: { value?: boolean } };
+
+  if (!clicked.result?.value) {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+  }
+  await waitForHyattStayDetailControls(client, 10000);
+}
+
+async function waitForHyattStayDetailControls(client: CdpPageClient, timeoutMs: number) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const result = (await client.send("Runtime.evaluate", {
+      expression:
+        "(() => { const text = document.body?.innerText?.replace(/\\s+/g, ' ').trim() ?? ''; return /\\bStay Details\\b/i.test(text) || /\\bMissing a reservation\\?\\b/i.test(text); })()",
+      returnByValue: true
+    })) as { result?: { value?: boolean } };
+    if (result.result?.value) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
+function isLikelySignedOutHyattAccountPage(text: string, url: string) {
+  const compactText = text.replace(/\s+/g, " ");
+  const loginUrlSignal = /\/(?:profile|login|signin|sign-in|auth)\b/i.test(url);
+  const signInSignals =
+    /Sign In|Sign in to|First time signing in|Activate your online account|Not a member\?|Password|Username|Email Address|Passkeys/i.test(
+      compactText
+    );
+  const accountSignals = /Sign Out|Upcoming Stays|Upcoming Reservations|My Reservations|Confirmation(?: Number| #|#)|Points Balance/i.test(
+    compactText
+  );
+  return loginUrlSignal && signInSignals && !accountSignals;
+}
+
+function findHyattReservationUrl(snapshot: AccountPageSnapshot) {
+  const reservationLink = snapshot.links.find((link) => {
+    const label = `${link.text} ${link.href}`;
+    return /reservation|upcoming|stay|trip/i.test(label) && /hyatt\.com/i.test(link.href) && !/\/res\/.+find/i.test(link.href);
+  });
+
+  return reservationLink?.href ?? null;
 }
 
 export async function extractRateDetailWithChromeProfile(url: string, config: ChromeProfileConfig): Promise<RateDetailExtraction> {

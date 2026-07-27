@@ -195,6 +195,43 @@ button {
   justify-content: flex-end;
 }
 
+.importPanel {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.notice {
+  max-width: 320px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  text-align: left;
+}
+
+.notice p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.notice a,
+.notice small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.notice.success {
+  border-color: color-mix(in srgb, var(--green) 35%, var(--line));
+}
+
+.notice.warning {
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--line));
+}
+
 .subnav {
   display: flex;
   flex-wrap: wrap;

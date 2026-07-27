@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { startOfToday } from "@/lib/bookingDates";
+import { formatBookingBaseline } from "@/lib/bookingPrice";
 import { DEFAULT_PROFILE_ID } from "@/lib/constants";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { ImportHyattBookingsButton } from "./ImportHyattBookingsButton";
 
 export default async function DashboardPage() {
   const [profile, bookings] = await Promise.all([
     prisma.userProfile.findUnique({ where: { id: DEFAULT_PROFILE_ID } }),
     prisma.hotelBooking.findMany({
+      where: { checkIn: { gte: startOfToday() } },
       orderBy: { checkIn: "asc" },
       include: {
         observations: { orderBy: { observedAt: "desc" }, take: 1 },
@@ -32,6 +36,7 @@ export default async function DashboardPage() {
           <p>Track active bookings, current decisions, and prices that need action.</p>
         </div>
         <div className="buttonRow">
+          <ImportHyattBookingsButton />
           <Link className="button" href="/bookings/new">
             Add a booking
           </Link>
@@ -81,7 +86,7 @@ export default async function DashboardPage() {
                     </div>
                     <div>
                       <span className={`badge ${latest?.verdict ?? ""}`}>{latest?.verdict ?? "No verdict"}</span>
-                      <p>{formatMoney(booking.originalPrice, booking.currency)}</p>
+                      <p>{formatBookingBaseline(booking)}</p>
                     </div>
                   </Link>
                 );
