@@ -76,6 +76,25 @@ type CdpResponse = {
   error?: { message?: string };
 };
 
+export const DEFAULT_CDP_INTERACTION_WAIT_MS = 1000;
+
+export function normalizeCdpInteractionWaitMs(value: number | null | undefined) {
+  return Number.isFinite(value) && value !== null && value !== undefined && value >= 0
+    ? Math.round(value)
+    : DEFAULT_CDP_INTERACTION_WAIT_MS;
+}
+
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForCdpInteraction(interactionWaitMs: number) {
+  const waitMs = normalizeCdpInteractionWaitMs(interactionWaitMs);
+  if (waitMs > 0) {
+    await sleep(waitMs);
+  }
+}
+
 export function chromeLocalStatePath() {
   return path.join(homedir(), "Library", "Application Support", "Google", "Chrome", "Local State");
 }
@@ -127,7 +146,7 @@ async function waitForChromeDebugEndpoint(port: number, timeoutMs: number) {
     if (endpoint) {
       return endpoint;
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await sleep(500);
   }
 
   return null;
@@ -150,7 +169,7 @@ async function waitForDynamicChromeDebugEndpoint(userDataDir: string, timeoutMs:
     } catch {
       // Chrome creates this file after the debugging endpoint starts.
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await sleep(500);
   }
 
   return null;
@@ -318,7 +337,7 @@ async function waitForReadablePage(client: CdpPageClient, timeoutMs: number) {
       return true;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await sleep(500);
   }
 
   return false;
@@ -383,15 +402,20 @@ async function waitForAccountPageText(client: CdpPageClient, timeoutMs: number) 
       return true;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await sleep(500);
   }
 
   return false;
 }
 
-async function collectHyattCitySearchSnapshot(client: CdpPageClient): Promise<HyattCitySearchPageSnapshot> {
+async function collectHyattCitySearchSnapshot(
+  client: CdpPageClient,
+  interactionWaitMs: number
+): Promise<HyattCitySearchPageSnapshot> {
+  const scrollWaitMs = normalizeCdpInteractionWaitMs(interactionWaitMs);
   const result = (await client.send("Runtime.evaluate", {
     expression: `(async () => {
+      const interactionWaitMs = ${JSON.stringify(scrollWaitMs)};
       await scrollResults();
       return JSON.stringify({
         pageText: document.body?.innerText?.replace(/\\s+/g, ' ').trim() || '',
@@ -403,7 +427,7 @@ async function collectHyattCitySearchSnapshot(client: CdpPageClient): Promise<Hy
         let previousHeight = 0;
         for (let index = 0; index < 8; index += 1) {
           window.scrollTo(0, document.body.scrollHeight);
-          await new Promise((resolve) => setTimeout(resolve, 900));
+          await new Promise((resolve) => setTimeout(resolve, interactionWaitMs));
           const currentHeight = document.body.scrollHeight;
           if (currentHeight === previousHeight) {
             break;
@@ -411,7 +435,7 @@ async function collectHyattCitySearchSnapshot(client: CdpPageClient): Promise<Hy
           previousHeight = currentHeight;
         }
         window.scrollTo(0, 0);
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => setTimeout(resolve, interactionWaitMs));
       }
     })()`,
     awaitPromise: true,
@@ -426,7 +450,7 @@ async function collectHyattCitySearchSnapshot(client: CdpPageClient): Promise<Hy
   return JSON.parse(value) as HyattCitySearchPageSnapshot;
 }
 
-async function selectHyattCitySearchCurrency(client: CdpPageClient, currency: string) {
+async function selectHyattCitySearchCurrency(client: CdpPageClient, currency: string, interactionWaitMs: number) {
   const result = (await client.send("Runtime.evaluate", {
     expression: `(async () => {
       const requestedCurrency = ${JSON.stringify(currency)};
@@ -487,6 +511,10 @@ async function selectHyattCitySearchCurrency(client: CdpPageClient, currency: st
     returnByValue: true
   })) as { result?: { value?: { changed?: boolean; found?: boolean } } };
 
+  if (result.result?.value?.found) {
+    await waitForCdpInteraction(interactionWaitMs);
+  }
+
   return Boolean(result.result?.value?.found);
 }
 
@@ -507,7 +535,7 @@ async function waitForHyattCitySearchPage(client: CdpPageClient, timeoutMs: numb
       return false;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 750));
+    await sleep(750);
   }
 
   return false;
@@ -569,7 +597,7 @@ async function waitForTextPattern(client: CdpPageClient, patternSource: string, 
       return;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await sleep(500);
   }
 }
 
@@ -595,11 +623,11 @@ async function waitForPageChange(client: CdpPageClient, previous: { length: numb
     if (current.url !== previous.url || textChanged) {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await sleep(500);
   }
 }
 
-async function clickLowestVisibleRate(client: CdpPageClient) {
+async function clickLowestVisibleRate(client: CdpPageClient, interactionWaitMs: number) {
   const candidateResult = (await client.send("Runtime.evaluate", {
     expression: `(() => {
       const amountPattern = /(?:MYR|USD|JPY|SGD|HKD|EUR|GBP|THB|KRW|RM|\\$|€|£|¥|฿|₩)\\s?([0-9][0-9,]{1,8})(?:\\.\\d{2})?\\s*Avg\\/Night/i;
@@ -669,9 +697,11 @@ async function clickLowestVisibleRate(client: CdpPageClient) {
     };
   }
 
+  await waitForCdpInteraction(interactionWaitMs);
   await client.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: candidate.x, y: candidate.y, button: "none" });
   await client.send("Input.dispatchMouseEvent", { type: "mousePressed", x: candidate.x, y: candidate.y, button: "left", clickCount: 1 });
   await client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: candidate.x, y: candidate.y, button: "left", clickCount: 1 });
+  await waitForCdpInteraction(interactionWaitMs);
 
   return {
     amount: candidate.amount ?? null,
@@ -681,7 +711,7 @@ async function clickLowestVisibleRate(client: CdpPageClient) {
   };
 }
 
-async function clickHyattRatePageBook(client: CdpPageClient) {
+async function clickHyattRatePageBook(client: CdpPageClient, interactionWaitMs: number) {
   const candidateResult = (await client.send("Runtime.evaluate", {
     expression: `(() => {
       const pageText = document.body?.innerText?.replace(/\\s+/g, ' ').trim() || '';
@@ -764,9 +794,11 @@ async function clickHyattRatePageBook(client: CdpPageClient) {
     };
   }
 
+  await waitForCdpInteraction(interactionWaitMs);
   await client.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: candidate.x, y: candidate.y, button: "none" });
   await client.send("Input.dispatchMouseEvent", { type: "mousePressed", x: candidate.x, y: candidate.y, button: "left", clickCount: 1 });
   await client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: candidate.x, y: candidate.y, button: "left", clickCount: 1 });
+  await waitForCdpInteraction(interactionWaitMs);
 
   return {
     amount: null,
@@ -776,7 +808,11 @@ async function clickHyattRatePageBook(client: CdpPageClient) {
   };
 }
 
-export async function extractTextWithChromeProfile(url: string, config: ChromeProfileConfig): Promise<ExtractedPageText> {
+export async function extractTextWithChromeProfile(
+  url: string,
+  config: ChromeProfileConfig,
+  interactionWaitMs = DEFAULT_CDP_INTERACTION_WAIT_MS
+): Promise<ExtractedPageText> {
   const endpoint = await ensureChromeDebugEndpoint(config);
   const target = await getOrCreateChromeTarget(endpoint);
   const client = await CdpPageClient.connect(target.webSocketDebuggerUrl);
@@ -785,8 +821,10 @@ export async function extractTextWithChromeProfile(url: string, config: ChromePr
     await client.send("Page.enable");
     await client.send("Runtime.enable");
     await client.send("Page.navigate", { url });
+    await waitForCdpInteraction(interactionWaitMs);
     if (!(await waitForReadablePage(client, 20000))) {
       await client.send("Page.navigate", { url });
+      await waitForCdpInteraction(interactionWaitMs);
       if (!(await waitForReadablePage(client, 20000))) {
         throw await createUnreadablePageError(client);
       }
@@ -798,7 +836,10 @@ export async function extractTextWithChromeProfile(url: string, config: ChromePr
   }
 }
 
-export async function extractHyattAccountSnapshotsWithChromeProfile(config: ChromeProfileConfig): Promise<AccountPageSnapshot[]> {
+export async function extractHyattAccountSnapshotsWithChromeProfile(
+  config: ChromeProfileConfig,
+  interactionWaitMs = DEFAULT_CDP_INTERACTION_WAIT_MS
+): Promise<AccountPageSnapshot[]> {
   const endpoint = await ensureChromeDebugEndpoint(config);
   const target = await getOrCreateHyattAccountTarget(endpoint);
   const client = await CdpPageClient.connect(target.webSocketDebuggerUrl);
@@ -808,8 +849,8 @@ export async function extractHyattAccountSnapshotsWithChromeProfile(config: Chro
   try {
     await client.send("Page.enable");
     await client.send("Runtime.enable");
-    const overview = await navigateAndReadAccountPage(client, accountUrl).catch(() =>
-      navigateAndReadAccountPage(client, "https://www.hyatt.com/profile/en-US/my-stays#upcoming-stays")
+    const overview = await navigateAndReadAccountPage(client, accountUrl, interactionWaitMs).catch(() =>
+      navigateAndReadAccountPage(client, "https://www.hyatt.com/profile/en-US/my-stays#upcoming-stays", interactionWaitMs)
     );
     snapshots.push(overview);
 
@@ -819,12 +860,12 @@ export async function extractHyattAccountSnapshotsWithChromeProfile(config: Chro
 
     const reservationUrl = findHyattReservationUrl(overview) ?? "https://www.hyatt.com/profile/en-US/my-stays#upcoming-stays";
     if (reservationUrl !== overview.url) {
-      await navigateAndReadAccountPage(client, reservationUrl);
-      await refreshHyattStaysPage(client);
+      await navigateAndReadAccountPage(client, reservationUrl, interactionWaitMs);
+      await refreshHyattStaysPage(client, interactionWaitMs);
       const staysSnapshot = await readAccountPageSnapshot(client);
       snapshots.push(staysSnapshot);
       const detailLinks = staysSnapshot.detailLinks ?? [];
-      snapshots.push(...(await collectHyattStayDetailSnapshots(endpoint, detailLinks)));
+      snapshots.push(...(await collectHyattStayDetailSnapshots(endpoint, detailLinks, interactionWaitMs)));
     }
 
     return snapshots;
@@ -834,7 +875,7 @@ export async function extractHyattAccountSnapshotsWithChromeProfile(config: Chro
   }
 }
 
-async function collectHyattStayDetailSnapshots(endpoint: string, detailLinks: string[]) {
+async function collectHyattStayDetailSnapshots(endpoint: string, detailLinks: string[], interactionWaitMs: number) {
   const uniqueLinks = Array.from(new Set(detailLinks));
   return (
     await Promise.all(
@@ -844,6 +885,7 @@ async function collectHyattStayDetailSnapshots(endpoint: string, detailLinks: st
         try {
           await client.send("Page.enable");
           await client.send("Runtime.enable");
+          await waitForCdpInteraction(interactionWaitMs);
           await waitForAccountPageText(client, 30000);
           const snapshot = await readAccountPageSnapshot(client);
           return snapshot.text.replace(/\s+/g, " ").trim().length > 200 ? snapshot : null;
@@ -866,9 +908,10 @@ async function getOrCreateHyattAccountTarget(endpoint: string) {
   return existingHyattTarget ?? (await getOrCreateChromeTarget(endpoint));
 }
 
-async function navigateAndReadAccountPage(client: CdpPageClient, url: string) {
+async function navigateAndReadAccountPage(client: CdpPageClient, url: string, interactionWaitMs: number) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     await client.send("Page.navigate", { url });
+    await waitForCdpInteraction(interactionWaitMs);
     await waitForAccountPageText(client, 25000);
     const snapshot = await readAccountPageSnapshot(client);
     if (snapshot.text.replace(/\s+/g, " ").trim().length > 200) {
@@ -879,7 +922,7 @@ async function navigateAndReadAccountPage(client: CdpPageClient, url: string) {
   throw new Error("Hyatt account page did not expose readable account text.");
 }
 
-async function refreshHyattStaysPage(client: CdpPageClient) {
+async function refreshHyattStaysPage(client: CdpPageClient, interactionWaitMs: number) {
   const clicked = (await client.send("Runtime.evaluate", {
     expression: `(async () => {
       if (!/\\/my-stays/i.test(location.href)) {
@@ -892,7 +935,7 @@ async function refreshHyattStaysPage(client: CdpPageClient) {
       }
       refresh.scrollIntoView({ block: 'center' });
       refresh.click();
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+      await new Promise((resolve) => setTimeout(resolve, ${JSON.stringify(normalizeCdpInteractionWaitMs(interactionWaitMs))}));
       return true;
     })()`,
     awaitPromise: true,
@@ -900,7 +943,7 @@ async function refreshHyattStaysPage(client: CdpPageClient) {
   })) as { result?: { value?: boolean } };
 
   if (!clicked.result?.value) {
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+    await waitForCdpInteraction(interactionWaitMs);
   }
   await waitForHyattStayDetailControls(client, 10000);
 }
@@ -916,7 +959,7 @@ async function waitForHyattStayDetailControls(client: CdpPageClient, timeoutMs: 
     if (result.result?.value) {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await sleep(500);
   }
 }
 
@@ -942,7 +985,11 @@ function findHyattReservationUrl(snapshot: AccountPageSnapshot) {
   return reservationLink?.href ?? null;
 }
 
-export async function extractRateDetailWithChromeProfile(url: string, config: ChromeProfileConfig): Promise<RateDetailExtraction> {
+export async function extractRateDetailWithChromeProfile(
+  url: string,
+  config: ChromeProfileConfig,
+  interactionWaitMs = DEFAULT_CDP_INTERACTION_WAIT_MS
+): Promise<RateDetailExtraction> {
   const endpoint = await ensureChromeDebugEndpoint(config);
   const target = await getOrCreateChromeTarget(endpoint);
   const client = await CdpPageClient.connect(target.webSocketDebuggerUrl);
@@ -951,15 +998,17 @@ export async function extractRateDetailWithChromeProfile(url: string, config: Ch
     await client.send("Page.enable");
     await client.send("Runtime.enable");
     await client.send("Page.navigate", { url });
+    await waitForCdpInteraction(interactionWaitMs);
     if (!(await waitForReadablePage(client, 20000))) {
       await client.send("Page.navigate", { url });
+      await waitForCdpInteraction(interactionWaitMs);
       if (!(await waitForReadablePage(client, 20000))) {
         throw await createUnreadablePageError(client);
       }
     }
     const list = await readPageText(client);
     const listSignature = await currentPageSignature(client);
-    let selectedRate = await clickLowestVisibleRate(client);
+    let selectedRate = await clickLowestVisibleRate(client, interactionWaitMs);
     if (!selectedRate.clicked) {
       return { detail: null, detailSelection: null, list, selectedRate };
     }
@@ -970,7 +1019,7 @@ export async function extractRateDetailWithChromeProfile(url: string, config: Ch
     let detailSelection: RateDetailExtraction["detailSelection"] = null;
     if (!hasFinalTotalSignal(detail.text)) {
       const detailSignature = await currentPageSignature(client);
-      const secondSelection = await clickHyattRatePageBook(client);
+      const secondSelection = await clickHyattRatePageBook(client, interactionWaitMs);
       detailSelection = secondSelection;
       if (secondSelection.clicked) {
         await waitForPageChange(client, detailSignature, 20000);
@@ -988,7 +1037,8 @@ export async function extractRateDetailWithChromeProfile(url: string, config: Ch
 
 export async function searchHyattCityRatesWithChromeProfile(
   query: HyattCitySearchQuery,
-  config: ChromeProfileConfig
+  config: ChromeProfileConfig,
+  interactionWaitMs = DEFAULT_CDP_INTERACTION_WAIT_MS
 ): Promise<HyattCitySearchRun> {
   const endpoint = await ensureChromeDebugEndpoint(config);
   const target = await getOrCreateChromeTarget(endpoint);
@@ -999,9 +1049,10 @@ export async function searchHyattCityRatesWithChromeProfile(
     await client.send("Page.enable");
     await client.send("Runtime.enable");
     await client.send("Page.navigate", { url: searchUrl });
+    await waitForCdpInteraction(interactionWaitMs);
     const ready = await waitForHyattCitySearchPage(client, 45000);
-    const requestedCurrencyFound = ready ? await selectHyattCitySearchCurrency(client, query.currency) : false;
-    const snapshot = ready ? await collectHyattCitySearchSnapshot(client) : { pageText: "", title: "", url: searchUrl };
+    const requestedCurrencyFound = ready ? await selectHyattCitySearchCurrency(client, query.currency, interactionWaitMs) : false;
+    const snapshot = ready ? await collectHyattCitySearchSnapshot(client, interactionWaitMs) : { pageText: "", title: "", url: searchUrl };
     const results = parseHyattCitySearchCards([snapshot.pageText].filter(Boolean), snapshot.url || searchUrl);
 
     return {

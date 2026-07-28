@@ -2,7 +2,13 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { isEmptyHyattDocument, normalizeDebugPort, resolveChromeProfileDirectory } from "@/lib/browserConnector";
+import {
+  DEFAULT_CDP_INTERACTION_WAIT_MS,
+  isEmptyHyattDocument,
+  normalizeCdpInteractionWaitMs,
+  normalizeDebugPort,
+  resolveChromeProfileDirectory
+} from "@/lib/browserConnector";
 
 describe("browser connector", () => {
   it("resolves a Chrome profile directory by display name", async () => {
@@ -30,6 +36,15 @@ describe("browser connector", () => {
     expect(normalizeDebugPort(0)).toBe(0);
     expect(normalizeDebugPort(70000)).toBe(0);
     expect(normalizeDebugPort(undefined)).toBe(0);
+  });
+
+  it("defaults CDP interaction waits to one second", () => {
+    expect(DEFAULT_CDP_INTERACTION_WAIT_MS).toBe(1000);
+    expect(normalizeCdpInteractionWaitMs(undefined)).toBe(1000);
+    expect(normalizeCdpInteractionWaitMs(null)).toBe(1000);
+    expect(normalizeCdpInteractionWaitMs(-1)).toBe(1000);
+    expect(normalizeCdpInteractionWaitMs(0)).toBe(0);
+    expect(normalizeCdpInteractionWaitMs(1250.4)).toBe(1250);
   });
 
   it("detects empty Hyatt automation documents", () => {
