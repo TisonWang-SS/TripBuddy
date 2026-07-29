@@ -567,7 +567,9 @@ export function isEmptyHyattDocument(diagnostics: PageReadinessDiagnostics) {
     diagnostics.url.includes("hyatt.com") &&
     diagnostics.textLength === 0 &&
     diagnostics.title === "" &&
-    (normalizedHtml === "<html><head></head><body></body></html>" || normalizedHtml.startsWith("<html><head></head><body></body>"))
+    (normalizedHtml === "<html><head></head><body></body></html>" ||
+      normalizedHtml.startsWith("<html><head></head><body></body>") ||
+      /window\.kpsdk|\/ips\.js|x-kpsdk-im/i.test(diagnostics.htmlSample))
   );
 }
 

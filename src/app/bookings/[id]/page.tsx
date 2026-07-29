@@ -190,6 +190,7 @@ function createBrowserImportUrl(booking: {
     const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
     hashParams.set("tripbuddyBookingId", booking.id);
     hashParams.set("tripbuddyEndpoint", "http://localhost:3000");
+    hashParams.set("tripbuddyRunNonce", String(Date.now()));
     url.hash = hashParams.toString();
     return url.toString();
   } catch {

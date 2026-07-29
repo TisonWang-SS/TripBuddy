@@ -10,7 +10,6 @@ import {
   extractLowestCashRate,
   extractLowestCashPrice,
   extractLowestPointsPrice,
-  getKnownHyattHotelCode,
   getHotelPriceTool,
   isHyattAutomationBlocked,
   parseHyattCandidates
@@ -58,13 +57,22 @@ describe("hotel price tools", () => {
     expect(url).toContain("hyatt.com/shop/rooms/tyogh");
   });
 
-  it("builds a hotel-specific Hyatt shop URL for known hotel names", () => {
+  it("uses Hyatt search when no explicit hotel code is available", () => {
     const url = buildHyattSearchUrl({
       ...input,
       hotelName: "Hyatt Place Kuala Lumpur Bukit Jalil",
       city: "Kuala Lumpur"
     });
-    expect(url).toContain("hyatt.com/shop/rooms/kulzk");
+    expect(url).toContain("hyatt.com/search/hotels/en-US/Hyatt%20Place%20Kuala%20Lumpur%20Bukit%20Jalil%20Kuala%20Lumpur");
+  });
+
+  it("keeps unknown Hyatt hotel names on the search flow for browser-assisted exact selection", () => {
+    const url = buildHyattSearchUrl({
+      ...input,
+      hotelName: "Grand Hyatt Kuala Lumpur",
+      city: "Kuala Lumpur"
+    });
+    expect(url).toContain("hyatt.com/search/hotels/en-US/Grand%20Hyatt%20Kuala%20Lumpur%20Kuala%20Lumpur");
   });
 
   it("builds the standalone Hyatt city search URL with the requested currency", () => {
@@ -104,10 +112,6 @@ describe("hotel price tools", () => {
   it("extracts Hyatt hotel codes from official hotel URLs", () => {
     expect(extractHyattHotelCode("https://www.hyatt.com/en-US/hotel/japan/grand-hyatt-tokyo/tyogh")).toBe("tyogh");
     expect(extractHyattHotelCode("https://www.hyatt.com/grand-hyatt/en-US/tyogh-grand-hyatt-tokyo")).toBe("tyogh");
-  });
-
-  it("resolves known Hyatt hotel codes from names", () => {
-    expect(getKnownHyattHotelCode("Hyatt Place Kuala Lumpur Bukit Jalil")).toBe("kulzk");
   });
 
   it("detects Hyatt automation blocks", () => {

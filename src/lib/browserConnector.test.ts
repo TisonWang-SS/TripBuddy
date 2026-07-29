@@ -64,5 +64,14 @@ describe("browser connector", () => {
         url: "https://www.hyatt.com/en-US/shop/rooms/kulzk"
       })
     ).toBe(false);
+    expect(
+      isEmptyHyattDocument({
+        htmlSample:
+          '<html><head></head><body><script>window.KPSDK={};</script><script src="/challenge/ips.js?x-kpsdk-im=abc"></script></body></html>',
+        textLength: 0,
+        title: "",
+        url: "https://www.hyatt.com/shop/rooms/kuagh"
+      })
+    ).toBe(true);
   });
 });

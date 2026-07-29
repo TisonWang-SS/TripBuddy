@@ -16,6 +16,37 @@ describe("browser evidence", () => {
     });
   });
 
+  it("parses compact Hyatt payment-page totals", () => {
+    const candidates = parseHyattEvidenceFromText(
+      `${"Payment form field ".repeat(900)} Price SummaryTotal Cash$325.371 Night Stay$301.27Taxes & Fees$24.10 Grand Hyatt Kuala Lumpur 1 King Bed Sat, Aug 1, 2026`,
+      "https://www.hyatt.com/shop/rooms/kuagh?checkinDate=2026-08-01&checkoutDate=2026-08-02"
+    );
+
+    expect(candidates[0]).toMatchObject({
+      currency: "USD",
+      inventoryType: "cash",
+      roomTypeRaw: "1 King Bed",
+      taxes: 24.1,
+      taxesIncluded: true,
+      totalPrice: 325.37
+    });
+  });
+
+  it("parses Hyatt price summaries that use a generic Total label", () => {
+    const candidates = parseHyattEvidenceFromText(
+      "Price Summary Room total MYR820.00 Taxes & Fees MYR164.00 Total MYR984.00 Cancellation Policy Cancel before arrival",
+      "https://www.hyatt.com/booking/summary?checkinDate=2026-08-01&checkoutDate=2026-08-02"
+    );
+
+    expect(candidates[0]).toMatchObject({
+      currency: "MYR",
+      inventoryType: "cash",
+      taxes: 164,
+      taxesIncluded: true,
+      totalPrice: 984
+    });
+  });
+
   it("cleans Hyatt final-page title room text before storing observations", () => {
     const candidates = parseHyattEvidenceFromText(
       "Price Summary Total Cash MYR3,105.59 7 Night Stay MYR2,875.55 Taxes & Fees MYR230.04 Hyatt Place Kuala Lumpur Bukit Jalil 1 King Bed Mon, Jul 27, 2026 - Mon, Aug 3, 2026 1 Room Cancellation Policy 11:59PM HOTEL TIME 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE /CCARD RQRD",
@@ -45,6 +76,15 @@ describe("browser evidence", () => {
       currency: "MYR",
       totalPrice: 2807
     });
+  });
+
+  it("does not import Hyatt city-search estimates as browser evidence", () => {
+    const candidates = parseHyattEvidenceFromText(
+      "Grand Hyatt Kuala Lumpur Award Category 3 Rates from: MYR 820 Avg/Night View Rates Hyatt Place Kuala Lumpur Bukit Jalil Award Category 1 Rates from: MYR 345 Avg/Night View Rates Hyatt Regency Kuala Lumpur Award Category 2 Rates from: MYR 500 Avg/Night View Rates",
+      "https://www.hyatt.com/search/hotels/en-US/Kuala%20Lumpur?checkinDate=2026-07-27&checkoutDate=2026-08-03"
+    );
+
+    expect(candidates).toHaveLength(0);
   });
 
   it("supports spaced average nightly labels and RM currency", () => {

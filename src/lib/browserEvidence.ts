@@ -69,6 +69,10 @@ export function parseHyattEvidenceFromText(text: string, sourceUrl: string) {
   const finalTaxes = extractTaxesAndFees(detailTextForTotals);
   const detailRateCandidates = detailText || /Choose Your Rate/i.test(normalizedText) ? extractHyattDetailRateCandidates(detailTextForTotals, nights) : [];
 
+  if (isHyattSearchPageUrl(sourceUrl) && !detailText && !finalTotal && detailRateCandidates.length === 0) {
+    return [];
+  }
+
   if (finalTotal) {
     candidates.push({
       breakfastIncluded: false,
@@ -212,6 +216,15 @@ function parseStayNightsFromUrl(sourceUrl: string) {
   }
 }
 
+function isHyattSearchPageUrl(sourceUrl: string) {
+  try {
+    const url = new URL(sourceUrl);
+    return /(^|\.)hyatt\.com$/i.test(url.hostname) && /\/search\/hotels\//i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function extractFinalTotal(text: string) {
   const currencyPattern = currencyPatternSource();
   const patterns = [
@@ -221,6 +234,17 @@ function extractFinalTotal(text: string) {
 
   for (const pattern of patterns) {
     const match = text.match(pattern);
+    if (match) {
+      return { amount: parseAmount(match[2]), currency: normalizeCurrency(match[1]) };
+    }
+  }
+
+  const summaryMatch = text.match(/(?:Price Summary|Booking Summary)([^]{0,1600})/i);
+  if (summaryMatch) {
+    const summaryText = summaryMatch[1];
+    const summaryTotalPattern = new RegExp(`(?:Grand total|(?<!Room\\s)Total)\\s*(${currencyPattern})\\s*([0-9][0-9,]*(?:\\.\\d{2})?)`, "gi");
+    const summaryTotals = [...summaryText.matchAll(summaryTotalPattern)];
+    const match = summaryTotals.at(-1);
     if (match) {
       return { amount: parseAmount(match[2]), currency: normalizeCurrency(match[1]) };
     }

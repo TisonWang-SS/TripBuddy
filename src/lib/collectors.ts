@@ -167,8 +167,7 @@ export function getHotelPriceTool(hotelGroup: string): HotelPriceTool {
 }
 
 export function buildHyattSearchUrl(input: CollectorInput) {
-  const hotelCode =
-    extractHyattHotelCode(input.bookingUrl) ?? extractHyattHotelCode(input.hotelName) ?? getKnownHyattHotelCode(input.hotelName);
+  const hotelCode = extractHyattHotelCode(input.bookingUrl) ?? extractHyattHotelCode(input.hotelName);
   const params = new URLSearchParams({
     location: `${input.hotelName} ${input.city}`,
     checkinDate: input.checkIn.toISOString().slice(0, 10),
@@ -190,22 +189,6 @@ export function buildHyattSearchUrl(input: CollectorInput) {
   return `https://www.hyatt.com/search/hotels/en-US/${encodeURIComponent(`${input.hotelName} ${input.city}`)}?${params.toString()}`;
 }
 
-const KNOWN_HYATT_HOTEL_CODES: Record<string, string> = {
-  "hyatt place kuala lumpur bukit jalil": "kulzk"
-};
-
-export function getKnownHyattHotelCode(hotelName: string) {
-  return KNOWN_HYATT_HOTEL_CODES[normalizeHotelName(hotelName)] ?? null;
-}
-
-function normalizeHotelName(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+/g, " ");
-}
-
 export function extractHyattHotelCode(value?: string | null) {
   if (!value) {
     return null;
@@ -225,6 +208,14 @@ export function extractHyattHotelCode(value?: string | null) {
   }
 
   return /^[a-z0-9]{4,6}$/i.test(value.trim()) ? value.trim().toLowerCase() : null;
+}
+
+function normalizeHotelName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 export function isHyattAutomationBlocked(text: string) {
