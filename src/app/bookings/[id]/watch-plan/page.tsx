@@ -51,14 +51,6 @@ export default async function WatchPlanPage({ params }: { params: Promise<{ id: 
           />
           <label htmlFor="otaReferenceEnabled">Include OTA reference checks later</label>
         </div>
-        <div className="field">
-          <label htmlFor="browserMode">Browser mode</label>
-          <select id="browserMode" name="browserMode" defaultValue={booking.watchPlan?.browserMode ?? "chrome_profile"}>
-            <option value="chrome_profile">Chrome profile</option>
-            <option value="headless">Server automation</option>
-            <option value="interactive">Visible automation window</option>
-          </select>
-        </div>
         <div className="grid three">
           <div className="field">
             <label htmlFor="normalCadenceHours">Normal cadence hours</label>

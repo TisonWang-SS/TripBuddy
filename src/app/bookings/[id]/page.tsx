@@ -223,7 +223,7 @@ function buildHyattImportUrl(booking: {
   return buildHyattSearchUrl({
     bookingId: booking.id,
     bookingUrl: booking.bookingUrl,
-    browserMode: booking.watchPlan?.browserMode === "interactive" ? "interactive" : "chrome_profile",
+    browserMode: "browser_assisted",
     checkIn: booking.checkIn,
     checkOut: booking.checkOut,
     city: booking.city,

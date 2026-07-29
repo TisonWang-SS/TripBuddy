@@ -1,5 +1,8 @@
 const TRIPBUDDY_AUTO_IMPORT_FLAG = "tripbuddyAutoImportedUrl";
+const TRIPBUDDY_ACCOUNT_IMPORT_ID_KEY = "tripbuddyAccountImportId";
+const TRIPBUDDY_ACCOUNT_IMPORT_STATE_KEY = "tripbuddyHyattAccountImportState";
 const TRIPBUDDY_BOOKING_ID_KEY = "tripbuddyBookingId";
+const TRIPBUDDY_CITY_SEARCH_ID_KEY = "tripbuddyCitySearchId";
 const TRIPBUDDY_ENDPOINT_KEY = "tripbuddyEndpoint";
 const TRIPBUDDY_RUN_NONCE_KEY = "tripbuddyRunNonce";
 const TRIPBUDDY_ROOM_LIST_TEXT_KEY = "tripbuddyHyattRoomListText";
@@ -11,14 +14,13 @@ runTripBuddyAutoImport();
 
 async function runTripBuddyAutoImport() {
   const params = new URLSearchParams(location.hash.replace(/^#/, ""));
+  persistHashSetting(params, "tripbuddyAccountImportId", TRIPBUDDY_ACCOUNT_IMPORT_ID_KEY);
+  persistHashSetting(params, "tripbuddyCitySearchId", TRIPBUDDY_CITY_SEARCH_ID_KEY);
   const hashBookingId = params.get("tripbuddyBookingId") || params.get("tbBookingId");
   if (hashBookingId) {
     sessionStorage.setItem(TRIPBUDDY_BOOKING_ID_KEY, hashBookingId);
   }
   const bookingId = hashBookingId || sessionStorage.getItem(TRIPBUDDY_BOOKING_ID_KEY);
-  if (!bookingId) {
-    return;
-  }
   const hashRunNonce = params.get("tripbuddyRunNonce");
   if (hashRunNonce) {
     sessionStorage.setItem(TRIPBUDDY_RUN_NONCE_KEY, hashRunNonce);
@@ -33,6 +35,22 @@ async function runTripBuddyAutoImport() {
   const endpoint = normalizeEndpoint(hashEndpoint || sessionStorage.getItem(TRIPBUDDY_ENDPOINT_KEY) || stored.endpoint || "http://localhost:3000");
   if (!endpoint) {
     showTripBuddyStatus("TripBuddy auto import skipped: invalid local endpoint.");
+    return;
+  }
+
+  const accountImportId = params.get("tripbuddyAccountImportId") || sessionStorage.getItem(TRIPBUDDY_ACCOUNT_IMPORT_ID_KEY);
+  if (accountImportId) {
+    await runHyattAccountImport(endpoint, accountImportId);
+    return;
+  }
+
+  const citySearchId = params.get("tripbuddyCitySearchId") || sessionStorage.getItem(TRIPBUDDY_CITY_SEARCH_ID_KEY);
+  if (citySearchId) {
+    await runHyattCitySearchCapture(endpoint, citySearchId);
+    return;
+  }
+
+  if (!bookingId) {
     return;
   }
 
@@ -68,6 +86,323 @@ async function runTripBuddyAutoImport() {
     return;
   }
   await importCurrentHyattEvidence(endpoint, bookingId, importKey);
+}
+
+function persistHashSetting(params, hashKey, storageKey) {
+  const value = params.get(hashKey);
+  if (value) {
+    sessionStorage.setItem(storageKey, value);
+  }
+}
+
+async function runHyattCitySearchCapture(endpoint, requestId) {
+  showTripBuddyStatus("TripBuddy is reading the visible Hyatt search results...");
+  const readable = await waitForTaskPage(
+    (text) => /Rates from:|Avg\s*\/\s*Night|View Rates|No hotels|not available|Find Hotels/i.test(text),
+    60000
+  );
+  if (!readable) {
+    await reportBrowserTaskFailure(
+      `${endpoint}/api/hyatt-city-search`,
+      requestId,
+      isHyattEmptyDocument()
+        ? "Hyatt returned an empty page in Chrome. Fully quit Chrome, reopen it, and retry the search."
+        : "Hyatt search results did not become readable in Chrome."
+    );
+    sessionStorage.removeItem(TRIPBUDDY_CITY_SEARCH_ID_KEY);
+    return;
+  }
+
+  const params = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const requestedCurrency = params.get("tripbuddyRequestedCurrency") || new URL(location.href).searchParams.get("currency");
+  if (requestedCurrency) {
+    await selectHyattSearchCurrency(requestedCurrency);
+  }
+
+  try {
+    const response = await fetch(`${endpoint}/api/hyatt-city-search`, {
+      body: JSON.stringify({
+        pageText: getPageText(),
+        requestId,
+        sourceUrl: location.href
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || `City search capture failed with status ${response.status}.`);
+    }
+    const count = result.result?.results?.length ?? 0;
+    showTripBuddyStatus(`TripBuddy captured ${count} visible Hyatt hotel rate${count === 1 ? "" : "s"}.`);
+  } catch (error) {
+    showTripBuddyStatus(error instanceof Error ? error.message : "TripBuddy could not capture Hyatt search results.");
+  } finally {
+    sessionStorage.removeItem(TRIPBUDDY_CITY_SEARCH_ID_KEY);
+  }
+}
+
+async function selectHyattSearchCurrency(currencyCode) {
+  const currencyLabels = {
+    CNY: "Chinese Yuan",
+    EUR: "Euro",
+    GBP: "British Pound",
+    HKD: "Hong Kong Dollar",
+    JPY: "Japanese Yen",
+    MYR: "Malaysian Ringgit",
+    SGD: "Singapore Dollar",
+    USD: "United States Dollar"
+  };
+  const targetLabel = currencyLabels[String(currencyCode).toUpperCase()];
+  if (!targetLabel) {
+    return false;
+  }
+
+  const toggle = document.querySelector('[role="combobox"][aria-label*="Currency" i]');
+  if (!toggle || !isVisibleControl(toggle)) {
+    return false;
+  }
+  if (getElementText(toggle).includes(targetLabel)) {
+    return true;
+  }
+
+  const beforeText = getPageText();
+  toggle.click();
+  const option = await waitForVisibleElement(
+    () =>
+      Array.from(document.querySelectorAll('[role="option"]')).find(
+        (element) => isVisibleControl(element) && getElementText(element).trim() === targetLabel
+      ) ?? null,
+    5000
+  );
+  if (!option) {
+    return false;
+  }
+  option.click();
+
+  const changed = await waitForCondition(
+    () => getElementText(toggle).includes(targetLabel) && getPageText() !== beforeText,
+    15000
+  );
+  if (changed) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  return changed;
+}
+
+async function waitForVisibleElement(findElement, timeoutMs) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const element = findElement();
+    if (element) {
+      return element;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return null;
+}
+
+async function waitForCondition(condition, timeoutMs) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (condition()) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return false;
+}
+
+async function runHyattAccountImport(endpoint, requestId) {
+  showTripBuddyStatus("TripBuddy is reading Hyatt My Stays...");
+  const readable = await waitForHyattAccountPage(60000);
+  if (!readable) {
+    await reportBrowserTaskFailure(
+      `${endpoint}/api/account-bookings/hyatt/import`,
+      requestId,
+      isHyattEmptyDocument()
+        ? "Hyatt returned an empty account page in Chrome. Fully quit Chrome, reopen it, and retry the import."
+        : "Hyatt My Stays did not become readable in Chrome."
+    );
+    clearAccountImportState();
+    return;
+  }
+
+  const state = readAccountImportState(requestId);
+  const snapshot = collectAccountPageSnapshot();
+  if (!state.visitedUrls.includes(snapshot.url)) {
+    state.snapshots.push(snapshot);
+    state.visitedUrls.push(snapshot.url);
+  }
+
+  if (/\/my-stays/i.test(location.pathname)) {
+    state.pendingUrls = snapshot.links
+      .filter((link) => /Stay Details/i.test(link.text))
+      .map((link) => link.href)
+      .filter((url, index, urls) => url && urls.indexOf(url) === index);
+  }
+
+  const nextUrl = state.pendingUrls.find((url) => !state.openedUrls.includes(url));
+  if (nextUrl) {
+    state.openedUrls.push(nextUrl);
+    sessionStorage.setItem(TRIPBUDDY_ACCOUNT_IMPORT_STATE_KEY, JSON.stringify(state));
+    showTripBuddyStatus(`TripBuddy is opening stay ${state.openedUrls.length} of ${state.pendingUrls.length}...`);
+    location.href = nextUrl;
+    return;
+  }
+  sessionStorage.setItem(TRIPBUDDY_ACCOUNT_IMPORT_STATE_KEY, JSON.stringify(state));
+
+  try {
+    const response = await fetch(`${endpoint}/api/account-bookings/hyatt/import`, {
+      body: JSON.stringify({
+        requestId,
+        snapshots: state.snapshots
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || `Account import failed with status ${response.status}.`);
+    }
+    showTripBuddyStatus(result.result?.summary || "TripBuddy finished importing Hyatt bookings.");
+  } catch (error) {
+    showTripBuddyStatus(error instanceof Error ? error.message : "TripBuddy could not import Hyatt bookings.");
+  } finally {
+    clearAccountImportState();
+  }
+}
+
+async function waitForHyattAccountPage(timeoutMs) {
+  const startedAt = Date.now();
+  let lastText = "";
+  let stableSince = startedAt;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const text = getPageText();
+    if (text !== lastText) {
+      lastText = text;
+      stableSince = Date.now();
+    }
+
+    if (text.length > 80 && /Sign In|Password|Passkeys|Forgot (?:your )?password/i.test(text)) {
+      return true;
+    }
+
+    if (/\/my-stays/i.test(location.pathname)) {
+      if (findVisibleStayDetailLinks().length > 0) {
+        return true;
+      }
+
+      const pageHasLoadedAccountContent =
+        text.length > 250 &&
+        /My Stays/i.test(text) &&
+        /Upcoming/i.test(text) &&
+        /Past/i.test(text) &&
+        /Missing a reservation|Refresh|Filter|no upcoming (?:stays|reservations)|no (?:stays|reservations)/i.test(text);
+      const pageHasSettled =
+        Date.now() - startedAt >= 12000 &&
+        Date.now() - stableSince >= 4000 &&
+        !/Loading|Please wait|Fetching (?:stays|reservations)/i.test(text);
+      if (pageHasLoadedAccountContent && pageHasSettled) {
+        return true;
+      }
+    } else if (
+      text.length > 100 &&
+      /Confirmation(?: Number)?|Check-in|Checkout|Price Summary|Total Cost|Total Awards|Free Night/i.test(text)
+    ) {
+      return true;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  return false;
+}
+
+function findVisibleStayDetailLinks() {
+  return Array.from(document.querySelectorAll("a[href]")).filter(
+    (element) => isVisibleControl(element) && /Stay Details/i.test(getControlLabel(element))
+  );
+}
+
+function readAccountImportState(requestId) {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(TRIPBUDDY_ACCOUNT_IMPORT_STATE_KEY) || "null");
+    if (
+      stored?.requestId === requestId &&
+      Array.isArray(stored.snapshots) &&
+      Array.isArray(stored.pendingUrls) &&
+      Array.isArray(stored.openedUrls) &&
+      Array.isArray(stored.visitedUrls)
+    ) {
+      return stored;
+    }
+  } catch {
+    // Start a clean account import when prior tab state cannot be decoded.
+  }
+  return {
+    openedUrls: [],
+    pendingUrls: [],
+    requestId,
+    snapshots: [],
+    visitedUrls: []
+  };
+}
+
+function collectAccountPageSnapshot() {
+  const links = Array.from(document.querySelectorAll("a[href]"))
+    .filter((element) => isVisibleControl(element))
+    .map((element) => ({
+      href: new URL(element.getAttribute("href"), location.href).toString(),
+      text: getControlLabel(element)
+    }))
+    .filter((link) => link.href && link.text);
+  return {
+    links,
+    text: getPageText().slice(0, 100000),
+    title: document.title,
+    url: stripTripBuddyHash(location.href)
+  };
+}
+
+function clearAccountImportState() {
+  sessionStorage.removeItem(TRIPBUDDY_ACCOUNT_IMPORT_ID_KEY);
+  sessionStorage.removeItem(TRIPBUDDY_ACCOUNT_IMPORT_STATE_KEY);
+}
+
+async function reportBrowserTaskFailure(url, requestId, error) {
+  try {
+    await fetch(url, {
+      body: JSON.stringify({ error, requestId }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+  } catch {
+    // The visible status still tells the user why the browser task stopped.
+  }
+  showTripBuddyStatus(error);
+}
+
+async function waitForTaskPage(isReady, timeoutMs) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const text = getPageText();
+    if (text.length > 80 && isReady(text)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  return false;
+}
+
+function stripTripBuddyHash(value) {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return value;
+  }
 }
 
 async function importCurrentHyattEvidence(endpoint, bookingId, importKey) {

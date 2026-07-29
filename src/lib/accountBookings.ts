@@ -1,4 +1,9 @@
-import type { AccountPageSnapshot } from "@/lib/browserConnector";
+export type AccountPageSnapshot = {
+  links: Array<{ href: string; text: string }>;
+  text: string;
+  title: string;
+  url: string;
+};
 
 export type ExtractedAccountBooking = {
   bookingUrl: string | null;
@@ -40,7 +45,7 @@ export function parseHyattAccountBookingsFromSnapshots(snapshots: AccountPageSna
       loginState: "login_required",
       loginUrl: HYATT_LOGIN_URL,
       sourceUrl,
-      summary: "Hyatt account is not signed in. Sign in with the configured Chrome profile, then import again."
+      summary: "Hyatt account is not signed in. Sign in in the opened Chrome tab, then import again."
     };
   }
 

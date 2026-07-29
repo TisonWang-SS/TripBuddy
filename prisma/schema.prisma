@@ -46,10 +46,6 @@ model UserProfile {
   lateCheckoutValue      Float               @default(15)
   upgradeValue           Float               @default(40)
   eliteNightValue        Float               @default(10)
-  chromeProfileName      String              @default("TripBuddy")
-  chromeProfileDirectory String?
-  chromeUserDataDir      String?
-  chromeDebugPort        Int                 @default(0)
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
   loyaltyAccounts        LoyaltyAccount[]
@@ -121,7 +117,7 @@ model WatchPlan {
   awardEnabled        Boolean         @default(true)
   directEnabled       Boolean         @default(true)
   otaReferenceEnabled Boolean         @default(false)
-  browserMode         String          @default("chrome_profile")
+  browserMode         String          @default("browser_assisted")
   normalCadenceHours  Int             @default(24)
   urgentCadenceHours  Int             @default(6)
   urgentWindowHours   Int             @default(72)

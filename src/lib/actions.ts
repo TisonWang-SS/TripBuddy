@@ -28,12 +28,8 @@ function boolValue(formData: FormData, key: string) {
   return formData.get(key) === "on" || formData.get(key) === "true";
 }
 
-function browserModeValue(raw: string) {
-  if (raw === "interactive" || raw === "chrome_profile" || raw === "persistent") {
-    return raw === "persistent" ? "chrome_profile" : raw;
-  }
-
-  return "headless";
+function browserModeValue() {
+  return "browser_assisted" as const;
 }
 
 function dateValue(formData: FormData, key: string) {
@@ -72,7 +68,7 @@ export async function createBooking(formData: FormData) {
           awardEnabled: true,
           directEnabled: true,
           otaReferenceEnabled: false,
-          browserMode: "chrome_profile"
+          browserMode: "browser_assisted"
         }
       }
     }
@@ -88,8 +84,6 @@ export async function runPriceCheck(formData: FormData) {
     where: { id: bookingId },
     include: { watchPlan: true }
   });
-  const profile = await prisma.userProfile.findUnique({ where: { id: DEFAULT_PROFILE_ID } });
-
   if (!booking) {
     return;
   }
@@ -104,7 +98,7 @@ export async function runPriceCheck(formData: FormData) {
         awardEnabled: true,
         directEnabled: true,
         otaReferenceEnabled: false,
-        browserMode: "chrome_profile"
+        browserMode: "browser_assisted"
       }
     }));
 
@@ -113,7 +107,7 @@ export async function runPriceCheck(formData: FormData) {
     ...(watchPlan.awardEnabled ? (["award"] as const) : [])
   ];
   const tool = getHotelPriceTool(booking.hotelGroup);
-  const browserMode = browserModeValue(watchPlan.browserMode);
+  const browserMode = browserModeValue();
   const systemCurrency = await getSystemCurrency();
   const run = await prisma.priceCheckRun.create({
     data: {
@@ -139,13 +133,7 @@ export async function runPriceCheck(formData: FormData) {
       currency: booking.currency,
       bookingUrl: booking.bookingUrl,
       inventoryTypes,
-      browserMode,
-      chromeProfile: {
-        profileName: profile?.chromeProfileName ?? "TripBuddy",
-        profileDirectory: profile?.chromeProfileDirectory,
-        userDataDir: profile?.chromeUserDataDir,
-        debugPort: profile?.chromeDebugPort ?? 0
-      }
+      browserMode
     });
 
     for (const candidate of result.candidates) {
@@ -239,7 +227,7 @@ export async function updateWatchPlan(formData: FormData) {
       awardEnabled: boolValue(formData, "awardEnabled"),
       directEnabled: boolValue(formData, "directEnabled"),
       otaReferenceEnabled: boolValue(formData, "otaReferenceEnabled"),
-      browserMode: browserModeValue(value(formData, "browserMode")),
+      browserMode: browserModeValue(),
       normalCadenceHours: numberValue(formData, "normalCadenceHours", 24),
       urgentCadenceHours: numberValue(formData, "urgentCadenceHours", 6),
       urgentWindowHours: numberValue(formData, "urgentWindowHours", 72)
@@ -251,7 +239,7 @@ export async function updateWatchPlan(formData: FormData) {
       awardEnabled: boolValue(formData, "awardEnabled"),
       directEnabled: boolValue(formData, "directEnabled"),
       otaReferenceEnabled: boolValue(formData, "otaReferenceEnabled"),
-      browserMode: browserModeValue(value(formData, "browserMode")),
+      browserMode: browserModeValue(),
       normalCadenceHours: numberValue(formData, "normalCadenceHours", 24),
       urgentCadenceHours: numberValue(formData, "urgentCadenceHours", 6),
       urgentWindowHours: numberValue(formData, "urgentWindowHours", 72)
@@ -509,27 +497,6 @@ export async function updateProfile(formData: FormData) {
 
   revalidatePath("/profile");
   revalidatePath("/");
-}
-
-export async function updateChromeSettings(formData: FormData) {
-  await prisma.userProfile.upsert({
-    where: { id: DEFAULT_PROFILE_ID },
-    update: {
-      chromeProfileName: value(formData, "chromeProfileName") || "TripBuddy",
-      chromeProfileDirectory: optionalValue(formData, "chromeProfileDirectory"),
-      chromeUserDataDir: optionalValue(formData, "chromeUserDataDir"),
-      chromeDebugPort: numberValue(formData, "chromeDebugPort", 0)
-    },
-    create: {
-      id: DEFAULT_PROFILE_ID,
-      chromeProfileName: value(formData, "chromeProfileName") || "TripBuddy",
-      chromeProfileDirectory: optionalValue(formData, "chromeProfileDirectory"),
-      chromeUserDataDir: optionalValue(formData, "chromeUserDataDir"),
-      chromeDebugPort: numberValue(formData, "chromeDebugPort", 0)
-    }
-  });
-
-  revalidatePath("/settings");
 }
 
 export async function createCreditCardBenefit(formData: FormData) {

@@ -32,7 +32,7 @@ Recommended new models:
   - `awardEnabled`
   - `directEnabled`
   - `otaReferenceEnabled`
-  - `browserMode`: `chrome_profile`, `headless`, `interactive`
+  - `browserMode`: `browser_assisted`
   - `normalCadenceHours`
   - `urgentCadenceHours`
   - `urgentWindowHours`
@@ -49,15 +49,6 @@ Recommended new models:
   - `inventoryTypesJson`
   - `collectorName`
   - `sourceUrl`
-
-Recommended additions to `UserProfile`:
-
-- `chromeProfileName`
-- `chromeProfileDirectory`
-- `chromeUserDataDir`
-- `chromeDebugPort`
-  - `summary`
-  - `errorMessage`
 
 - `ObservationEvidence`
   - `id`
@@ -155,18 +146,9 @@ The first Hyatt tool should:
 - Support cash and award inventory modes in the tool contract.
 - Build or open a direct Hyatt search URL.
 - Use Browser Companion import as the first Hyatt path for real-profile evidence capture.
-- Keep Chrome profile mode as an experimental fallback, not the default trusted Hyatt path.
-- Support per-booking browser mode from the watch plan.
-- Add a shared BrowserConnector that resolves the configured Chrome data directory, launches the real local Chrome app with a Chrome DevTools Protocol port when needed, connects to that real Chrome instance, opens the source URL, and extracts visible page text.
-- Use a minimal native Chrome DevTools Protocol client as the first connector implementation. It should create a target through Chrome's local `/json/new` endpoint, connect to the target websocket, navigate with `Page.navigate`, and read visible text with `Runtime.evaluate`.
-- Do not use Playwright `launch`, `launchPersistentContext`, or `connectOverCDP` for Chrome profile mode.
-- Store Chrome connector settings in the local user profile. Default session name should be `TripBuddy`, default port should be `0` for automatic port selection, and default Chrome data directory should be project-local at `data/chrome-cdp-profile`.
-- Use a TripBuddy-managed Chrome data directory for CDP. Do not rely on Chrome's default user data directory, because remote debugging may be unavailable or ignored there.
-- Read Chrome's dynamic `DevToolsActivePort` file when automatic port selection is enabled. This avoids stale fixed debugging ports.
-- Before launching a new automatic-port Chrome session, reuse a reachable endpoint from `DevToolsActivePort`; if the saved endpoint is unreachable, clear the stale file and wait for the new dynamic endpoint.
-- Launch Chrome with `about:blank`, then reuse an existing blank or new-tab CDP target for navigation. Create a new `/json/new` target only when no reusable blank page exists.
-- Detect empty Hyatt documents, including `200 text/plain` responses with an empty DOM, as an unreadable automation-block state rather than a no-rate result.
-- Add a follow-up user-browser-assisted extractor path if CDP Chrome profile mode continues to receive empty Hyatt documents. Candidate approaches are a companion Chrome extension or a macOS Chrome automation connector with explicit user permission.
+- Use normal Chrome plus the Browser Companion for every Hyatt product flow.
+- Create short-lived browser tasks for booking imports, city searches, and account imports; the app opens Hyatt and polls the local task while the extension posts visible evidence.
+- Detect empty Hyatt documents as an unreadable state rather than a no-rate result.
 - Add a `browser-extension` unpacked Chrome extension that reads the active tab only after a user click, extracts Hyatt visible text and candidate rates, and posts evidence to `POST /api/browser-evidence`.
 - Add a content-script auto-import mode. Booking detail pages should open the hotel source URL with `tripbuddyBookingId` in the URL hash; the extension should wait for readable rate text, then POST page evidence to the local API without clicking hotel controls.
 - Auto-import readiness should require rate-like tokens, not generic page controls. Accept examples include `Avg/Night`, `Avg / Night`, `per night`, points rates, `Total Cash`, `Price Summary`, and related final-total labels.
@@ -176,10 +158,7 @@ The first Hyatt tool should:
 - Maintain hard click guardrails for payment, confirmation, purchase, complete-reservation, place-order, and submit-payment controls.
 - Add `POST /api/browser-evidence` to create a browser-extension `PriceCheckRun`, store parsed candidates as `PriceObservation`, update `lastCheckedAt`, and refresh the booking recommendation.
 - Add a Browser Import card on booking detail pages showing the booking ID, local endpoint, and extension usage instructions.
-- In interactive mode, launch a visible browser and wait before extracting body text.
-- Do not use the user's daily Chrome profile for collector automation.
 - Prefer canonical hotel-specific `/en-US/shop/rooms/{hotelCode}` URLs when a Hyatt hotel code can be extracted from the booking URL.
-- Add curated hotel-name-to-code mappings as a short-term fallback for known Hyatt properties, starting with Hyatt Place Kuala Lumpur Bukit Jalil (`kulzk`).
 - Detect Hyatt E6020 automation blocks and store a clear failed run status.
 - Parse cash and award candidates conservatively from page text.
 - Support common Hyatt cash display formats across USD, JPY, EUR, GBP, SGD, MYR, HKD, CNY, THB, and KRW.
@@ -188,7 +167,7 @@ The first Hyatt tool should:
 - Treat Hyatt `Avg/Night` as a nightly base rate, not a stay total. Calculate stay total as nightly rate multiplied by the number of nights, and store the nightly value in `basePrice`.
 - Capture the visible room name and rate plan near a Hyatt cash rate when the room list exposes them.
 - Mark cancellation policy as unknown when it is not visible in the Hyatt room list. Do not infer a policy from the existence of a rate.
-- In Chrome profile mode, use a conservative multi-step Hyatt flow: read the room list, identify the lowest visible safe cash rate, click its `Select & Book` control, wait for a pre-payment detail or review page, and extract final total, tax/fee text, and cancellation policy text when visible.
+- In Browser Companion mode, use a conservative multi-step Hyatt flow: read the room list, identify the lowest visible safe cash rate, click its `Select & Book` control, wait for a pre-payment detail or review page, and extract final total, tax/fee text, and cancellation policy text when visible.
 - Add a hard automation guardrail: never click payment, purchase, confirm booking, place order, submit payment, or equivalent final-booking controls.
 - Treat room-list totals as transient estimates when detail-page final total is unavailable. Detail-page totals should override room-list nightly-rate estimates, and estimates must not be stored as `PriceObservation` rows when a final total was captured in the same import.
 - Split Hyatt extraction into two explicit phases:
@@ -308,9 +287,9 @@ Manual observation forms should stay available, but should be visually secondary
 
 Data extraction changes have an additional real-browser requirement:
 
-- Hyatt extraction work must use the real Chrome `TripBuddy` profile plus the TripBuddy Browser Companion extension as the primary tested path.
+- Hyatt extraction work must use normal Chrome plus the TripBuddy Browser Companion extension as the tested path.
 - Any behavior-changing parser, content-script, navigation, or evidence-import change must be tested once against a real Hyatt page through that profile and extension before being considered done.
-- CDP profile automation is experimental for Hyatt. Do not replace the Browser Companion path with CDP unless a fresh real-world test shows CDP reliably renders Hyatt and extracts the same or better evidence.
+- Do not add an automated-profile fallback for Hyatt.
 - If a real-browser test cannot be completed, explicitly report that limitation and do not describe the extraction change as verified.
 
 Add unit tests for:

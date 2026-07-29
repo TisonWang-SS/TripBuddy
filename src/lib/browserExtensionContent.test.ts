@@ -22,6 +22,7 @@ async function loadContentScript(
       locationState: { hash: string; hostname: string; href: string; pathname: string },
       recordClick: (element: Element) => void
     ) => void;
+    onTimeout?: (callCount: number, recordClick: (element: Element) => void) => void;
     agentResponder?: (snapshot: BrowserAgentSnapshot) => Record<string, unknown>;
   } = {}
 ) {
@@ -31,6 +32,7 @@ async function loadContentScript(
   const clickedLabels: string[] = [];
   const navigationTargets: string[] = [];
   let now = 0;
+  let timeoutCalls = 0;
   class FakeDate extends Date {
     static now() {
       now += 1000;
@@ -103,6 +105,8 @@ async function loadContentScript(
     MouseEvent: dom.window.MouseEvent,
     sessionStorage: dom.window.sessionStorage,
     setTimeout: (callback: () => void) => {
+      timeoutCalls += 1;
+      options.onTimeout?.(timeoutCalls, recordClick);
       callback();
       return 1;
     },
@@ -144,6 +148,141 @@ async function loadContentScript(
 }
 
 describe("browser extension content script", () => {
+  it("captures Hyatt city-search results through the Browser Companion", async () => {
+    const dom = new JSDOM(
+      `<!doctype html><body>
+        <main>
+          <h1>Kuala Lumpur hotels</h1>
+          <button aria-label="Currency" role="combobox"><span id="currency-label">United States Dollar</span></button>
+          <div role="listbox"><button role="option">Malaysian Ringgit</button></div>
+          <section>Grand Hyatt Kuala Lumpur Award Category 3 Rates from: <span id="grand-price">USD 180</span> Avg/Night <a href="/shop/rooms/kuagh">View Rates</a></section>
+          <section>Hyatt Place Kuala Lumpur Bukit Jalil Award Category 1 Rates from: MYR 345 Avg/Night <a href="/shop/rooms/kulzk">View Rates</a></section>
+        </main>
+      </body>`,
+      {
+        url: "https://www.hyatt.com/search/hotels/en-US/Kuala%20Lumpur?checkinDate=2026-08-01&checkoutDate=2026-08-02#tripbuddyCitySearchId=search-1&tripbuddyEndpoint=http%3A%2F%2Flocalhost%3A3000&tripbuddyRequestedCurrency=MYR"
+      }
+    );
+
+    const { clickedLabels, fetchCalls, navigationTargets } = await loadContentScript(dom, {
+      onClick(label) {
+        if (label === "Malaysian Ringgit") {
+          (dom.window.document.querySelector("#currency-label") as HTMLElement).textContent = "Malaysian Ringgit";
+          (dom.window.document.querySelector("#grand-price") as HTMLElement).textContent = "MYR 820";
+        }
+      }
+    });
+
+    expect(navigationTargets).toHaveLength(0);
+    expect(clickedLabels).toContain("Malaysian Ringgit");
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].url).toContain("/api/hyatt-city-search");
+    expect(JSON.parse(String((fetchCalls[0].options as { body: string }).body))).toMatchObject({
+      pageText: expect.stringContaining("MYR 820"),
+      requestId: "search-1",
+      sourceUrl: expect.stringContaining("/search/hotels/")
+    });
+  });
+
+  it("opens Hyatt Stay Details links one at a time in the same tab", async () => {
+    const dom = new JSDOM(
+      `<!doctype html><body>
+        <main>
+          <h1>My Stays</h1>
+          <nav>Upcoming Past Missing a reservation?</nav>
+          <p>Sat, Aug 1 - Sun, Aug 2 Grand Hyatt Kuala Lumpur Confirmation Number: 40023B23492944</p>
+          <a href="/res/en-US/detail/stay-one">Stay Details</a>
+        </main>
+      </body>`,
+      {
+        url: "https://www.hyatt.com/profile/en-US/my-stays#upcoming-stays&tripbuddyAccountImportId=account-1&tripbuddyEndpoint=http%3A%2F%2Flocalhost%3A3000"
+      }
+    );
+
+    const { fetchCalls, navigationTargets } = await loadContentScript(dom);
+
+    expect(fetchCalls).toHaveLength(0);
+    expect(navigationTargets).toEqual(["https://www.hyatt.com/res/en-US/detail/stay-one"]);
+    expect(JSON.parse(dom.window.sessionStorage.getItem("tripbuddyHyattAccountImportState") || "{}")).toMatchObject({
+      openedUrls: ["https://www.hyatt.com/res/en-US/detail/stay-one"],
+      requestId: "account-1"
+    });
+  });
+
+  it("waits for Hyatt stay cards instead of importing the initial My Stays shell", async () => {
+    const dom = new JSDOM(
+      `<!doctype html><body>
+        <main>
+          <h1>My Stays</h1>
+          <nav>Upcoming Past Missing a reservation? Refresh Filter</nav>
+          <p id="loading">Loading reservations...</p>
+        </main>
+      </body>`,
+      {
+        url: "https://www.hyatt.com/profile/en-US/my-stays#upcoming-stays&tripbuddyAccountImportId=account-delayed&tripbuddyEndpoint=http%3A%2F%2Flocalhost%3A3000"
+      }
+    );
+
+    const { fetchCalls, navigationTargets } = await loadContentScript(dom, {
+      onTimeout(callCount, recordClick) {
+        if (callCount !== 5) {
+          return;
+        }
+        dom.window.document.querySelector("#loading")?.remove();
+        const link = dom.window.document.createElement("a");
+        link.href = "/res/en-US/detail/delayed-stay";
+        link.textContent = "Stay Details";
+        dom.window.document.querySelector("main")?.append(link);
+        recordClick(link);
+      }
+    });
+
+    expect(fetchCalls).toHaveLength(0);
+    expect(navigationTargets).toEqual(["https://www.hyatt.com/res/en-US/detail/delayed-stay"]);
+  });
+
+  it("posts accumulated Hyatt account snapshots after the final stay detail", async () => {
+    const dom = new JSDOM(
+      `<!doctype html><body>
+        <main>
+          <h1>Grand Hyatt Kuala Lumpur Reservation</h1>
+          <p>Confirmation: # 40023B23492944 Check-in Sat, Aug 1, 2026 Checkout Sun, Aug 2, 2026 Price Summary Total Awards 1 Free Night</p>
+        </main>
+      </body>`,
+      {
+        url: "https://www.hyatt.com/res/en-US/detail/stay-one"
+      }
+    );
+    dom.window.sessionStorage.setItem("tripbuddyAccountImportId", "account-1");
+    dom.window.sessionStorage.setItem(
+      "tripbuddyHyattAccountImportState",
+      JSON.stringify({
+        openedUrls: ["https://www.hyatt.com/res/en-US/detail/stay-one"],
+        pendingUrls: ["https://www.hyatt.com/res/en-US/detail/stay-one"],
+        requestId: "account-1",
+        snapshots: [
+          {
+            links: [{ href: "https://www.hyatt.com/res/en-US/detail/stay-one", text: "Stay Details" }],
+            text: "Upcoming Past Missing a reservation? Sat, Aug 1 - Sun, Aug 2 Grand Hyatt Kuala Lumpur Confirmation Number: 40023B23492944",
+            title: "Hyatt - My Stays",
+            url: "https://www.hyatt.com/profile/en-US/my-stays"
+          }
+        ],
+        visitedUrls: ["https://www.hyatt.com/profile/en-US/my-stays"]
+      })
+    );
+
+    const { fetchCalls, navigationTargets } = await loadContentScript(dom);
+
+    expect(navigationTargets).toHaveLength(0);
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].url).toContain("/api/account-bookings/hyatt/import");
+    const body = JSON.parse(String((fetchCalls[0].options as { body: string }).body));
+    expect(body.requestId).toBe("account-1");
+    expect(body.snapshots).toHaveLength(2);
+    expect(dom.window.sessionStorage.getItem("tripbuddyAccountImportId")).toBeNull();
+  });
+
   it("opens browser-agent links in the same tab even when Hyatt marks them as new-tab links", async () => {
     const dom = new JSDOM(
       `<!doctype html><body>

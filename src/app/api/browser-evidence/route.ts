@@ -57,7 +57,7 @@ export async function POST(request: Request) {
         awardEnabled: true,
         directEnabled: true,
         otaReferenceEnabled: false,
-        browserMode: "chrome_profile"
+        browserMode: "browser_assisted"
       }
     }));
 
@@ -131,7 +131,7 @@ export async function POST(request: Request) {
 
   await prisma.watchPlan.update({
     where: { id: watchPlan.id },
-    data: { lastCheckedAt: new Date() }
+    data: { browserMode: "browser_assisted", lastCheckedAt: new Date() }
   });
 
   if (normalized.candidates.length > 0) {

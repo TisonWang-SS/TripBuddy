@@ -32,10 +32,6 @@ CREATE TABLE IF NOT EXISTS UserProfile (
   lateCheckoutValue REAL NOT NULL DEFAULT 15,
   upgradeValue REAL NOT NULL DEFAULT 40,
   eliteNightValue REAL NOT NULL DEFAULT 10,
-  chromeProfileName TEXT NOT NULL DEFAULT 'TripBuddy',
-  chromeProfileDirectory TEXT,
-  chromeUserDataDir TEXT,
-  chromeDebugPort INTEGER NOT NULL DEFAULT 0,
   createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -101,7 +97,7 @@ CREATE TABLE IF NOT EXISTS WatchPlan (
   awardEnabled BOOLEAN NOT NULL DEFAULT true,
   directEnabled BOOLEAN NOT NULL DEFAULT true,
   otaReferenceEnabled BOOLEAN NOT NULL DEFAULT false,
-  browserMode TEXT NOT NULL DEFAULT 'chrome_profile',
+  browserMode TEXT NOT NULL DEFAULT 'browser_assisted',
   normalCadenceHours INTEGER NOT NULL DEFAULT 24,
   urgentCadenceHours INTEGER NOT NULL DEFAULT 6,
   urgentWindowHours INTEGER NOT NULL DEFAULT 72,

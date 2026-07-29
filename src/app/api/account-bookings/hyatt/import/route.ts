@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
-import path from "node:path";
 import { revalidatePath } from "next/cache";
-import { parseHyattAccountBookingsFromSnapshots } from "@/lib/accountBookings";
 import {
-  extractHyattAccountSnapshotsWithChromeProfile,
-  resolveChromeProfileDirectory,
-  standardChromeUserDataDir,
-  type ChromeProfileConfig
-} from "@/lib/browserConnector";
-import { DEFAULT_PROFILE_ID } from "@/lib/constants";
+  parseHyattAccountBookingsFromSnapshots,
+  type AccountPageSnapshot
+} from "@/lib/accountBookings";
+import {
+  completeBrowserTask,
+  createBrowserTask,
+  failBrowserTask,
+  getBrowserTask
+} from "@/lib/browserTasks";
 import { isActiveBookingDate } from "@/lib/bookingDates";
 import { inferIsSuite, supportedCurrencyValue } from "@/lib/currency";
 import { prisma } from "@/lib/db";
@@ -16,42 +17,82 @@ import { getSystemCurrency, normalizeMoneyToSystemCurrency } from "@/lib/systemS
 
 export const dynamic = "force-dynamic";
 
-export async function POST() {
-  const profile = await prisma.userProfile.findUnique({ where: { id: DEFAULT_PROFILE_ID } });
-  const chromeProfile = await resolveConfiguredChromeProfile({
-    chromeDebugPort: profile?.chromeDebugPort ?? 0,
-    chromeProfileDirectory: profile?.chromeProfileDirectory,
-    chromeProfileName: profile?.chromeProfileName ?? "TripBuddy",
-    chromeUserDataDir: profile?.chromeUserDataDir
-  });
+const taskKind = "hyatt_account_import";
+const corsHeaders = {
+  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Origin": "*"
+};
 
-  if (!chromeProfile.ok) {
-    return NextResponse.json({ error: chromeProfile.error }, { status: 400 });
+type AccountImportCapture = {
+  error?: string | null;
+  requestId?: string | null;
+  snapshots?: AccountPageSnapshot[] | null;
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, { headers: corsHeaders });
+}
+
+export async function GET(request: Request) {
+  const requestId = new URL(request.url).searchParams.get("requestId")?.trim();
+  if (!requestId) {
+    return json({ error: "requestId is required." }, 400);
   }
+  const task = getBrowserTask(requestId, taskKind);
+  return task
+    ? json({ error: task.error, requestId, result: task.result, status: task.status })
+    : json({ error: "Hyatt account-import task was not found or expired." }, 404);
+}
 
-  let extraction;
+export async function POST(request: Request) {
+  let capture: AccountImportCapture = {};
   try {
-    const snapshots = await extractHyattAccountSnapshotsWithChromeProfile(chromeProfile.config);
-    extraction = parseHyattAccountBookingsFromSnapshots(snapshots);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown Chrome profile failure.";
-    return NextResponse.json(
-      {
-        error: `Hyatt bookings could not be imported from the configured Chrome profile: ${message} Sign in with that Chrome profile, then try again.`
-      },
-      { status: 502 }
-    );
+    capture = (await request.json()) as AccountImportCapture;
+  } catch {
+    // An empty body starts a new browser task for compatibility with the existing UI.
   }
 
+  if (!capture.requestId) {
+    const task = createBrowserTask(taskKind);
+    return json({
+      launchUrl: createAccountImportUrl(task.id),
+      requestId: task.id,
+      status: task.status
+    });
+  }
+
+  const requestId = String(capture.requestId).trim();
+  if (!getBrowserTask(requestId, taskKind)) {
+    return json({ error: "Hyatt account-import task was not found or expired." }, 404);
+  }
+  if (capture.error) {
+    failBrowserTask(requestId, taskKind, capture.error);
+    return json({ error: capture.error, requestId, status: "failed" }, 422);
+  }
+  if (!capture.snapshots?.length) {
+    return json({ error: "At least one Hyatt account snapshot is required." }, 400);
+  }
+
+  try {
+    const result = await importHyattAccountSnapshots(capture.snapshots);
+    completeBrowserTask(requestId, taskKind, result);
+    return json({ requestId, result, status: "succeeded" });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Hyatt account import failed.";
+    failBrowserTask(requestId, taskKind, message);
+    return json({ error: message, requestId, status: "failed" }, 500);
+  }
+}
+
+async function importHyattAccountSnapshots(snapshots: AccountPageSnapshot[]) {
+  const extraction = parseHyattAccountBookingsFromSnapshots(snapshots);
   if (extraction.loginState === "login_required") {
-    return NextResponse.json(
-      {
-        loginUrl: extraction.loginUrl,
-        status: "login_required",
-        summary: extraction.summary
-      },
-      { status: 401 }
-    );
+    return {
+      loginUrl: extraction.loginUrl,
+      status: "login_required" as const,
+      summary: extraction.summary
+    };
   }
 
   const systemCurrency = await getSystemCurrency();
@@ -108,7 +149,7 @@ export async function POST() {
               awardEnabled: true,
               directEnabled: true,
               otaReferenceEnabled: false,
-              browserMode: "chrome_profile"
+              browserMode: "browser_assisted"
             }
           }
         }
@@ -119,7 +160,7 @@ export async function POST() {
 
   revalidatePath("/");
 
-  return NextResponse.json({
+  return {
     created,
     imported: importableBookings.length,
     skipped,
@@ -127,37 +168,15 @@ export async function POST() {
     status: extraction.loginState === "logged_in" ? "succeeded" : "partial",
     summary: createImportSummary(extraction.summary, skipped),
     updated
-  });
+  };
 }
 
-async function resolveConfiguredChromeProfile(profile: {
-  chromeDebugPort: number;
-  chromeProfileDirectory?: string | null;
-  chromeProfileName: string;
-  chromeUserDataDir?: string | null;
-}): Promise<{ config: ChromeProfileConfig; ok: true } | { error: string; ok: false }> {
-  const userDataDir = profile.chromeUserDataDir?.trim() || standardChromeUserDataDir();
-  const profileDirectory =
-    profile.chromeProfileDirectory?.trim() ||
-    (await resolveChromeProfileDirectory(profile.chromeProfileName, path.join(userDataDir, "Local State")).catch(() => null));
-
-  if (!profileDirectory) {
-    return {
-      error:
-        "Hyatt booking import requires a real Chrome profile. Open Settings and set the Chrome data directory/profile for a normal browser profile before importing Hyatt bookings.",
-      ok: false
-    };
-  }
-
-  return {
-    config: {
-      debugPort: profile.chromeDebugPort || 9222,
-      profileDirectory,
-      profileName: profile.chromeProfileName,
-      userDataDir
-    },
-    ok: true
-  };
+function createAccountImportUrl(requestId: string) {
+  const hash = new URLSearchParams({
+    tripbuddyAccountImportId: requestId,
+    tripbuddyEndpoint: "http://localhost:3000"
+  });
+  return `https://www.hyatt.com/profile/en-US/my-stays#upcoming-stays&${hash.toString()}`;
 }
 
 async function normalizeImportedBookingMoney(amount: number, currency: string, fallbackCurrency: "USD" | "CNY") {
@@ -207,4 +226,8 @@ function createImportedBookingNotes(
 
 function createImportSummary(summary: string, skipped: number) {
   return skipped > 0 ? `${summary} Skipped ${skipped} already-started booking${skipped === 1 ? "" : "s"}.` : summary;
+}
+
+function json(body: unknown, status = 200) {
+  return NextResponse.json(body, { headers: corsHeaders, status });
 }

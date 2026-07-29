@@ -1,8 +1,7 @@
-import { extractRateDetailWithChromeProfile, extractTextWithChromeProfile, type ChromeProfileConfig } from "@/lib/browserConnector";
 import { externalCurrencyCode } from "@/lib/currency";
 
 export type InventoryType = "cash" | "award";
-export type BrowserMode = "headless" | "interactive" | "persistent" | "chrome_profile";
+export type BrowserMode = "browser_assisted" | "headless" | "interactive";
 
 export type CollectorInput = {
   bookingId: string;
@@ -17,7 +16,6 @@ export type CollectorInput = {
   bookingUrl?: string | null;
   inventoryTypes: readonly InventoryType[];
   browserMode: BrowserMode;
-  chromeProfile?: ChromeProfileConfig | null;
 };
 
 export type CollectorRateCandidate = {
@@ -88,7 +86,17 @@ export class HyattPriceTool implements HotelPriceTool {
 
   async run(input: CollectorInput): Promise<CollectorRunResult> {
     const sourceUrl = buildHyattSearchUrl(input);
-    const textResult = await collectPageText(sourceUrl, input.browserMode, input.chromeProfile);
+    if (input.browserMode === "browser_assisted") {
+      return {
+        status: "partial",
+        collectorName: this.name,
+        sourceUrl,
+        summary: "Hyatt requires a Browser Companion import from normal Chrome.",
+        errorMessage: "Open Chrome import from the booking page to collect a visible Hyatt final price.",
+        candidates: []
+      };
+    }
+    const textResult = await collectPageText(sourceUrl, input.browserMode);
     if (!textResult.ok) {
       return {
         status: "partial",
@@ -107,11 +115,9 @@ export class HyattPriceTool implements HotelPriceTool {
         sourceUrl,
         summary: "Hyatt blocked automated browser extraction before rates could be read.",
         errorMessage:
-          input.browserMode === "chrome_profile" || input.browserMode === "persistent"
-            ? "Hyatt returned an E6020 browser automation block even with the configured Chrome profile. Use browser-assisted import or manual observation for this booking."
-            : input.browserMode === "interactive"
-              ? "Hyatt returned an E6020 browser automation block even in interactive mode. Try Chrome profile mode or use browser-assisted import."
-              : "Hyatt returned an E6020 browser automation block. Switch this booking to Chrome profile mode.",
+          input.browserMode === "interactive"
+            ? "Hyatt returned an E6020 browser automation block in the visible automation window. Use Chrome import instead."
+            : "Hyatt returned an E6020 browser automation block. Use Chrome import instead.",
         candidates: []
       };
     }
@@ -741,8 +747,7 @@ export function createTextSample(text: string) {
 
 async function collectPageText(
   url: string,
-  browserMode: BrowserMode,
-  chromeProfile?: ChromeProfileConfig | null
+  browserMode: Exclude<BrowserMode, "browser_assisted">
 ): Promise<
   | { ok: true; detailSelection?: unknown; detailText?: string; detailUrl?: string; selectedRate?: unknown; text: string }
   | { ok: false; error: string }
@@ -750,21 +755,6 @@ async function collectPageText(
   let browser: Awaited<ReturnType<typeof import("playwright").chromium.launch>> | null = null;
 
   try {
-    if (browserMode === "chrome_profile" || browserMode === "persistent") {
-      if (!chromeProfile) {
-        return { ok: false, error: "Chrome profile settings are missing." };
-      }
-      const extraction = await extractRateDetailWithChromeProfile(url, chromeProfile);
-      return {
-        ok: true,
-        detailSelection: extraction.detailSelection,
-        detailText: extraction.detail?.text,
-        detailUrl: extraction.detail?.url,
-        selectedRate: extraction.selectedRate,
-        text: extraction.list.text
-      };
-    }
-
     const { chromium } = await import("playwright");
     const pageWaitMs = browserMode === "headless" ? 6000 : 60000;
     const headless = browserMode === "headless";

@@ -21,6 +21,14 @@ type SearchPayload = {
   warning: string | null;
 };
 
+type BrowserTaskPayload = {
+  error?: string | null;
+  requestId: string;
+  result?: SearchPayload | null;
+  searchUrl?: string;
+  status: "failed" | "pending" | "succeeded";
+};
+
 const defaultCheckIn = offsetDateInput(14);
 const defaultCheckOut = offsetDateInput(15);
 
@@ -36,19 +44,28 @@ export function HyattCitySearchClient() {
 
   async function submitSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const browserTab = window.open("about:blank", "_blank");
     setError(null);
     setPayload(null);
     setLoading(true);
 
     try {
+      if (!browserTab) {
+        throw new Error("Chrome blocked the Hyatt tab. Allow pop-ups for TripBuddy and try again.");
+      }
       const params = new URLSearchParams({ adults, checkIn, checkOut, city, currency });
       const response = await fetch(`/api/hyatt-city-search?${params.toString()}`, { cache: "no-store" });
-      const data = (await response.json()) as SearchPayload | { error?: string };
+      const data = (await response.json()) as BrowserTaskPayload;
       if (!response.ok) {
-        throw new Error("error" in data && data.error ? data.error : `Search failed with status ${response.status}.`);
+        throw new Error(data.error || `Search failed with status ${response.status}.`);
       }
-      setPayload(data as SearchPayload);
+      if (!data.searchUrl) {
+        throw new Error("TripBuddy did not return a Hyatt browser URL.");
+      }
+      browserTab.location.href = data.searchUrl;
+      setPayload(await waitForSearchResult(data.requestId));
     } catch (searchError) {
+      browserTab?.close();
       setError(searchError instanceof Error ? searchError.message : "Hyatt city search failed.");
     } finally {
       setLoading(false);
@@ -150,6 +167,25 @@ export function HyattCitySearchClient() {
       ) : null}
     </div>
   );
+}
+
+async function waitForSearchResult(requestId: string) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 120000) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const response = await fetch(`/api/hyatt-city-search?requestId=${encodeURIComponent(requestId)}`, { cache: "no-store" });
+    const task = (await response.json()) as BrowserTaskPayload;
+    if (!response.ok) {
+      throw new Error(task.error || `Search status failed with ${response.status}.`);
+    }
+    if (task.status === "failed") {
+      throw new Error(task.error || "The Hyatt page could not be read by the Browser Companion.");
+    }
+    if (task.status === "succeeded" && task.result) {
+      return task.result;
+    }
+  }
+  throw new Error("Timed out waiting for the Hyatt page. Keep Chrome open and confirm the TripBuddy Browser Companion is enabled.");
 }
 
 function offsetDateInput(days: number) {

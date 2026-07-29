@@ -21,6 +21,12 @@ The automatic link passes the booking ID in the URL hash, so it is not sent to t
 The extension stores the booking ID in tab session storage so the import can continue across Hyatt room, rate-plan, and pre-payment summary navigations.
 The extension must not click final payment, confirmation, purchase, or submit controls.
 
+## Hyatt Search And Account Tasks
+
+- Hotel Search opens Hyatt in normal Chrome. The extension reads the visible city-search results and returns them to the waiting TripBuddy page.
+- Import Hyatt bookings opens `My Stays`, collects visible `Stay Details` links, visits each detail in the same tab, and sends the accumulated snapshots to TripBuddy.
+- These tasks use short-lived IDs in the URL fragment and tab session storage. They do not require a debugging port or a separate automated Chrome profile.
+
 ## Manual Import
 
 1. Run the local TripBuddy app at `http://localhost:3000`.
