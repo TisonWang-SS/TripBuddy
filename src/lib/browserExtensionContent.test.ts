@@ -283,6 +283,51 @@ describe("browser extension content script", () => {
     expect(dom.window.sessionStorage.getItem("tripbuddyAccountImportId")).toBeNull();
   });
 
+  it("waits for complete Hyatt reservation details before posting the snapshot", async () => {
+    const dom = new JSDOM(
+      `<!doctype html><body>
+        <main>
+          <h1>Confirmation</h1>
+          <p id="reservation">Check-in Checkout Price Summary</p>
+        </main>
+      </body>`,
+      {
+        url: "https://www.hyatt.com/res/en-US/detail/delayed-stay"
+      }
+    );
+    dom.window.sessionStorage.setItem("tripbuddyAccountImportId", "account-delayed-detail");
+    dom.window.sessionStorage.setItem(
+      "tripbuddyHyattAccountImportState",
+      JSON.stringify({
+        openedUrls: ["https://www.hyatt.com/res/en-US/detail/delayed-stay"],
+        pendingUrls: ["https://www.hyatt.com/res/en-US/detail/delayed-stay"],
+        requestId: "account-delayed-detail",
+        snapshots: [
+          {
+            links: [{ href: "https://www.hyatt.com/res/en-US/detail/delayed-stay", text: "Stay Details" }],
+            text: "My Stays Upcoming Past Missing a reservation? Hyatt House Kuala Lumpur, Mont Kiara",
+            title: "Hyatt - My Stays",
+            url: "https://www.hyatt.com/profile/en-US/my-stays"
+          }
+        ],
+        visitedUrls: ["https://www.hyatt.com/profile/en-US/my-stays"]
+      })
+    );
+
+    const { fetchCalls } = await loadContentScript(dom, {
+      onTimeout(callCount) {
+        if (callCount === 4) {
+          (dom.window.document.querySelector("#reservation") as HTMLElement).textContent =
+            "Confirmation: # 40023B23448487 Hyatt House Kuala Lumpur, Mont Kiara Check-in Mon, Jul 27, 2026 Checkout Sat, Aug 1, 2026 Price Summary Total Points 22,500 Points";
+        }
+      }
+    });
+
+    expect(fetchCalls).toHaveLength(1);
+    const body = JSON.parse(String((fetchCalls[0].options as { body: string }).body));
+    expect(body.snapshots.at(-1)?.text).toContain("22,500 Points");
+  });
+
   it("opens browser-agent links in the same tab even when Hyatt marks them as new-tab links", async () => {
     const dom = new JSDOM(
       `<!doctype html><body>

@@ -307,16 +307,24 @@ async function waitForHyattAccountPage(timeoutMs) {
       if (pageHasLoadedAccountContent && pageHasSettled) {
         return true;
       }
-    } else if (
-      text.length > 100 &&
-      /Confirmation(?: Number)?|Check-in|Checkout|Price Summary|Total Cost|Total Awards|Free Night/i.test(text)
-    ) {
+    } else if (hasCompleteHyattReservationDetails(text)) {
       return true;
     }
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
   return false;
+}
+
+function hasCompleteHyattReservationDetails(text) {
+  const dateValue =
+    "(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\\s+)?(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\.?\\s+\\d{1,2},?\\s+\\d{4}|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}\\/\\d{1,2}\\/\\d{4}";
+  const confirmationVisible = /Confirmation(?: Number)?\s*:?\s*#?\s*[A-Z0-9-]{5,}/i.test(text);
+  const checkInVisible = new RegExp(`Check-?in(?: Date)?\\s*:?\\s*(?:${dateValue})`, "i").test(text);
+  const checkOutVisible = new RegExp(`Check-?out(?: Date)?\\s*:?\\s*(?:${dateValue})`, "i").test(text);
+  const priceSummaryVisible =
+    /Price Summary|Total Cost(?: Per Room)?|Total Points|Total Awards|Free Night|Grand Total|Amount Due/i.test(text);
+  return text.length > 150 && confirmationVisible && checkInVisible && checkOutVisible && priceSummaryVisible;
 }
 
 function findVisibleStayDetailLinks() {

@@ -64,7 +64,7 @@ export function parseHyattAccountBookingsFromSnapshots(snapshots: AccountPageSna
         ? `Hyatt account exposed ${bookings.length} upcoming booking${bookings.length === 1 ? "" : "s"}.`
         : stayListLoaded && !hasReservationSignals
           ? "Hyatt account is signed in, but no upcoming bookings are visible in My Stays."
-        : "Hyatt account opened, but no upcoming bookings could be parsed from the visible page text."
+        : "Hyatt account opened, but TripBuddy could not parse a booking from the captured page."
   };
 }
 

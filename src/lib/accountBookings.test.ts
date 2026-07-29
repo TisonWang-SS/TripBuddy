@@ -47,6 +47,20 @@ describe("account booking extraction", () => {
     expect(result.summary).toBe("Hyatt account is signed in, but no upcoming bookings are visible in My Stays.");
   });
 
+  it("reports incomplete reservation evidence as a capture failure", () => {
+    const result = parseHyattAccountBookingsFromSnapshots([
+      {
+        links: [],
+        text: "Confirmation Check-in Checkout Price Summary",
+        title: "Hyatt | View Reservation",
+        url: "https://www.hyatt.com/res/en-US/detail/loading"
+      }
+    ]);
+
+    expect(result.bookings).toEqual([]);
+    expect(result.summary).toBe("Hyatt account opened, but TripBuddy could not parse a booking from the captured page.");
+  });
+
   it("parses Hyatt account reservations from visible page text", () => {
     const result = parseHyattAccountBookingsFromSnapshots([
       {
