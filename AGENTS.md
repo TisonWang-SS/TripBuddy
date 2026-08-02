@@ -4,8 +4,8 @@
 
 - Hyatt browser work must use normal Chrome with the TripBuddy Browser Companion extension. Do not add an automated or copied-profile fallback.
 - Browser-backed Hyatt tasks are initiated by TripBuddy, carried in URL fragments and tab session storage, and completed by posting visible evidence back to the local app.
-- When validating Hyatt city search pricing, do not trust the `currency` URL parameter by itself. Hyatt can still render `Hotel Currency`; switch the page currency selector to the requested currency before scraping `Avg/Night` text.
-- Product validation should go through the app API/page whenever possible, not only standalone scripts. For this repo, verify browser-backed Hyatt search through `/api/hyatt-city-search` and `/hotel-search`.
+- When validating Hyatt city search pricing, do not trust the `currency` URL parameter by itself. Hyatt can still render `Hotel Currency`; switch the page currency selector to the requested currency before scraping `Avg/Night` text or following a selected `View Rates` path. A tax-inclusive result requires a visible final total plus `Taxes & Fees` evidence.
+- Product validation should go through the app API/page whenever possible, not only standalone scripts. For this repo, verify browser-backed Hyatt search through `/api/hotel-search` and `/hotel-search`.
 - Hyatt account booking import should first read `My Stays`, collect visible `Stay Details` links, then open those reservation-detail URLs directly. Do not loop by clicking one stay, returning to the summary page, and clicking the next stay.
 - Hyatt reservation details can expose the current booking baseline as cash (`Total Cost Per Room* $614.48`), points (`22,500 points`), or an award certificate (`Total Awards** 1 Free Night`). Preserve all three forms.
 - Treat already-started stays as non-active. Imported Hyatt stays should only update the active list when `checkIn` is today or later.

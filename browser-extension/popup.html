@@ -24,22 +24,6 @@
         margin: 0;
       }
 
-      label {
-        display: grid;
-        font-size: 12px;
-        font-weight: 700;
-        gap: 6px;
-        letter-spacing: 0.02em;
-        text-transform: uppercase;
-      }
-
-      input {
-        border: 1px solid #c8d2e3;
-        border-radius: 10px;
-        font: inherit;
-        padding: 10px;
-      }
-
       button {
         background: #1f5eff;
         border: 0;
@@ -76,19 +60,11 @@
   <body>
     <main>
       <div>
-        <h1>TripBuddy Import</h1>
-        <p class="muted">Open a hotel rate page, enter the TripBuddy booking ID, then import visible rate evidence.</p>
+        <h1>TripBuddy Companion</h1>
+        <p class="muted">Open a Hyatt task from the local TripBuddy app. This popup can retry the task associated with the current tab.</p>
       </div>
-      <label>
-        Booking ID
-        <input id="bookingId" autocomplete="off" placeholder="Paste booking ID" />
-      </label>
-      <label>
-        Local TripBuddy URL
-        <input id="endpoint" autocomplete="off" value="http://localhost:3000" />
-      </label>
-      <button id="importButton" type="button">Import current page</button>
-      <div id="status" class="status">Ready.</div>
+      <button id="importButton" type="button">Retry current TripBuddy task</button>
+      <div id="status" class="status">Waiting for a TripBuddy task.</div>
     </main>
     <script src="popup.js"></script>
   </body>

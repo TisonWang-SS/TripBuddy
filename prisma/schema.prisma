@@ -12,6 +12,117 @@ enum SupportedCurrency {
   CNY
 }
 
+enum BookingBaselineType {
+  cash
+  points
+  certificate
+}
+
+enum BrowserTaskKind {
+  booking_price_check
+  hotel_search
+  account_booking_import
+}
+
+enum BrowserTaskStatus {
+  pending
+  running
+  succeeded
+  partial
+  failed
+}
+
+enum PriceCheckStatus {
+  running
+  succeeded
+  partial
+  failed
+}
+
+enum PriceCheckTrigger {
+  manual
+  scheduled
+}
+
+enum CollectionMethod {
+  manual
+  browser_companion
+}
+
+enum SourceType {
+  direct
+  ota
+  other
+}
+
+enum InventoryType {
+  cash
+  award
+}
+
+enum LoginState {
+  not_required
+  anonymous
+  member
+  unknown
+}
+
+enum RoomMatch {
+  exact
+  similar
+  unknown
+}
+
+enum CancellationMatch {
+  same_or_better
+  worse
+  unknown
+}
+
+enum InclusionStatus {
+  yes
+  no
+  unknown
+}
+
+enum EligibilityStatus {
+  eligible
+  not_eligible
+  unknown
+}
+
+enum PromotionApplicability {
+  applies
+  does_not_apply
+  unknown
+}
+
+enum EvidenceQuality {
+  high
+  medium
+  low
+  needs_review
+}
+
+enum AssessmentSource {
+  automated
+  user
+}
+
+enum RiskLevel {
+  low
+  medium
+  high
+}
+
+enum RecommendationVerdict {
+  keep
+  rebook_direct
+  consider_ota
+  needs_review
+  urgent
+}
+
 model SystemSetting {
   id              String                   @id @default("primary")
   displayCurrency SupportedCurrency        @default(USD)
@@ -36,20 +147,20 @@ model CurrencyConversionRate {
 }
 
 model UserProfile {
-  id                     String              @id @default(cuid())
-  name                   String              @default("Primary Traveler")
-  defaultCurrency        SupportedCurrency   @default(USD)
-  savingsThreshold       Float               @default(50)
-  urgentWindowHours      Int                 @default(24)
-  breakfastValue         Float               @default(25)
-  loungeValue            Float               @default(35)
-  lateCheckoutValue      Float               @default(15)
-  upgradeValue           Float               @default(40)
-  eliteNightValue        Float               @default(10)
-  createdAt              DateTime            @default(now())
-  updatedAt              DateTime            @updatedAt
-  loyaltyAccounts        LoyaltyAccount[]
-  creditCardBenefits     CreditCardBenefit[]
+  id                 String              @id @default(cuid())
+  name               String              @default("Primary Traveler")
+  defaultCurrency    SupportedCurrency   @default(USD)
+  savingsThreshold   Float               @default(50)
+  urgentWindowHours  Int                 @default(24)
+  breakfastValue     Float               @default(25)
+  loungeValue        Float               @default(35)
+  lateCheckoutValue  Float               @default(15)
+  upgradeValue       Float               @default(40)
+  eliteNightValue    Float               @default(10)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  loyaltyAccounts    LoyaltyAccount[]
+  creditCardBenefits CreditCardBenefit[]
 }
 
 model LoyaltyAccount {
@@ -84,25 +195,28 @@ model CreditCardBenefit {
 }
 
 model HotelBooking {
-  id                   String             @id @default(cuid())
+  id                   String              @id @default(cuid())
   hotelGroup           String
   hotelName            String
   city                 String
   checkIn              DateTime
   checkOut             DateTime
-  guests               Int                @default(1)
+  guests               Int                 @default(1)
   roomType             String
-  isSuite              Boolean            @default(false)
-  originalPrice        Float
-  currency             SupportedCurrency  @default(USD)
-  bookingChannel       String
+  isSuite              Boolean             @default(false)
+  baselineType         BookingBaselineType @default(cash)
+  baselineCashTotal    Float?
+  baselinePoints       Int?
+  baselineAwardLabel   String?
+  currency             SupportedCurrency   @default(USD)
+  bookingChannel       SourceType          @default(direct)
   cancellationDeadline DateTime?
-  breakfastIncluded    Boolean            @default(false)
-  loyaltyEligible      Boolean            @default(true)
+  breakfastIncluded    Boolean             @default(false)
+  loyaltyEligible      Boolean             @default(true)
   bookingUrl           String?
   notes                String?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
   watchPlan            WatchPlan?
   priceCheckRuns       PriceCheckRun[]
   observations         PriceObservation[]
@@ -110,78 +224,128 @@ model HotelBooking {
 }
 
 model WatchPlan {
-  id                  String          @id @default(cuid())
-  bookingId           String          @unique
-  enabled             Boolean         @default(true)
-  cashEnabled         Boolean         @default(true)
-  awardEnabled        Boolean         @default(true)
-  directEnabled       Boolean         @default(true)
-  otaReferenceEnabled Boolean         @default(false)
-  browserMode         String          @default("browser_assisted")
-  normalCadenceHours  Int             @default(24)
-  urgentCadenceHours  Int             @default(6)
-  urgentWindowHours   Int             @default(72)
-  lastCheckedAt       DateTime?
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
-  booking             HotelBooking    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  priceCheckRuns      PriceCheckRun[]
+  id                 String          @id @default(cuid())
+  bookingId          String          @unique
+  enabled            Boolean         @default(true)
+  cashEnabled        Boolean         @default(true)
+  awardEnabled       Boolean         @default(true)
+  normalCadenceHours Int             @default(24)
+  urgentCadenceHours Int             @default(6)
+  urgentWindowHours  Int             @default(72)
+  lastCheckedAt      DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  booking            HotelBooking    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  priceCheckRuns     PriceCheckRun[]
+}
+
+model BrowserTask {
+  id            String            @id @default(cuid())
+  kind          BrowserTaskKind
+  hotelGroup    String
+  status        BrowserTaskStatus @default(pending)
+  launchUrl     String
+  contextJson   String
+  snapshotsJson String            @default("[]")
+  resultJson    String?
+  errorCode     String?
+  errorMessage  String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  expiresAt     DateTime
+  finishedAt    DateTime?
+  priceCheckRun PriceCheckRun?
+
+  @@index([status, expiresAt])
 }
 
 model PriceCheckRun {
-  id                 String             @id @default(cuid())
-  bookingId          String
-  watchPlanId        String?
-  startedAt          DateTime           @default(now())
-  finishedAt         DateTime?
-  status             String
-  trigger            String
-  inventoryTypesJson String
-  collectorName      String
-  sourceUrl          String?
-  summary            String?
-  errorMessage       String?
-  booking            HotelBooking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  watchPlan          WatchPlan?         @relation(fields: [watchPlanId], references: [id], onDelete: SetNull)
-  observations       PriceObservation[]
+  id                    String             @id @default(cuid())
+  bookingId             String
+  watchPlanId           String?
+  browserTaskId         String             @unique
+  startedAt             DateTime           @default(now())
+  finishedAt            DateTime?
+  expiresAt             DateTime
+  status                PriceCheckStatus   @default(running)
+  trigger               PriceCheckTrigger
+  inventoryTypesJson    String
+  providerName          String
+  sourceUrl             String?
+  summary               String?
+  errorCode             String?
+  errorMessage          String?
+  inventoryEvidenceJson String             @default("[]")
+  booking               HotelBooking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  watchPlan             WatchPlan?         @relation(fields: [watchPlanId], references: [id], onDelete: SetNull)
+  browserTask           BrowserTask        @relation(fields: [browserTaskId], references: [id], onDelete: Cascade)
+  observations          PriceObservation[]
+
+  @@index([bookingId, startedAt])
+  @@index([status, expiresAt])
 }
 
 model PriceObservation {
-  id                    String            @id @default(cuid())
+  id                    String               @id @default(cuid())
   bookingId             String
   priceCheckRunId       String?
-  observedAt            DateTime          @default(now())
+  observedAt            DateTime             @default(now())
+  collectionMethod      CollectionMethod     @default(manual)
   sourceName            String
-  sourceType            String
-  collectedBy           String            @default("manual")
-  collectorName         String?
-  inventoryType         String            @default("cash")
-  price                 Float
-  basePrice             Float?
-  taxAmount             Float?
-  feeAmount             Float?
-  totalPrice            Float?
-  pointsPrice           Int?
+  sourceType            SourceType
+  providerName          String?
+  inventoryType         InventoryType        @default(cash)
+  cashBase              Float?
+  cashTaxes             Float?
+  cashFees              Float?
+  cashTotal             Float?
+  cashCurrency          String?
+  points                Int?
   cashCopay             Float?
-  currency              SupportedCurrency @default(USD)
-  observedCurrency      String?
-  observedPrice         Float?
-  conversionRate        Float?
+  cashCopayCurrency     String?
   rawRateName           String?
   ratePlanName          String?
-  roomTypeRaw           String
-  isSuite               Boolean           @default(false)
-  roomMatch             String
-  cancellationPolicyRaw String
-  cancellationMatch     String
-  breakfastIncluded     Boolean           @default(false)
-  taxesIncluded         Boolean           @default(true)
-  loyaltyEligible       Boolean           @default(false)
+  roomTypeRaw           String?
+  isSuite               Boolean?
+  cancellationPolicyRaw String?
+  breakfastIncluded     Boolean?
+  loyaltyEligible       Boolean?
   sourceUrl             String?
-  confidence            Float             @default(0.7)
   notes                 String?
-  booking               HotelBooking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  priceCheckRun         PriceCheckRun?    @relation(fields: [priceCheckRunId], references: [id], onDelete: SetNull)
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  booking               HotelBooking         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  priceCheckRun         PriceCheckRun?       @relation(fields: [priceCheckRunId], references: [id], onDelete: SetNull)
+  evidence              ObservationEvidence?
+  recommendations       Recommendation[]     @relation("RecommendationCandidate")
+
+  @@index([bookingId, observedAt])
+}
+
+model ObservationEvidence {
+  id                           String                 @id @default(cuid())
+  observationId                String                 @unique
+  sourceVerified               Boolean                @default(false)
+  loginState                   LoginState             @default(unknown)
+  roomMatch                    RoomMatch              @default(unknown)
+  roomMatchReason              String
+  roomAssessmentSource         AssessmentSource       @default(automated)
+  cancellationMatch            CancellationMatch      @default(unknown)
+  cancellationMatchReason      String
+  cancellationAssessmentSource AssessmentSource       @default(automated)
+  taxesIncluded                InclusionStatus        @default(unknown)
+  feesIncluded                 InclusionStatus        @default(unknown)
+  loyaltyEligibility           EligibilityStatus      @default(unknown)
+  promotionApplicability       PromotionApplicability @default(unknown)
+  currencyComparable           Boolean                @default(false)
+  qualityLevel                 EvidenceQuality
+  blockersJson                 String                 @default("[]")
+  warningsJson                 String                 @default("[]")
+  snapshotJson                 String                 @default("{}")
+  reviewedAt                   DateTime?
+  createdAt                    DateTime               @default(now())
+  updatedAt                    DateTime               @updatedAt
+  observation                  PriceObservation       @relation(fields: [observationId], references: [id], onDelete: Cascade)
 }
 
 model Promotion {
@@ -201,13 +365,15 @@ model Promotion {
 }
 
 model Recommendation {
-  id                        String       @id @default(cuid())
+  id                        String                @id @default(cuid())
   bookingId                 String
   candidateObservationId    String?
-  generatedAt               DateTime     @default(now())
-  verdict                   String
+  generatedAt               DateTime              @default(now())
+  verdict                   RecommendationVerdict
+  riskLevel                 RiskLevel
+  qualityLevel              EvidenceQuality
   estimatedSavings          Float
-  confidence                Float
+  currency                  SupportedCurrency
   cashDifference            Float
   pointsValueDifference     Float
   promotionValueDifference  Float
@@ -215,7 +381,15 @@ model Recommendation {
   eliteProgressDifference   Float
   benefitValueDifference    Float
   explanation               String
-  booking                   HotelBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  blockersJson              String                @default("[]")
+  warningsJson              String                @default("[]")
+  costBreakdownJson         String
+  decisionProvider          String
+  decisionVersion           String
+  booking                   HotelBooking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  candidateObservation      PriceObservation?     @relation("RecommendationCandidate", fields: [candidateObservationId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId, generatedAt])
 }
 
 model LoyaltyRule {

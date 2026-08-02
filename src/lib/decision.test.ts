@@ -1,276 +1,136 @@
 import { describe, expect, it } from "vitest";
-import { calculateStayCost, generateRecommendation, type DecisionBooking, type DecisionLoyaltyRule, type DecisionProfile } from "@/lib/decision";
+import {
+  calculateStayCost,
+  decideWithGuardrails,
+  DeterministicRecommendationDecider,
+  type DecisionInput,
+  type RecommendationDecider
+} from "@/lib/decision";
 
-const profile: DecisionProfile = {
-  savingsThreshold: 50,
-  urgentWindowHours: 24,
-  breakfastValue: 20,
-  loungeValue: 30,
-  lateCheckoutValue: 10,
-  upgradeValue: 25,
-  eliteNightValue: 8
-};
-
-const booking: DecisionBooking = {
-  id: "booking-1",
-  hotelGroup: "Hyatt",
-  hotelName: "Grand Hyatt Test",
-  checkIn: new Date("2026-09-10T00:00:00.000Z"),
-  checkOut: new Date("2026-09-13T00:00:00.000Z"),
-  guests: 2,
-  roomType: "King Room",
-  originalPrice: 900,
-  currency: "USD",
-  bookingChannel: "direct",
-  cancellationDeadline: new Date("2026-09-08T12:00:00.000Z"),
+const booking = {
+  baselineCashTotal: 1000,
+  baselinePoints: null,
+  baselineType: "cash" as const,
+  bookingChannel: "direct" as const,
   breakfastIncluded: false,
-  loyaltyEligible: true
-};
-
-const loyaltyAccount = {
+  cancellationDeadline: null,
+  checkIn: new Date("2026-09-10T00:00:00Z"),
+  checkOut: new Date("2026-09-12T00:00:00Z"),
+  currency: "USD",
+  guests: 2,
   hotelGroup: "Hyatt",
-  tier: "Globalist",
-  pointValue: 0.017
+  hotelName: "Grand Hyatt Tokyo",
+  id: "booking-1",
+  loyaltyEligible: true,
+  roomType: "King Room"
+};
+const profile = {
+  breakfastValue: 25,
+  eliteNightValue: 10,
+  lateCheckoutValue: 15,
+  loungeValue: 35,
+  savingsThreshold: 50,
+  upgradeValue: 40,
+  urgentWindowHours: 24
 };
 
-const loyaltyRule: DecisionLoyaltyRule = {
-  hotelGroup: "Hyatt",
-  tier: "Globalist",
-  basePointsPerUsd: 5,
-  bonusRate: 0.3,
-  breakfastBenefit: true,
-  loungeBenefit: true,
-  lateCheckoutBenefit: true,
-  upgradeBenefit: true
-};
+function cost(cashPrice: number, points = 0) {
+  return calculateStayCost({
+    booking,
+    breakfastIncluded: false,
+    cashPrice,
+    creditCards: [],
+    loyaltyAccount: { hotelGroup: "Hyatt", pointValue: 0.01, tier: "Member" },
+    loyaltyEligible: true,
+    loyaltyRule: null,
+    points,
+    profile,
+    promotions: []
+  });
+}
 
-describe("decision engine", () => {
-  it("calculates loyalty bonus point value", () => {
-    const cost = calculateStayCost({
-      price: 1000,
-      currency: "USD",
-      booking,
-      profile,
-      loyaltyAccount,
-      loyaltyRule,
-      creditCards: [],
-      promotions: [],
+function input(blockers: string[] = []): DecisionInput {
+  return {
+    baselineCost: cost(1000),
+    booking,
+    candidates: [{
+      blockers,
+      breakfastIncluded: false,
+      cashTotal: 800,
+      cost: cost(800),
+      id: "candidate-1",
       loyaltyEligible: true,
-      breakfastIncluded: false
-    });
+      qualityLevel: blockers.length ? "needs_review" : "high",
+      roomType: "King Room",
+      sourceType: "direct",
+      warnings: []
+    }],
+    profile
+  };
+}
 
-    expect(cost.pointsValue).toBeCloseTo(110.5);
-    expect(cost.effectiveCost).toBeLessThan(1000);
+describe("decision boundary", () => {
+  it("values points redemption deterministically", () => {
+    expect(cost(0, 25000).redemptionPointsValue).toBe(250);
+    expect(cost(0, 25000).effectiveCost).toBe(230);
   });
 
-  it("recommends direct rebooking when adjusted savings clear the threshold", () => {
-    const decision = generateRecommendation({
+  it("uses the best eligible payment card instead of stacking multiple cards", () => {
+    const breakdown = calculateStayCost({
       booking,
+      breakfastIncluded: false,
+      cashPrice: 1000,
+      creditCards: [
+        { cashBackRate: 0.02, eliteNightCredits: 0, hotelGroup: null, pointMultiplier: 0 },
+        { cashBackRate: 0, eliteNightCredits: 0, hotelGroup: "Hyatt", pointMultiplier: 4 }
+      ],
+      loyaltyAccount: { hotelGroup: "Hyatt", pointValue: 0.01, tier: "Member" },
+      loyaltyEligible: true,
+      loyaltyRule: null,
+      points: 0,
       profile,
-      loyaltyAccount,
-      loyaltyRule,
-      creditCards: [],
-      promotions: [],
-      now: new Date("2026-08-01T00:00:00.000Z"),
-      observations: [
-        {
-          id: "obs-1",
-          observedAt: new Date("2026-08-01T00:00:00.000Z"),
-          sourceName: "Hyatt official site",
-          sourceType: "direct",
-          price: 720,
-          currency: "USD",
-          roomTypeRaw: "King Room",
-          roomMatch: "exact",
-          cancellationPolicyRaw: "Free cancellation",
-          cancellationMatch: "same_or_better",
-          breakfastIncluded: false,
-          taxesIncluded: true,
-          loyaltyEligible: true,
-          confidence: 0.9
-        }
-      ]
+      promotions: []
     });
-
-    expect(decision.verdict).toBe("rebook_direct");
-    expect(decision.estimatedSavings).toBeGreaterThan(50);
+    expect(breakdown.creditCardValue).toBe(40);
   });
 
-  it("treats OTA savings as a reference when loyalty is not eligible", () => {
-    const decision = generateRecommendation({
-      booking,
-      profile,
-      loyaltyAccount,
-      loyaltyRule,
-      creditCards: [],
-      promotions: [],
-      now: new Date("2026-08-01T00:00:00.000Z"),
-      observations: [
-        {
-          id: "obs-ota",
-          observedAt: new Date("2026-08-01T00:00:00.000Z"),
-          sourceName: "OTA",
-          sourceType: "ota",
-          price: 400,
-          currency: "USD",
-          roomTypeRaw: "King Room",
-          roomMatch: "exact",
-          cancellationPolicyRaw: "Free cancellation",
-          cancellationMatch: "same_or_better",
-          breakfastIncluded: false,
-          taxesIncluded: true,
-          loyaltyEligible: false,
-          confidence: 0.75
-        }
-      ]
-    });
-
-    expect(decision.verdict).toBe("consider_ota");
+  it("recommends a safe direct candidate above threshold", async () => {
+    const result = await decideWithGuardrails(new DeterministicRecommendationDecider(), input());
+    expect(result).toMatchObject({ estimatedSavings: 200, verdict: "rebook_direct" });
   });
 
-  it("marks the decision urgent near the cancellation deadline", () => {
-    const decision = generateRecommendation({
-      booking,
-      profile,
-      loyaltyAccount,
-      loyaltyRule,
-      creditCards: [],
-      promotions: [],
-      now: new Date("2026-09-08T00:00:00.000Z"),
-      observations: [
-        {
-          id: "obs-1",
-          observedAt: new Date("2026-09-08T00:00:00.000Z"),
-          sourceName: "Hyatt official site",
-          sourceType: "direct",
-          price: 850,
-          currency: "USD",
-          roomTypeRaw: "King Room",
-          roomMatch: "exact",
-          cancellationPolicyRaw: "Free cancellation",
-          cancellationMatch: "same_or_better",
-          breakfastIncluded: false,
-          taxesIncluded: true,
-          loyaltyEligible: true,
-          confidence: 0.9
-        }
-      ]
-    });
-
-    expect(decision.verdict).toBe("urgent");
+  it("forces a future decider through deterministic blockers", async () => {
+    const unsafeDecider: RecommendationDecider = {
+      name: "future-llm",
+      version: "1",
+      async decide() {
+        return { candidateObservationId: "candidate-1", estimatedSavings: 200, explanation: "Rebook", riskLevel: "low", verdict: "rebook_direct" };
+      }
+    };
+    const result = await decideWithGuardrails(unsafeDecider, input(["Cancellation-policy equivalence is unknown."]));
+    expect(result.verdict).toBe("needs_review");
+    expect(result.riskLevel).toBe("high");
   });
 
-  it("requires review when room matching is unknown", () => {
-    const decision = generateRecommendation({
-      booking,
-      profile,
-      loyaltyAccount,
-      loyaltyRule,
-      creditCards: [],
-      promotions: [],
-      now: new Date("2026-08-01T00:00:00.000Z"),
-      observations: [
-        {
-          id: "obs-1",
-          observedAt: new Date("2026-08-01T00:00:00.000Z"),
-          sourceName: "Hyatt official site",
-          sourceType: "direct",
-          price: 650,
-          currency: "USD",
-          roomTypeRaw: "Guest Room",
-          roomMatch: "unknown",
-          cancellationPolicyRaw: "Free cancellation",
-          cancellationMatch: "same_or_better",
-          breakfastIncluded: false,
-          taxesIncluded: true,
-          loyaltyEligible: true,
-          confidence: 0.8
-        }
-      ]
-    });
-
-    expect(decision.verdict).toBe("needs_review");
+  it("replaces provider savings with the deterministic cost result", async () => {
+    const decider: RecommendationDecider = {
+      name: "future-llm",
+      version: "1",
+      async decide() {
+        return { candidateObservationId: "candidate-1", estimatedSavings: 999999, explanation: "Keep", riskLevel: "low", verdict: "keep" };
+      }
+    };
+    expect((await decideWithGuardrails(decider, input())).estimatedSavings).toBe(200);
   });
 
-  it("requires review when taxes and fees are not included", () => {
-    const decision = generateRecommendation({
-      booking,
-      profile,
-      loyaltyAccount,
-      loyaltyRule,
-      creditCards: [],
-      promotions: [],
-      now: new Date("2026-08-01T00:00:00.000Z"),
-      observations: [
-        {
-          id: "obs-pretax",
-          observedAt: new Date("2026-08-01T00:00:00.000Z"),
-          sourceName: "Hyatt official site",
-          sourceType: "direct",
-          price: 650,
-          currency: "USD",
-          roomTypeRaw: "King Room",
-          roomMatch: "exact",
-          cancellationPolicyRaw: "Free cancellation",
-          cancellationMatch: "same_or_better",
-          breakfastIncluded: false,
-          taxesIncluded: false,
-          loyaltyEligible: true,
-          confidence: 0.8
-        }
-      ]
-    });
-
-    expect(decision.verdict).toBe("needs_review");
-    expect(decision.explanation).toContain("taxes");
-  });
-
-  it("chooses the best comparable candidate across imported room rates", () => {
-    const decision = generateRecommendation({
-      booking,
-      profile,
-      loyaltyAccount,
-      loyaltyRule,
-      creditCards: [],
-      promotions: [],
-      now: new Date("2026-08-01T00:00:00.000Z"),
-      observations: [
-        {
-          id: "obs-latest",
-          observedAt: new Date("2026-08-01T00:05:00.000Z"),
-          sourceName: "Hyatt official site",
-          sourceType: "direct",
-          price: 880,
-          currency: "USD",
-          roomTypeRaw: "King Room",
-          roomMatch: "exact",
-          cancellationPolicyRaw: "Free cancellation",
-          cancellationMatch: "same_or_better",
-          breakfastIncluded: false,
-          taxesIncluded: true,
-          loyaltyEligible: true,
-          confidence: 0.9
-        },
-        {
-          id: "obs-best",
-          observedAt: new Date("2026-08-01T00:00:00.000Z"),
-          sourceName: "Hyatt official site",
-          sourceType: "direct",
-          price: 720,
-          currency: "USD",
-          roomTypeRaw: "King Room",
-          roomMatch: "exact",
-          cancellationPolicyRaw: "Free cancellation",
-          cancellationMatch: "same_or_better",
-          breakfastIncluded: true,
-          taxesIncluded: true,
-          loyaltyEligible: true,
-          confidence: 0.9
-        }
-      ]
-    });
-
-    expect(decision.candidateObservationId).toBe("obs-best");
-    expect(decision.verdict).toBe("rebook_direct");
+  it("rejects a decision provider output that fails runtime validation", async () => {
+    const decider = {
+      name: "broken-provider",
+      version: "1",
+      async decide() {
+        return { candidateObservationId: "candidate-1", estimatedSavings: Number.NaN, explanation: "", riskLevel: "impossible", verdict: "book" };
+      }
+    } as unknown as RecommendationDecider;
+    await expect(decideWithGuardrails(decider, input())).rejects.toThrow("invalid decision output");
   });
 });

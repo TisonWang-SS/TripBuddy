@@ -1,43 +1,100 @@
 "use server";
 
+import type {
+  BookingBaselineType,
+  CancellationMatch,
+  CollectionMethod,
+  InventoryType,
+  RoomMatch,
+  SourceType
+} from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/db";
-import { DEFAULT_PROFILE_ID } from "@/lib/constants";
+import { DEFAULT_PROFILE_ID, HOTEL_GROUPS } from "@/lib/constants";
 import { inferIsSuite, supportedCurrencyValue } from "@/lib/currency";
-import { getHotelPriceTool, type InventoryType } from "@/lib/collectors";
+import { prisma } from "@/lib/db";
+import { buildObservationEvidence } from "@/lib/evidence";
+import { toJson } from "@/lib/json";
 import { createRecommendationForBooking } from "@/lib/recommendations";
-import { getSystemCurrency, normalizeMoneyToSystemCurrency } from "@/lib/systemSettings";
+import { convertMoneyToSystemCurrency, getCurrencyConversion, getSystemCurrency } from "@/lib/systemSettings";
 
 function value(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
 }
 
 function optionalValue(formData: FormData, key: string) {
-  const raw = value(formData, key);
-  return raw.length > 0 ? raw : null;
+  return value(formData, key) || null;
 }
 
 function numberValue(formData: FormData, key: string, fallback = 0) {
-  const raw = value(formData, key);
-  const parsed = Number(raw);
+  const parsed = Number(value(formData, key));
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function optionalNumberValue(formData: FormData, key: string) {
+  const raw = value(formData, key);
+  if (!raw) {
+    return null;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function boolValue(formData: FormData, key: string) {
   return formData.get(key) === "on" || formData.get(key) === "true";
 }
 
-function browserModeValue() {
-  return "browser_assisted" as const;
+function optionalBooleanValue(formData: FormData, key: string) {
+  const raw = value(formData, key);
+  return raw === "yes" ? true : raw === "no" ? false : null;
 }
 
 function dateValue(formData: FormData, key: string) {
   const raw = value(formData, key);
-  if (!raw) {
-    return null;
+  return raw ? new Date(raw) : null;
+}
+
+function sourceTypeValue(raw: string): SourceType {
+  return raw === "ota" || raw === "other" ? raw : "direct";
+}
+
+function roomMatchOverride(raw: string): RoomMatch | undefined {
+  return raw === "exact" || raw === "similar" || raw === "unknown" ? raw : undefined;
+}
+
+function cancellationMatchOverride(raw: string): CancellationMatch | undefined {
+  return raw === "same_or_better" || raw === "worse" || raw === "unknown" ? raw : undefined;
+}
+
+function inventoryTypeValue(raw: string): InventoryType {
+  return raw === "award" ? "award" : "cash";
+}
+
+function bookingBaseline(formData: FormData) {
+  const baselineType: BookingBaselineType =
+    value(formData, "baselineType") === "points"
+      ? "points"
+      : value(formData, "baselineType") === "certificate"
+        ? "certificate"
+        : "cash";
+  const baselineCashTotal = optionalNumberValue(formData, "baselineCashTotal");
+  const baselinePoints = optionalNumberValue(formData, "baselinePoints");
+  const baselineAwardLabel = optionalValue(formData, "baselineAwardLabel");
+  if (baselineType === "cash" && baselineCashTotal === null) {
+    throw new Error("A cash booking baseline requires a cash total.");
   }
-  return new Date(raw);
+  if (baselineType === "points" && baselinePoints === null) {
+    throw new Error("A points booking baseline requires a points amount.");
+  }
+  if (baselineType === "certificate" && !baselineAwardLabel) {
+    throw new Error("A certificate booking baseline requires an award label.");
+  }
+  return {
+    baselineAwardLabel: baselineType === "certificate" ? baselineAwardLabel : null,
+    baselineCashTotal: baselineType === "cash" || baselineType === "points" ? baselineCashTotal : null,
+    baselinePoints: baselineType === "points" ? Math.round(baselinePoints!) : null,
+    baselineType
+  };
 }
 
 export async function createBooking(formData: FormData) {
@@ -45,177 +102,27 @@ export async function createBooking(formData: FormData) {
   const roomType = value(formData, "roomType");
   const booking = await prisma.hotelBooking.create({
     data: {
-      hotelGroup: value(formData, "hotelGroup"),
-      hotelName: value(formData, "hotelName"),
-      city: value(formData, "city"),
+      ...bookingBaseline(formData),
+      bookingChannel: sourceTypeValue(value(formData, "bookingChannel")),
+      bookingUrl: optionalValue(formData, "bookingUrl"),
+      breakfastIncluded: boolValue(formData, "breakfastIncluded"),
+      cancellationDeadline: dateValue(formData, "cancellationDeadline"),
       checkIn: new Date(value(formData, "checkIn")),
       checkOut: new Date(value(formData, "checkOut")),
-      guests: numberValue(formData, "guests", 1),
-      roomType,
-      isSuite: boolValue(formData, "isSuite") || inferIsSuite(roomType),
-      originalPrice: numberValue(formData, "originalPrice"),
+      city: value(formData, "city"),
       currency,
-      bookingChannel: value(formData, "bookingChannel") || "direct",
-      cancellationDeadline: dateValue(formData, "cancellationDeadline"),
-      breakfastIncluded: boolValue(formData, "breakfastIncluded"),
+      guests: numberValue(formData, "guests", 1),
+      hotelGroup: value(formData, "hotelGroup"),
+      hotelName: value(formData, "hotelName"),
+      isSuite: boolValue(formData, "isSuite") || inferIsSuite(roomType),
       loyaltyEligible: boolValue(formData, "loyaltyEligible"),
-      bookingUrl: optionalValue(formData, "bookingUrl"),
       notes: optionalValue(formData, "notes"),
-      watchPlan: {
-        create: {
-          enabled: true,
-          cashEnabled: true,
-          awardEnabled: true,
-          directEnabled: true,
-          otaReferenceEnabled: false,
-          browserMode: "browser_assisted"
-        }
-      }
+      roomType,
+      watchPlan: { create: { awardEnabled: true, cashEnabled: true, enabled: true } }
     }
   });
-
   revalidatePath("/");
   redirect(`/bookings/${booking.id}`);
-}
-
-export async function runPriceCheck(formData: FormData) {
-  const bookingId = value(formData, "bookingId");
-  const booking = await prisma.hotelBooking.findUnique({
-    where: { id: bookingId },
-    include: { watchPlan: true }
-  });
-  if (!booking) {
-    return;
-  }
-
-  const watchPlan =
-    booking.watchPlan ??
-    (await prisma.watchPlan.create({
-      data: {
-        bookingId: booking.id,
-        enabled: true,
-        cashEnabled: true,
-        awardEnabled: true,
-        directEnabled: true,
-        otaReferenceEnabled: false,
-        browserMode: "browser_assisted"
-      }
-    }));
-
-  const inventoryTypes: InventoryType[] = [
-    ...(watchPlan.cashEnabled ? (["cash"] as const) : []),
-    ...(watchPlan.awardEnabled ? (["award"] as const) : [])
-  ];
-  const tool = getHotelPriceTool(booking.hotelGroup);
-  const browserMode = browserModeValue();
-  const systemCurrency = await getSystemCurrency();
-  const run = await prisma.priceCheckRun.create({
-    data: {
-      bookingId: booking.id,
-      watchPlanId: watchPlan.id,
-      status: "running",
-      trigger: "manual",
-      inventoryTypesJson: JSON.stringify(inventoryTypes),
-      collectorName: tool.name
-    }
-  });
-
-  try {
-    const result = await tool.run({
-      bookingId: booking.id,
-      hotelGroup: booking.hotelGroup,
-      hotelName: booking.hotelName,
-      city: booking.city,
-      checkIn: booking.checkIn,
-      checkOut: booking.checkOut,
-      guests: booking.guests,
-      roomType: booking.roomType,
-      currency: booking.currency,
-      bookingUrl: booking.bookingUrl,
-      inventoryTypes,
-      browserMode
-    });
-
-    for (const candidate of result.candidates) {
-      const money = await normalizeMoneyToSystemCurrency({
-        amount: candidate.price.total,
-        basePrice: candidate.price.base,
-        taxAmount: candidate.price.taxes,
-        feeAmount: candidate.price.fees,
-        totalPrice: candidate.price.total,
-        cashCopay: candidate.price.cashCopay,
-        sourceCurrency: candidate.price.currency || systemCurrency
-      });
-      await prisma.priceObservation.create({
-        data: {
-          bookingId: booking.id,
-          priceCheckRunId: run.id,
-          observedAt: candidate.collectedAt,
-          sourceName: candidate.sourceName,
-          sourceType: candidate.sourceType,
-          collectedBy: "collector",
-          collectorName: result.collectorName,
-          inventoryType: candidate.inventoryType,
-          price: money.price,
-          basePrice: money.basePrice,
-          taxAmount: money.taxAmount,
-          feeAmount: money.feeAmount,
-          totalPrice: money.totalPrice,
-          pointsPrice: candidate.price.points,
-          cashCopay: money.cashCopay,
-          currency: money.currency,
-          observedCurrency: money.observedCurrency,
-          observedPrice: money.observedPrice,
-          conversionRate: money.conversionRate,
-          rawRateName: candidate.rawRateName,
-          ratePlanName: candidate.ratePlanName,
-          roomTypeRaw: candidate.room.rawName,
-          isSuite: inferIsSuite(candidate.room.rawName),
-          roomMatch: candidate.room.match,
-          cancellationPolicyRaw: candidate.cancellation.rawPolicy,
-          cancellationMatch: candidate.cancellation.match,
-          breakfastIncluded: candidate.breakfastIncluded,
-          taxesIncluded: candidate.price.taxesIncluded ?? false,
-          loyaltyEligible: candidate.loyalty.eligible ?? false,
-          sourceUrl: candidate.source.url,
-          confidence: candidate.source.verified ? 0.85 : 0.65,
-          notes: candidate.room.matchReason
-        }
-      });
-    }
-
-    await prisma.priceCheckRun.update({
-      where: { id: run.id },
-      data: {
-        status: result.status,
-        finishedAt: new Date(),
-        sourceUrl: result.sourceUrl,
-        summary: result.summary,
-        errorMessage: result.errorMessage
-      }
-    });
-
-    await prisma.watchPlan.update({
-      where: { id: watchPlan.id },
-      data: { lastCheckedAt: new Date() }
-    });
-
-    if (result.candidates.length > 0) {
-      await createRecommendationForBooking(booking.id);
-    }
-  } catch (error) {
-    await prisma.priceCheckRun.update({
-      where: { id: run.id },
-      data: {
-        status: "failed",
-        finishedAt: new Date(),
-        errorMessage: error instanceof Error ? error.message : "Unknown price check failure"
-      }
-    });
-  }
-
-  revalidatePath("/");
-  revalidatePath(`/bookings/${booking.id}`);
 }
 
 export async function updateWatchPlan(formData: FormData) {
@@ -223,30 +130,17 @@ export async function updateWatchPlan(formData: FormData) {
   await prisma.watchPlan.upsert({
     where: { bookingId },
     update: {
-      cashEnabled: boolValue(formData, "cashEnabled"),
       awardEnabled: boolValue(formData, "awardEnabled"),
-      directEnabled: boolValue(formData, "directEnabled"),
-      otaReferenceEnabled: boolValue(formData, "otaReferenceEnabled"),
-      browserMode: browserModeValue(),
-      normalCadenceHours: numberValue(formData, "normalCadenceHours", 24),
-      urgentCadenceHours: numberValue(formData, "urgentCadenceHours", 6),
-      urgentWindowHours: numberValue(formData, "urgentWindowHours", 72)
+      cashEnabled: boolValue(formData, "cashEnabled"),
+      enabled: true
     },
     create: {
-      bookingId,
-      enabled: true,
-      cashEnabled: boolValue(formData, "cashEnabled"),
       awardEnabled: boolValue(formData, "awardEnabled"),
-      directEnabled: boolValue(formData, "directEnabled"),
-      otaReferenceEnabled: boolValue(formData, "otaReferenceEnabled"),
-      browserMode: browserModeValue(),
-      normalCadenceHours: numberValue(formData, "normalCadenceHours", 24),
-      urgentCadenceHours: numberValue(formData, "urgentCadenceHours", 6),
-      urgentWindowHours: numberValue(formData, "urgentWindowHours", 72)
+      bookingId,
+      cashEnabled: boolValue(formData, "cashEnabled"),
+      enabled: true
     }
   });
-
-  revalidatePath("/");
   revalidatePath(`/bookings/${bookingId}`);
   redirect(`/bookings/${bookingId}`);
 }
@@ -258,25 +152,24 @@ export async function updateBooking(formData: FormData) {
   await prisma.hotelBooking.update({
     where: { id: bookingId },
     data: {
-      hotelGroup: value(formData, "hotelGroup"),
-      hotelName: value(formData, "hotelName"),
-      city: value(formData, "city"),
+      ...bookingBaseline(formData),
+      bookingChannel: sourceTypeValue(value(formData, "bookingChannel")),
+      bookingUrl: optionalValue(formData, "bookingUrl"),
+      breakfastIncluded: boolValue(formData, "breakfastIncluded"),
+      cancellationDeadline: dateValue(formData, "cancellationDeadline"),
       checkIn: new Date(value(formData, "checkIn")),
       checkOut: new Date(value(formData, "checkOut")),
-      guests: numberValue(formData, "guests", 1),
-      roomType,
-      isSuite: boolValue(formData, "isSuite") || inferIsSuite(roomType),
-      originalPrice: numberValue(formData, "originalPrice"),
+      city: value(formData, "city"),
       currency,
-      bookingChannel: value(formData, "bookingChannel") || "direct",
-      cancellationDeadline: dateValue(formData, "cancellationDeadline"),
-      breakfastIncluded: boolValue(formData, "breakfastIncluded"),
+      guests: numberValue(formData, "guests", 1),
+      hotelGroup: value(formData, "hotelGroup"),
+      hotelName: value(formData, "hotelName"),
+      isSuite: boolValue(formData, "isSuite") || inferIsSuite(roomType),
       loyaltyEligible: boolValue(formData, "loyaltyEligible"),
-      bookingUrl: optionalValue(formData, "bookingUrl"),
-      notes: optionalValue(formData, "notes")
+      notes: optionalValue(formData, "notes"),
+      roomType
     }
   });
-
   await createRecommendationForBooking(bookingId);
   revalidatePath("/");
   revalidatePath(`/bookings/${bookingId}`);
@@ -285,36 +178,57 @@ export async function updateBooking(formData: FormData) {
 
 export async function addObservation(formData: FormData) {
   const bookingId = value(formData, "bookingId");
-  const sourceCurrency = value(formData, "currency");
-  const money = await normalizeMoneyToSystemCurrency({
-    amount: numberValue(formData, "price"),
-    sourceCurrency
-  });
+  const booking = await prisma.hotelBooking.findUnique({ where: { id: bookingId } });
+  if (!booking) {
+    return;
+  }
+  const cashCurrency = value(formData, "cashCurrency") || booking.currency;
+  const inventoryType = inventoryTypeValue(value(formData, "inventoryType"));
+  const cashTotal = optionalNumberValue(formData, "cashTotal");
+  const cashCopay = optionalNumberValue(formData, "cashCopay");
+  const points = optionalNumberValue(formData, "points");
+  if (inventoryType === "cash" && cashTotal === null) {
+    throw new Error("A cash observation requires a final cash total.");
+  }
+  if (inventoryType === "award" && points === null && cashCopay === null) {
+    throw new Error("An award observation requires points or a cash copay.");
+  }
+  const sourceType = sourceTypeValue(value(formData, "sourceType"));
   const roomTypeRaw = value(formData, "roomTypeRaw");
+  const evidence = await buildFormEvidence(
+    formData,
+    booking,
+    cashCurrency,
+    inventoryType,
+    sourceType,
+    roomTypeRaw,
+    "manual"
+  );
   await prisma.priceObservation.create({
     data: {
-      bookingId,
-      sourceName: value(formData, "sourceName"),
-      sourceType: value(formData, "sourceType") || "direct",
-      price: money.price,
-      currency: money.currency,
-      observedCurrency: money.observedCurrency,
-      observedPrice: money.observedPrice,
-      conversionRate: money.conversionRate,
-      roomTypeRaw,
-      isSuite: boolValue(formData, "isSuite") || inferIsSuite(roomTypeRaw),
-      roomMatch: value(formData, "roomMatch") || "unknown",
-      cancellationPolicyRaw: value(formData, "cancellationPolicyRaw"),
-      cancellationMatch: value(formData, "cancellationMatch") || "unknown",
       breakfastIncluded: boolValue(formData, "breakfastIncluded"),
-      taxesIncluded: boolValue(formData, "taxesIncluded"),
-      loyaltyEligible: boolValue(formData, "loyaltyEligible"),
-      sourceUrl: optionalValue(formData, "sourceUrl"),
-      confidence: value(formData, "sourceType") === "direct" ? 0.85 : 0.7,
-      notes: optionalValue(formData, "notes")
+      cancellationPolicyRaw: optionalValue(formData, "cancellationPolicyRaw"),
+      cashBase: inventoryType === "cash" ? optionalNumberValue(formData, "cashBase") : null,
+      cashCopay: inventoryType === "award" ? cashCopay : null,
+      cashCopayCurrency: inventoryType === "award" && cashCopay !== null ? cashCurrency : null,
+      cashCurrency: inventoryType === "cash" ? cashCurrency : null,
+      cashFees: inventoryType === "cash" ? optionalNumberValue(formData, "cashFees") : null,
+      cashTaxes: inventoryType === "cash" ? optionalNumberValue(formData, "cashTaxes") : null,
+      cashTotal: inventoryType === "cash" ? cashTotal : null,
+      collectionMethod: "manual",
+      booking: { connect: { id: bookingId } },
+      evidence: { create: evidence },
+      inventoryType,
+      isSuite: boolValue(formData, "isSuite") || inferIsSuite(roomTypeRaw),
+      loyaltyEligible: optionalBooleanValue(formData, "loyaltyEligible"),
+      notes: optionalValue(formData, "notes"),
+      points: inventoryType === "award" && points !== null ? Math.round(points) : null,
+      roomTypeRaw,
+      sourceName: value(formData, "sourceName"),
+      sourceType,
+      sourceUrl: optionalValue(formData, "sourceUrl")
     }
   });
-
   await createRecommendationForBooking(bookingId);
   revalidatePath("/");
   revalidatePath(`/bookings/${bookingId}`);
@@ -322,38 +236,60 @@ export async function addObservation(formData: FormData) {
 }
 
 export async function updateObservation(formData: FormData) {
-  const observationId = value(formData, "observationId");
   const bookingId = value(formData, "bookingId");
-  const sourceCurrency = value(formData, "currency");
-  const money = await normalizeMoneyToSystemCurrency({
-    amount: numberValue(formData, "price"),
-    sourceCurrency
-  });
+  const observationId = value(formData, "observationId");
+  const booking = await prisma.hotelBooking.findUnique({ where: { id: bookingId } });
+  const observation = await prisma.priceObservation.findUnique({ where: { id: observationId }, include: { evidence: true } });
+  if (!booking || !observation || observation.bookingId !== bookingId) {
+    return;
+  }
+  const cashCurrency = value(formData, "cashCurrency") || booking.currency;
+  const inventoryType = inventoryTypeValue(value(formData, "inventoryType"));
+  const cashTotal = optionalNumberValue(formData, "cashTotal");
+  const cashCopay = optionalNumberValue(formData, "cashCopay");
+  const points = optionalNumberValue(formData, "points");
+  if (inventoryType === "cash" && cashTotal === null) {
+    throw new Error("A cash observation requires a final cash total.");
+  }
+  if (inventoryType === "award" && points === null && cashCopay === null) {
+    throw new Error("An award observation requires points or a cash copay.");
+  }
+  const sourceType = sourceTypeValue(value(formData, "sourceType"));
   const roomTypeRaw = value(formData, "roomTypeRaw");
+  const evidence = await buildFormEvidence(
+    formData,
+    booking,
+    cashCurrency,
+    inventoryType,
+    sourceType,
+    roomTypeRaw,
+    observation.collectionMethod,
+    observation.evidence?.snapshotJson
+  );
   await prisma.priceObservation.update({
     where: { id: observationId },
     data: {
-      sourceName: value(formData, "sourceName"),
-      sourceType: value(formData, "sourceType") || "direct",
-      price: money.price,
-      currency: money.currency,
-      observedCurrency: money.observedCurrency,
-      observedPrice: money.observedPrice,
-      conversionRate: money.conversionRate,
-      roomTypeRaw,
-      isSuite: boolValue(formData, "isSuite") || inferIsSuite(roomTypeRaw),
-      roomMatch: value(formData, "roomMatch") || "unknown",
-      cancellationPolicyRaw: value(formData, "cancellationPolicyRaw"),
-      cancellationMatch: value(formData, "cancellationMatch") || "unknown",
       breakfastIncluded: boolValue(formData, "breakfastIncluded"),
-      taxesIncluded: boolValue(formData, "taxesIncluded"),
-      loyaltyEligible: boolValue(formData, "loyaltyEligible"),
-      sourceUrl: optionalValue(formData, "sourceUrl"),
-      confidence: value(formData, "sourceType") === "direct" ? 0.85 : 0.7,
-      notes: optionalValue(formData, "notes")
+      cancellationPolicyRaw: optionalValue(formData, "cancellationPolicyRaw"),
+      cashBase: inventoryType === "cash" ? optionalNumberValue(formData, "cashBase") : null,
+      cashCopay: inventoryType === "award" ? cashCopay : null,
+      cashCopayCurrency: inventoryType === "award" && cashCopay !== null ? cashCurrency : null,
+      cashCurrency: inventoryType === "cash" ? cashCurrency : null,
+      cashFees: inventoryType === "cash" ? optionalNumberValue(formData, "cashFees") : null,
+      cashTaxes: inventoryType === "cash" ? optionalNumberValue(formData, "cashTaxes") : null,
+      cashTotal: inventoryType === "cash" ? cashTotal : null,
+      evidence: { upsert: { create: evidence, update: { ...evidence, reviewedAt: new Date() } } },
+      inventoryType,
+      isSuite: boolValue(formData, "isSuite") || inferIsSuite(roomTypeRaw),
+      loyaltyEligible: optionalBooleanValue(formData, "loyaltyEligible"),
+      notes: optionalValue(formData, "notes"),
+      points: inventoryType === "award" && points !== null ? Math.round(points) : null,
+      roomTypeRaw,
+      sourceName: value(formData, "sourceName"),
+      sourceType,
+      sourceUrl: optionalValue(formData, "sourceUrl")
     }
   });
-
   await createRecommendationForBooking(bookingId);
   revalidatePath("/");
   revalidatePath(`/bookings/${bookingId}`);
@@ -361,20 +297,12 @@ export async function updateObservation(formData: FormData) {
 }
 
 export async function deleteObservation(formData: FormData) {
-  const observationId = value(formData, "observationId");
   const bookingId = value(formData, "bookingId");
-  const observation = await prisma.priceObservation.findUnique({
-    where: { id: observationId }
-  });
-
+  const observation = await prisma.priceObservation.findUnique({ where: { id: value(formData, "observationId") } });
   if (!observation || observation.bookingId !== bookingId) {
     return;
   }
-
-  await prisma.priceObservation.delete({
-    where: { id: observationId }
-  });
-
+  await prisma.priceObservation.delete({ where: { id: observation.id } });
   await createRecommendationForBooking(bookingId);
   revalidatePath("/");
   revalidatePath(`/bookings/${bookingId}`);
@@ -382,29 +310,44 @@ export async function deleteObservation(formData: FormData) {
 
 export async function promoteObservationToBooking(formData: FormData) {
   const bookingId = value(formData, "bookingId");
-  const observationId = value(formData, "observationId");
-  const observation = await prisma.priceObservation.findUnique({
-    where: { id: observationId }
-  });
-
+  const observation = await prisma.priceObservation.findUnique({ where: { id: value(formData, "observationId") } });
   if (!observation || observation.bookingId !== bookingId) {
     return;
   }
-
+  const booking = await prisma.hotelBooking.findUnique({ where: { id: bookingId } });
+  if (!booking) {
+    return;
+  }
+  const converted =
+    observation.cashTotal !== null && observation.cashCurrency
+      ? await convertMoneyToSystemCurrency(observation.cashTotal, observation.cashCurrency)
+      : null;
+  const convertedCopay =
+    observation.cashCopay !== null && observation.cashCopayCurrency
+      ? await convertMoneyToSystemCurrency(observation.cashCopay, observation.cashCopayCurrency)
+      : null;
+  if (observation.inventoryType === "cash" && !converted) {
+    throw new Error("This observation cannot become the baseline until its currency has a conversion rate.");
+  }
+  if (observation.inventoryType === "award" && observation.cashCopay !== null && !convertedCopay) {
+    throw new Error("This award copay cannot become the baseline until its currency has a conversion rate.");
+  }
   await prisma.hotelBooking.update({
     where: { id: bookingId },
     data: {
-      originalPrice: observation.price,
-      currency: observation.currency,
+      baselineAwardLabel: null,
+      baselineCashTotal: observation.inventoryType === "cash" ? converted!.amount : convertedCopay?.amount ?? null,
+      baselinePoints: observation.inventoryType === "award" ? observation.points : null,
+      baselineType: observation.inventoryType === "award" ? "points" : "cash",
       bookingChannel: observation.sourceType,
-      roomType: observation.roomTypeRaw,
-      isSuite: observation.isSuite,
-      breakfastIncluded: observation.breakfastIncluded,
-      loyaltyEligible: observation.loyaltyEligible,
-      bookingUrl: observation.sourceUrl
+      bookingUrl: observation.sourceUrl,
+      breakfastIncluded: observation.breakfastIncluded === true,
+      currency: observation.inventoryType === "cash" ? converted!.currency : booking.currency,
+      isSuite: observation.isSuite === true,
+      loyaltyEligible: observation.loyaltyEligible === true,
+      roomType: observation.roomTypeRaw || booking.roomType
     }
   });
-
   await createRecommendationForBooking(bookingId);
   revalidatePath("/");
   revalidatePath(`/bookings/${bookingId}`);
@@ -413,19 +356,18 @@ export async function promoteObservationToBooking(formData: FormData) {
 export async function createPromotion(formData: FormData) {
   await prisma.promotion.create({
     data: {
-      hotelGroup: value(formData, "hotelGroup"),
-      title: value(formData, "title"),
-      description: optionalValue(formData, "description"),
-      startDate: dateValue(formData, "startDate"),
-      endDate: dateValue(formData, "endDate"),
-      bonusMultiplier: numberValue(formData, "bonusMultiplier"),
-      flatValue: numberValue(formData, "flatValue"),
-      requiresRegistration: boolValue(formData, "requiresRegistration"),
       appliesToExistingBookings: boolValue(formData, "appliesToExistingBookings"),
-      sourceUrl: optionalValue(formData, "sourceUrl")
+      bonusMultiplier: numberValue(formData, "bonusMultiplier"),
+      description: optionalValue(formData, "description"),
+      endDate: dateValue(formData, "endDate"),
+      flatValue: numberValue(formData, "flatValue"),
+      hotelGroup: value(formData, "hotelGroup"),
+      requiresRegistration: boolValue(formData, "requiresRegistration"),
+      sourceUrl: optionalValue(formData, "sourceUrl"),
+      startDate: dateValue(formData, "startDate"),
+      title: value(formData, "title")
     }
   });
-
   revalidatePath("/promotions");
   revalidatePath("/");
 }
@@ -435,66 +377,39 @@ export async function updateProfile(formData: FormData) {
   await prisma.systemSetting.upsert({
     where: { id: "primary" },
     update: { displayCurrency: defaultCurrency },
-    create: { id: "primary", displayCurrency: defaultCurrency }
+    create: { displayCurrency: defaultCurrency, id: "primary" }
   });
-
+  const profileData = {
+    breakfastValue: numberValue(formData, "breakfastValue", 25),
+    defaultCurrency,
+    eliteNightValue: numberValue(formData, "eliteNightValue", 10),
+    lateCheckoutValue: numberValue(formData, "lateCheckoutValue", 15),
+    loungeValue: numberValue(formData, "loungeValue", 35),
+    name: value(formData, "name") || "Primary Traveler",
+    savingsThreshold: numberValue(formData, "savingsThreshold", 50),
+    upgradeValue: numberValue(formData, "upgradeValue", 40),
+    urgentWindowHours: numberValue(formData, "urgentWindowHours", 24)
+  };
   await prisma.userProfile.upsert({
     where: { id: DEFAULT_PROFILE_ID },
-    update: {
-      name: value(formData, "name") || "Primary Traveler",
-      defaultCurrency,
-      savingsThreshold: numberValue(formData, "savingsThreshold", 50),
-      urgentWindowHours: numberValue(formData, "urgentWindowHours", 24),
-      breakfastValue: numberValue(formData, "breakfastValue", 25),
-      loungeValue: numberValue(formData, "loungeValue", 35),
-      lateCheckoutValue: numberValue(formData, "lateCheckoutValue", 15),
-      upgradeValue: numberValue(formData, "upgradeValue", 40),
-      eliteNightValue: numberValue(formData, "eliteNightValue", 10)
-    },
-    create: {
-      id: DEFAULT_PROFILE_ID,
-      name: value(formData, "name") || "Primary Traveler",
-      defaultCurrency,
-      savingsThreshold: numberValue(formData, "savingsThreshold", 50),
-      urgentWindowHours: numberValue(formData, "urgentWindowHours", 24),
-      breakfastValue: numberValue(formData, "breakfastValue", 25),
-      loungeValue: numberValue(formData, "loungeValue", 35),
-      lateCheckoutValue: numberValue(formData, "lateCheckoutValue", 15),
-      upgradeValue: numberValue(formData, "upgradeValue", 40),
-      eliteNightValue: numberValue(formData, "eliteNightValue", 10)
-    }
+    update: profileData,
+    create: { ...profileData, id: DEFAULT_PROFILE_ID }
   });
-
-  const groups = ["Hyatt", "IHG", "Marriott", "Hilton", "Accor"];
-  for (const group of groups) {
+  for (const group of HOTEL_GROUPS) {
+    const data = {
+      currentNights: numberValue(formData, `${group}_currentNights`),
+      currentPoints: numberValue(formData, `${group}_currentPoints`),
+      currentSpend: numberValue(formData, `${group}_currentSpend`),
+      pointValue: numberValue(formData, `${group}_pointValue`),
+      targetTier: optionalValue(formData, `${group}_targetTier`),
+      tier: value(formData, `${group}_tier`)
+    };
     await prisma.loyaltyAccount.upsert({
-      where: {
-        profileId_hotelGroup: {
-          profileId: DEFAULT_PROFILE_ID,
-          hotelGroup: group
-        }
-      },
-      update: {
-        tier: value(formData, `${group}_tier`),
-        currentNights: numberValue(formData, `${group}_currentNights`),
-        currentPoints: numberValue(formData, `${group}_currentPoints`),
-        currentSpend: numberValue(formData, `${group}_currentSpend`),
-        targetTier: optionalValue(formData, `${group}_targetTier`),
-        pointValue: numberValue(formData, `${group}_pointValue`)
-      },
-      create: {
-        profileId: DEFAULT_PROFILE_ID,
-        hotelGroup: group,
-        tier: value(formData, `${group}_tier`),
-        currentNights: numberValue(formData, `${group}_currentNights`),
-        currentPoints: numberValue(formData, `${group}_currentPoints`),
-        currentSpend: numberValue(formData, `${group}_currentSpend`),
-        targetTier: optionalValue(formData, `${group}_targetTier`),
-        pointValue: numberValue(formData, `${group}_pointValue`)
-      }
+      where: { profileId_hotelGroup: { hotelGroup: group, profileId: DEFAULT_PROFILE_ID } },
+      update: data,
+      create: { ...data, hotelGroup: group, profileId: DEFAULT_PROFILE_ID }
     });
   }
-
   revalidatePath("/profile");
   revalidatePath("/");
 }
@@ -502,16 +417,15 @@ export async function updateProfile(formData: FormData) {
 export async function createCreditCardBenefit(formData: FormData) {
   await prisma.creditCardBenefit.create({
     data: {
-      profileId: DEFAULT_PROFILE_ID,
-      name: value(formData, "name"),
-      hotelGroup: optionalValue(formData, "hotelGroup"),
       cashBackRate: numberValue(formData, "cashBackRate"),
-      pointMultiplier: numberValue(formData, "pointMultiplier"),
       eliteNightCredits: numberValue(formData, "eliteNightCredits"),
-      notes: optionalValue(formData, "notes")
+      hotelGroup: optionalValue(formData, "hotelGroup"),
+      name: value(formData, "name"),
+      notes: optionalValue(formData, "notes"),
+      pointMultiplier: numberValue(formData, "pointMultiplier"),
+      profileId: DEFAULT_PROFILE_ID
     }
   });
-
   revalidatePath("/profile");
 }
 
@@ -520,4 +434,56 @@ export async function createRecommendationAction(formData: FormData) {
   await createRecommendationForBooking(bookingId);
   revalidatePath("/");
   revalidatePath(`/bookings/${bookingId}`);
+}
+
+async function buildFormEvidence(
+  formData: FormData,
+  booking: { currency: "USD" | "CNY"; roomType: string },
+  cashCurrency: string,
+  inventoryType: "cash" | "award",
+  sourceType: SourceType,
+  roomTypeRaw: string,
+  collectionMethod: CollectionMethod,
+  existingSnapshotJson?: string
+) {
+  const conversionAvailable = (await getCurrencyConversion(cashCurrency, booking.currency)) !== null;
+  const evidence = buildObservationEvidence({
+    bookingCurrency: booking.currency,
+    bookingRoomType: booking.roomType,
+    cancellationPolicyRaw: optionalValue(formData, "cancellationPolicyRaw"),
+    cashCurrency,
+    collectionMethod,
+    conversionAvailable,
+    feesIncluded: optionalBooleanValue(formData, "feesIncluded"),
+    hasCashComponent: inventoryType === "award" && optionalNumberValue(formData, "cashCopay") !== null,
+    inventoryType,
+    loyaltyEligible: optionalBooleanValue(formData, "loyaltyEligible"),
+    overrides: {
+      cancellationMatch: cancellationMatchOverride(value(formData, "cancellationMatch")),
+      roomMatch: roomMatchOverride(value(formData, "roomMatch"))
+    },
+    roomTypeRaw,
+    sourceType,
+    sourceUrl: optionalValue(formData, "sourceUrl"),
+    taxesIncluded: optionalBooleanValue(formData, "taxesIncluded")
+  });
+  return {
+    blockersJson: toJson(evidence.blockers),
+    cancellationAssessmentSource: evidence.cancellationAssessmentSource,
+    cancellationMatch: evidence.cancellationMatch,
+    cancellationMatchReason: evidence.cancellationMatchReason,
+    currencyComparable: evidence.currencyComparable,
+    feesIncluded: evidence.feesIncluded,
+    loginState: evidence.loginState,
+    loyaltyEligibility: evidence.loyaltyEligibility,
+    promotionApplicability: evidence.promotionApplicability,
+    qualityLevel: evidence.qualityLevel,
+    roomAssessmentSource: evidence.roomAssessmentSource,
+    roomMatch: evidence.roomMatch,
+    roomMatchReason: evidence.roomMatchReason,
+    snapshotJson: existingSnapshotJson ?? evidence.snapshotJson,
+    sourceVerified: evidence.sourceVerified,
+    taxesIncluded: evidence.taxesIncluded,
+    warningsJson: toJson(evidence.warnings)
+  };
 }

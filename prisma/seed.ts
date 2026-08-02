@@ -80,7 +80,7 @@ async function main() {
     });
   }
 
-  const profile = await prisma.userProfile.upsert({
+  await prisma.userProfile.upsert({
     where: { id: "primary" },
     update: {},
     create: {
@@ -97,29 +97,6 @@ async function main() {
     }
   });
 
-  for (const account of [
-    ["Hyatt", "Member", 0.017],
-    ["IHG", "Club Member", 0.005],
-    ["Marriott", "Member", 0.008],
-    ["Hilton", "Member", 0.005],
-    ["Accor", "Classic", 0.02]
-  ] as const) {
-    await prisma.loyaltyAccount.upsert({
-      where: {
-        profileId_hotelGroup: {
-          profileId: profile.id,
-          hotelGroup: account[0]
-        }
-      },
-      update: {},
-      create: {
-        profileId: profile.id,
-        hotelGroup: account[0],
-        tier: account[1],
-        pointValue: account[2]
-      }
-    });
-  }
 }
 
 main()

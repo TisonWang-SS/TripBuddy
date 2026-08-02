@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { waitForBrowserTask, type BrowserTaskPayload } from "@/lib/browserTaskClient";
 
 type ImportPayload = {
   created?: number;
@@ -14,15 +16,8 @@ type ImportPayload = {
   error?: string;
 };
 
-type ImportTaskPayload = {
-  error?: string | null;
-  launchUrl?: string;
-  requestId: string;
-  result?: ImportPayload | null;
-  status: "failed" | "pending" | "succeeded";
-};
-
 export function ImportHyattBookingsButton() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [payload, setPayload] = useState<ImportPayload | null>(null);
 
@@ -35,21 +30,20 @@ export function ImportHyattBookingsButton() {
       if (!browserTab) {
         throw new Error("Chrome blocked the Hyatt tab. Allow pop-ups for TripBuddy and try again.");
       }
-      const response = await fetch("/api/account-bookings/hyatt/import", {
-        body: "{}",
+      const response = await fetch("/api/account-imports", {
+        body: JSON.stringify({ hotelGroup: "Hyatt" }),
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
         method: "POST"
       });
-      const task = (await response.json()) as ImportTaskPayload;
+      const task = (await response.json()) as BrowserTaskPayload<ImportPayload> & { error?: string };
       if (!response.ok) {
         throw new Error(task.error || `Import failed with status ${response.status}.`);
       }
-      if (!task.launchUrl) {
-        throw new Error("TripBuddy did not return a Hyatt account URL.");
-      }
       browserTab.location.href = task.launchUrl;
-      setPayload(await waitForImportResult(task.requestId));
+      const completed = await waitForBrowserTask<ImportPayload>(task.taskId, 310000);
+      setPayload(completed.result ?? { error: completed.errorMessage ?? "Hyatt import returned no result." });
+      router.refresh();
     } catch (error) {
       browserTab?.close();
       setPayload({ error: error instanceof Error ? error.message : "Hyatt booking import failed." });
@@ -84,26 +78,4 @@ export function ImportHyattBookingsButton() {
       ) : null}
     </div>
   );
-}
-
-async function waitForImportResult(requestId: string) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 120000) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    const response = await fetch(
-      `/api/account-bookings/hyatt/import?requestId=${encodeURIComponent(requestId)}`,
-      { cache: "no-store" }
-    );
-    const task = (await response.json()) as ImportTaskPayload;
-    if (!response.ok) {
-      throw new Error(task.error || `Import status failed with ${response.status}.`);
-    }
-    if (task.status === "failed") {
-      throw new Error(task.error || "The Hyatt account page could not be read by the Browser Companion.");
-    }
-    if (task.status === "succeeded" && task.result) {
-      return task.result;
-    }
-  }
-  throw new Error("Timed out waiting for Hyatt My Stays. Keep Chrome open and confirm the TripBuddy Browser Companion is enabled.");
 }

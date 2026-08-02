@@ -195,6 +195,12 @@ button {
   justify-content: flex-end;
 }
 
+.inlineActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .importPanel {
   display: grid;
   gap: 8px;
@@ -317,6 +323,35 @@ button.danger {
 .badge.urgent {
   background: #f8d9d6;
   color: var(--red);
+}
+
+.badge.high,
+.badge.succeeded {
+  background: #dff2ef;
+  color: var(--green);
+}
+
+.badge.medium,
+.badge.running,
+.badge.pending {
+  background: #e8eefb;
+  color: var(--accent);
+}
+
+.badge.low,
+.badge.partial {
+  background: #fbecd1;
+  color: var(--amber);
+}
+
+.badge.failed {
+  background: #f8d9d6;
+  color: var(--red);
+}
+
+.evidenceItem > div:first-child {
+  min-width: 0;
+  flex: 1;
 }
 
 .form {

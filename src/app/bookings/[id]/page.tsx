@@ -1,73 +1,48 @@
-import { notFound } from "next/navigation";
 import Link from "next/link";
-import { createRecommendationAction, promoteObservationToBooking } from "@/lib/actions";
+import { notFound } from "next/navigation";
+import { RunPriceCheckButton } from "@/app/bookings/[id]/RunPriceCheckButton";
+import { promoteObservationToBooking } from "@/lib/actions";
 import { formatBookingBaseline } from "@/lib/bookingPrice";
-import { buildHyattSearchUrl, type InventoryType } from "@/lib/collectors";
 import { prisma } from "@/lib/db";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { stringList } from "@/lib/json";
 
 export default async function BookingDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const booking = await prisma.hotelBooking.findUnique({
     where: { id },
     include: {
-      watchPlan: true,
-      observations: { orderBy: { observedAt: "desc" }, take: 6 },
-      recommendations: { orderBy: { generatedAt: "desc" }, take: 1 }
+      observations: { include: { evidence: true }, orderBy: { observedAt: "desc" }, take: 8 },
+      priceCheckRuns: { orderBy: { startedAt: "desc" }, take: 1 },
+      recommendations: {
+        where: { candidateObservationId: { not: null } },
+        include: { candidateObservation: { include: { evidence: true } } },
+        orderBy: { generatedAt: "desc" },
+        take: 1
+      },
+      watchPlan: true
     }
   });
-
   if (!booking) {
     notFound();
   }
-
   const latestRecommendation = booking.recommendations[0];
+  const candidateObservation = latestRecommendation?.candidateObservation ?? null;
   const latestDirect = booking.observations.find((item) => item.sourceType === "direct");
   const latestOta = booking.observations.find((item) => item.sourceType === "ota");
-  const candidateObservation = latestRecommendation?.candidateObservationId
-    ? booking.observations.find((item) => item.id === latestRecommendation.candidateObservationId)
-    : null;
-  const browserImportUrl = createBrowserImportUrl(booking);
+  const latestRun = booking.priceCheckRuns[0];
 
   return (
     <div className="grid">
       <div className="pageHeader">
-        <div>
-          <p className="eyebrow">{booking.hotelGroup}</p>
-          <h1>{booking.hotelName}</h1>
-          <p>
-            {booking.city} · {formatDate(booking.checkIn)} to {formatDate(booking.checkOut)} · {booking.guests} guest
-            {booking.guests === 1 ? "" : "s"} · {booking.isSuite ? "Suite" : "Standard room"}
-          </p>
-        </div>
-        <div className="buttonRow">
-          {browserImportUrl ? (
-            <a className="button" href={browserImportUrl} target="_blank" rel="noreferrer">
-              Chrome import
-            </a>
-          ) : null}
-          <form action={createRecommendationAction}>
-            <input type="hidden" name="bookingId" value={booking.id} />
-            <button className="secondary" type="submit">
-              Refresh
-            </button>
-          </form>
-        </div>
+        <div><p className="eyebrow">{booking.hotelGroup}</p><h1>{booking.hotelName}</h1><p>{booking.city} · {formatDate(booking.checkIn)} to {formatDate(booking.checkOut)} · {booking.guests} guest{booking.guests === 1 ? "" : "s"} · {booking.isSuite ? "Suite" : "Standard room"}</p></div>
+        <RunPriceCheckButton bookingId={booking.id} />
       </div>
 
       <section className="grid three">
-        <div className="card flat metric">
-          <span className="muted">Current baseline</span>
-          <strong>{formatBookingBaseline(booking)}</strong>
-        </div>
-        <div className="card flat metric">
-          <span className="muted">Latest direct</span>
-          <strong>{latestDirect ? formatMoney(latestDirect.price, latestDirect.currency) : "None"}</strong>
-        </div>
-        <div className="card flat metric">
-          <span className="muted">Latest OTA</span>
-          <strong>{latestOta ? formatMoney(latestOta.price, latestOta.currency) : "None"}</strong>
-        </div>
+        <Metric label="Current baseline" value={formatBookingBaseline(booking)} />
+        <Metric label="Latest direct" value={formatObservationPrice(latestDirect, booking.currency)} />
+        <Metric label="Latest OTA" value={formatObservationPrice(latestOta, booking.currency)} />
       </section>
 
       <nav className="subnav" aria-label="Booking tools">
@@ -77,179 +52,57 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
         <Link href={`/bookings/${booking.id}/logs`}>Logs</Link>
       </nav>
 
+      {latestRun ? <section className="card flat"><div className="pageHeader"><div><p className="eyebrow">Latest price check</p><strong>{latestRun.summary ?? latestRun.errorMessage ?? "Waiting for Browser Companion evidence."}</strong></div><div><span className={`badge ${latestRun.status}`}>{latestRun.status}</span><p className="muted">{formatDateTime(latestRun.startedAt)}</p></div></div></section> : null}
+
       {latestRecommendation ? (
         <section className="card">
-          <div className="pageHeader">
-            <div>
-              <p className="eyebrow">Recommendation</p>
-              <h2>
-                <span className={`badge ${latestRecommendation.verdict}`}>{latestRecommendation.verdict}</span>
-              </h2>
-            </div>
-            <div>
-              <p className="muted">Estimated savings</p>
-              <h2>{formatMoney(latestRecommendation.estimatedSavings, booking.currency)}</h2>
-            </div>
-          </div>
+          <div className="pageHeader"><div><p className="eyebrow">Recommendation</p><h2><span className={`badge ${latestRecommendation.verdict}`}>{latestRecommendation.verdict}</span></h2></div><div><p className="muted">Estimated savings</p><h2>{formatMoney(latestRecommendation.estimatedSavings, latestRecommendation.currency)}</h2></div></div>
           <p>{latestRecommendation.explanation}</p>
-          {candidateObservation ? (
-            <form action={promoteObservationToBooking} className="section">
-              <input type="hidden" name="bookingId" value={booking.id} />
-              <input type="hidden" name="observationId" value={candidateObservation.id} />
-              <button type="submit">Use candidate price</button>
-            </form>
-          ) : null}
+          <p className="muted">Evidence: {latestRecommendation.qualityLevel} · Risk: {latestRecommendation.riskLevel} · {latestRecommendation.decisionProvider} v{latestRecommendation.decisionVersion}</p>
+          <IssueList blockers={stringList(latestRecommendation.blockersJson)} warnings={stringList(latestRecommendation.warningsJson)} />
+          {candidateObservation ? <form action={promoteObservationToBooking} className="section"><input type="hidden" name="bookingId" value={booking.id} /><input type="hidden" name="observationId" value={candidateObservation.id} /><button type="submit">Use candidate as current</button></form> : null}
         </section>
-      ) : (
-        <section className="empty">
-          <h2>No recommendation yet</h2>
-          <p>Import or add a price observation, then refresh the decision.</p>
-        </section>
-      )}
+      ) : <section className="empty"><h2>No recommendation yet</h2><p>Run a price check or add a final manual observation.</p></section>}
 
       <section className="card">
-        <div className="pageHeader">
-          <div>
-            <p className="eyebrow">Recent prices</p>
-            <h2>Observations</h2>
-          </div>
-          <Link className="button secondary" href={`/bookings/${booking.id}/logs`}>
-            View all
-          </Link>
-        </div>
-        {booking.observations.length === 0 ? (
-          <div className="empty">
-            <h3>No observations</h3>
-            <p>Imported and manual prices will appear here.</p>
-          </div>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Observed</th>
-                <th>Source</th>
-                <th>Price</th>
-                <th>Room</th>
-                <th>Policy</th>
+        <div className="pageHeader"><div><p className="eyebrow">Recent prices</p><h2>Observations</h2></div><Link className="button secondary" href={`/bookings/${booking.id}/logs`}>View all</Link></div>
+        {booking.observations.length === 0 ? <div className="empty"><h3>No observations</h3><p>Only final cash evidence, explicit points rates, and manual observations appear here.</p></div> : (
+          <table className="table"><thead><tr><th>Observed</th><th>Source</th><th>Price</th><th>Room</th><th>Evidence</th></tr></thead><tbody>
+            {booking.observations.map((observation) => (
+              <tr key={observation.id}>
+                <td>{formatDateTime(observation.observedAt)}</td>
+                <td>{observation.sourceName}<br /><span className="muted">{observation.sourceType} · {observation.collectionMethod}</span></td>
+                <td>{formatObservationPrice(observation, booking.currency)}{observation.cashCurrency && observation.cashCurrency !== booking.currency ? <><br /><span className="muted">Observed in {observation.cashCurrency}</span></> : null}</td>
+                <td>{formatRoom(observation.roomTypeRaw)}<br /><span className="muted">{observation.ratePlanName ?? "Rate plan not captured"}</span></td>
+                <td><span className={`badge ${observation.evidence?.qualityLevel ?? "needs_review"}`}>{observation.evidence?.qualityLevel ?? "needs_review"}</span><br /><span className="muted">{observation.evidence?.roomMatch ?? "unknown"} room · {observation.evidence?.cancellationMatch ?? "unknown"} policy</span></td>
               </tr>
-            </thead>
-            <tbody>
-              {booking.observations.map((observation) => (
-                <tr key={observation.id}>
-                  <td>{formatDateTime(observation.observedAt)}</td>
-                  <td>
-                    {observation.sourceName}
-                    <br />
-                    <span className="muted">{observation.sourceType}</span>
-                  </td>
-                  <td>
-                    {observation.inventoryType === "award" && observation.pointsPrice
-                      ? `${observation.pointsPrice.toLocaleString("en-US")} points`
-                      : formatMoney(observation.price, observation.currency)}
-                  </td>
-                  <td>
-                    {formatObservedRoom(observation.roomTypeRaw)}
-                    <br />
-                    <span className="muted">{observation.isSuite ? "Suite" : "Standard room"}</span>
-                  </td>
-                  <td>{formatPolicyStatus(observation.cancellationMatch, observation.cancellationPolicyRaw)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            ))}
+          </tbody></table>
         )}
       </section>
     </div>
   );
 }
 
-function createBrowserImportUrl(booking: {
-  bookingUrl: string | null;
-  checkIn: Date;
-  checkOut: Date;
-  city: string;
-  currency: string;
-  guests: number;
-  hotelGroup: string;
-  hotelName: string;
-  id: string;
-  roomType: string;
-  watchPlan: {
-    awardEnabled: boolean;
-    browserMode: string;
-    cashEnabled: boolean;
-  } | null;
-}) {
-  const sourceUrl = booking.hotelGroup === "Hyatt" ? buildHyattImportUrl(booking) : booking.bookingUrl;
-  if (!sourceUrl) {
-    return null;
-  }
-
-  try {
-    const url = new URL(sourceUrl);
-    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
-    hashParams.set("tripbuddyBookingId", booking.id);
-    hashParams.set("tripbuddyEndpoint", "http://localhost:3000");
-    hashParams.set("tripbuddyRunNonce", String(Date.now()));
-    url.hash = hashParams.toString();
-    return url.toString();
-  } catch {
-    return null;
-  }
+function Metric({ label, value }: { label: string; value: string }) {
+  return <div className="card flat metric"><span className="muted">{label}</span><strong>{value}</strong></div>;
 }
 
-function buildHyattImportUrl(booking: {
-  bookingUrl: string | null;
-  checkIn: Date;
-  checkOut: Date;
-  city: string;
-  currency: string;
-  guests: number;
-  hotelGroup: string;
-  hotelName: string;
-  id: string;
-  roomType: string;
-  watchPlan: {
-    awardEnabled: boolean;
-    browserMode: string;
-    cashEnabled: boolean;
-  } | null;
-}) {
-  const inventoryTypes: InventoryType[] = [
-    ...((booking.watchPlan?.cashEnabled ?? true) ? (["cash"] as const) : []),
-    ...((booking.watchPlan?.awardEnabled ?? true) ? (["award"] as const) : [])
-  ];
-
-  return buildHyattSearchUrl({
-    bookingId: booking.id,
-    bookingUrl: booking.bookingUrl,
-    browserMode: "browser_assisted",
-    checkIn: booking.checkIn,
-    checkOut: booking.checkOut,
-    city: booking.city,
-    currency: booking.currency,
-    guests: booking.guests,
-    hotelGroup: booking.hotelGroup,
-    hotelName: booking.hotelName,
-    inventoryTypes,
-    roomType: booking.roomType
-  });
+function IssueList({ blockers, warnings }: { blockers: string[]; warnings: string[] }) {
+  return blockers.length || warnings.length ? <div className="section">{blockers.map((item) => <p className="notice warning" key={item}>{item}</p>)}{warnings.map((item) => <p className="muted" key={item}>{item}</p>)}</div> : null;
 }
 
-function formatObservedRoom(value: string) {
-  const room = value.trim();
-  return room && !/^(?:unknown|room not captured)$/i.test(room) ? room : "Not captured";
+function formatObservationPrice(observation: { cashCopay: number | null; cashCopayCurrency: string | null; cashCurrency: string | null; cashTotal: number | null; inventoryType: string; points: number | null } | null | undefined, fallbackCurrency: string) {
+  if (!observation) return "None";
+  if (observation.inventoryType === "award") {
+    const points = observation.points ? `${observation.points.toLocaleString("en-US")} points` : "Award";
+    return observation.cashCopay === null
+      ? points
+      : `${points} + ${formatMoney(observation.cashCopay, observation.cashCopayCurrency ?? fallbackCurrency)}`;
+  }
+  return observation.cashTotal === null ? "Cash total not captured" : formatMoney(observation.cashTotal, observation.cashCurrency ?? fallbackCurrency);
 }
 
-function formatPolicyStatus(match: string, policy: string) {
-  if (!policy || /policy not captured/i.test(policy)) {
-    return "Not captured";
-  }
-  if (match === "same_or_better") {
-    return "Same or better";
-  }
-  if (match === "worse") {
-    return "Worse";
-  }
-  return "Captured";
+function formatRoom(value: string | null) {
+  return value && !/^(?:unknown|room not captured)$/i.test(value) ? value : "Not captured";
 }

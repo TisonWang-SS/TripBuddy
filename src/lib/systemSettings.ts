@@ -12,92 +12,37 @@ export async function getSystemSettings() {
 }
 
 export async function getSystemCurrency() {
-  const settings = await getSystemSettings();
-  return settings.displayCurrency;
+  return (await getSystemSettings()).displayCurrency;
 }
 
-export async function normalizeMoneyToSystemCurrency(input: {
-  amount: number;
-  basePrice?: number | null;
-  taxAmount?: number | null;
-  feeAmount?: number | null;
-  totalPrice?: number | null;
-  cashCopay?: number | null;
-  sourceCurrency: string;
-}) {
-  const targetCurrency = await getSystemCurrency();
-  const observedCurrency = normalizeObservedCurrency(input.sourceCurrency);
-  if (observedCurrency !== targetCurrency && isZeroOnlyAwardLikeAmount(input)) {
-    return {
-      currency: targetCurrency,
-      price: 0,
-      basePrice: null,
-      taxAmount: null,
-      feeAmount: null,
-      totalPrice: input.totalPrice === null || input.totalPrice === undefined ? null : 0,
-      cashCopay: null,
-      observedCurrency: null,
-      observedPrice: null,
-      conversionRate: null
-    };
-  }
-
-  const conversionRate = await findConversionRate(observedCurrency, targetCurrency);
-
-  if (conversionRate === null) {
-    throw new Error(`Missing currency conversion rate from ${observedCurrency} to ${targetCurrency}.`);
-  }
-
-  return {
-    currency: targetCurrency,
-    price: roundMoney(input.amount * conversionRate),
-    basePrice: convertNullable(input.basePrice, conversionRate),
-    taxAmount: convertNullable(input.taxAmount, conversionRate),
-    feeAmount: convertNullable(input.feeAmount, conversionRate),
-    totalPrice: convertNullable(input.totalPrice, conversionRate),
-    cashCopay: convertNullable(input.cashCopay, conversionRate),
-    observedCurrency,
-    observedPrice: observedCurrency === targetCurrency ? null : input.amount,
-    conversionRate: observedCurrency === targetCurrency ? null : conversionRate
-  };
-}
-
-async function findConversionRate(sourceCurrency: string, targetCurrency: SupportedCurrency) {
-  if (sourceCurrency === targetCurrency) {
+export async function getCurrencyConversion(sourceCurrency: string, targetCurrency: SupportedCurrency) {
+  const normalizedSource = normalizeObservedCurrency(sourceCurrency);
+  if (normalizedSource === targetCurrency) {
     return 1;
   }
-
   const rate = await prisma.currencyConversionRate.findUnique({
     where: {
       systemSettingId_sourceCurrency_targetCurrency: {
+        sourceCurrency: normalizedSource,
         systemSettingId: DEFAULT_SYSTEM_SETTING_ID,
-        sourceCurrency,
         targetCurrency
       }
     }
   });
-
   return rate?.rate ?? null;
 }
 
-function convertNullable(value: number | null | undefined, rate: number) {
-  return value === null || value === undefined ? null : roundMoney(value * rate);
-}
-
-function isZeroOnlyAwardLikeAmount(input: {
-  amount: number;
-  basePrice?: number | null;
-  taxAmount?: number | null;
-  feeAmount?: number | null;
-  totalPrice?: number | null;
-  cashCopay?: number | null;
-}) {
-  return (
-    input.amount === 0 &&
-    (input.basePrice === null || input.basePrice === undefined) &&
-    (input.taxAmount === null || input.taxAmount === undefined) &&
-    (input.feeAmount === null || input.feeAmount === undefined) &&
-    (input.cashCopay === null || input.cashCopay === undefined) &&
-    (input.totalPrice === null || input.totalPrice === undefined || input.totalPrice === 0)
-  );
+export async function convertMoneyToSystemCurrency(amount: number, sourceCurrency: string) {
+  const currency = await getSystemCurrency();
+  const observedCurrency = normalizeObservedCurrency(sourceCurrency);
+  const rate = await getCurrencyConversion(observedCurrency, currency);
+  if (rate === null) {
+    return null;
+  }
+  return {
+    amount: roundMoney(amount * rate),
+    currency,
+    observedCurrency,
+    rate
+  };
 }

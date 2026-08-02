@@ -14,7 +14,7 @@ export default async function DashboardPage() {
       orderBy: { checkIn: "asc" },
       include: {
         observations: { orderBy: { observedAt: "desc" }, take: 1 },
-        recommendations: { orderBy: { generatedAt: "desc" }, take: 1 }
+        recommendations: { where: { candidateObservationId: { not: null } }, orderBy: { generatedAt: "desc" }, take: 1 }
       }
     })
   ]);

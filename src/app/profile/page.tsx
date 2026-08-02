@@ -25,7 +25,6 @@ export default async function ProfilePage() {
   });
 
   const accountByGroup = new Map(profile.loyaltyAccounts.map((account) => [account.hotelGroup, account]));
-
   return (
     <div className="grid">
       <div className="pageHeader">
@@ -45,7 +44,7 @@ export default async function ProfilePage() {
             <input id="name" name="name" defaultValue={profile.name} />
           </div>
           <div className="field">
-            <label htmlFor="defaultCurrency">Default currency</label>
+            <label htmlFor="defaultCurrency">Primary calculation currency</label>
             <select id="defaultCurrency" name="defaultCurrency" defaultValue={profile.defaultCurrency}>
               {SUPPORTED_CURRENCIES.map((currency) => (
                 <option key={currency} value={currency}>
@@ -53,6 +52,7 @@ export default async function ProfilePage() {
                 </option>
               ))}
             </select>
+            <small className="muted">City search captures and displays one official price in this currency.</small>
           </div>
           <div className="field">
             <label htmlFor="savingsThreshold">Savings threshold</label>

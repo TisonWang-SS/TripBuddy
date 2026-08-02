@@ -1,336 +1,100 @@
-# TripBuddy Implementation Plan
+# TripBuddy v0.2 Implementation Plan
 
-## Current Architecture
+## Target Architecture
 
-TripBuddy is a local Next.js App Router application with:
+TripBuddy remains a local Next.js App Router application backed by Prisma and SQLite. Browser-backed work is coordinated by persistent browser tasks and completed by normal Chrome plus the TripBuddy Browser Companion.
 
-- Prisma Client as the app ORM.
-- SQLite as the local database.
-- Server actions for mutations.
-- A deterministic decision engine in `src/lib/decision.ts`.
-- A collector interface in `src/lib/collectors.ts`.
-- Manual observations as the current input path.
-- Booking detail uses compact observation rows instead of inline edit forms.
-- Observation editing is handled on a dedicated edit page.
-- Observation deletion is available from the booking detail list.
+The application is divided into four boundaries:
 
-The next implementation should preserve the current local-first architecture and make automated price checks a primary booking workflow behind a group-specific tool abstraction.
+1. **Hotel providers** build source URLs, plan safe navigation, and parse source-specific snapshots.
+2. **Price-check services** own browser-task/run lifecycle, observation persistence, evidence construction, and expiration.
+3. **Pricing and decision services** calculate deterministic comparable costs, enforce guardrails, and call a replaceable recommendation decider.
+4. **UI/API adapters** translate forms, browser captures, and provider results without duplicating domain logic.
 
-## v0.2 Key Changes: Booking-Driven Automated Query + Evidence
+## Implementation Sequence
 
-### Data Model
+### 1. Data and Tooling Baseline
 
-Add structured evidence fields without removing existing observations immediately.
+- Replace the prototype schema with explicit enums, `BrowserTask`, `ObservationEvidence`, factual `PriceObservation`, and auditable `Recommendation` models.
+- Represent booking cash, points, and certificate baselines explicitly.
+- Replace handwritten migration scripts with a standard Prisma baseline migration and `prisma.config.ts`.
+- Add reset/migrate/seed scripts, ESLint CLI configuration, and `*.tsbuildinfo` ignore coverage.
+- Remove Playwright and all headless/interactive browser modes.
 
-Recommended new models:
+### 2. Provider and Browser Task Core
 
-- `WatchPlan`
-  - `id`
-  - `bookingId`
-  - `enabled`
-  - `cashEnabled`
-  - `awardEnabled`
-  - `directEnabled`
-  - `otaReferenceEnabled`
-  - `browserMode`: `browser_assisted`
-  - `normalCadenceHours`
-  - `urgentCadenceHours`
-  - `urgentWindowHours`
-  - `lastCheckedAt`
+- Define `BookingPriceProvider`, `HotelSearchProvider`, and `AccountBookingImporter` contracts plus a hotel-group registry.
+- Move Hyatt URL creation, parsing, and safe action planning into one provider implementation.
+- Persist browser tasks with an expiry and one linked price-check run for booking checks.
+- Expose one task status/capture protocol for booking checks, city search, and account import.
+- Store only sanitized structured evidence; inventory nightly cash estimates do not create observations.
 
-- `PriceCheckRun`
-  - `id`
-  - `bookingId`
-  - `watchPlanId`
-  - `startedAt`
-  - `finishedAt`
-  - `status`: `running`, `succeeded`, `partial`, `failed`
-  - `trigger`: `manual`, `scheduled`
-  - `inventoryTypesJson`
-  - `collectorName`
-  - `sourceUrl`
+### 3. Evidence and Recommendation Core
 
-- `ObservationEvidence`
-  - `id`
-  - `observationId`
-  - `collectionMethod`: `automated`, `manual`
-  - `sourceVerified`
-  - `loginState`: `not_required`, `anonymous`, `member`, `unknown`
-  - `roomMatch`: `exact`, `similar`, `unknown`
-  - `roomMatchReason`
-  - `cancellationMatch`: `same_or_better`, `worse`, `unknown`
-  - `cancellationMatchReason`
-  - `taxesIncluded`: `yes`, `no`, `unknown`
-  - `feesIncluded`: `yes`, `no`, `unknown`
-  - `loyaltyEligibility`: `eligible`, `not_eligible`, `unknown`
-  - `promotionApplicability`: `applies`, `does_not_apply`, `unknown`
-  - `currencyMatch`
-  - `qualityLevel`: `high`, `medium`, `low`, `needs_review`
-  - `blockersJson`
-  - `warningsJson`
-  - `rawSnapshotJson`
+- Add a pure evidence builder with blockers, warnings, quality, user overrides, and assessment provenance.
+- Refactor the cost engine around cash, points, copay, conversion, promotion, card, elite, and benefit components.
+- Add `RecommendationDecider`; use the deterministic implementation by default and validate every result against guardrails.
+- Add `PriceCheckRunner` with `manual` and `scheduled` triggers. Only manual invocation is wired in v0.2.
 
-Recommended additions to `PriceObservation`:
+### 4. UI and Extension Integration
 
-- `priceCheckRunId`
-- `collectedBy`: `manual`, `collector`
-- `collectorName`
-- `inventoryType`: `cash`, `award`
-- `pointsPrice`
-- `cashCopay`
-- `rawRateName`
-- `ratePlanName`
-- `taxAmount`
-- `feeAmount`
-- `totalPrice`
-- `basePrice`
+- Replace booking-page Chrome links and unused server actions with a single task-driven Run price check client.
+- Show evidence quality, blockers, warnings, source facts, and sanitized details; remove numeric confidence.
+- Reuse booking and observation form components.
+- Generalize `/hotel-search` around the provider registry while exposing Hyatt only.
+- Keep city search in the profile's single calculation currency. Offer an on-demand Hyatt `View Rates` flow that returns a tax-inclusive total only after visible final-total and tax/fee evidence is captured.
+- Refactor Browser Companion to one task context and one server parsing path. The popup imports the current task only.
+- Preserve Hyatt account import behavior, including direct reservation-detail navigation and active-date filtering.
 
-The existing `confidence` field should remain internal for compatibility but should not appear in the UI.
+### 5. Verification
 
-### Group Tool Interface
+- Unit-test providers, parsers, evidence, pricing, decider validation, expiry, and click guardrails.
+- Integration-test task/run identity, stage completion, observation readiness, failure preservation, manual correction, city dispatch, and account baselines.
+- Smoke-test booking/check UI, evidence rendering, forms, and search provider selection.
+- Run test, lint, typecheck, production build, and clean reset/seed.
+- Validate booking price import, the configured city-search currency plus one tax-inclusive city result, and account import through the app using normal Chrome with Browser Companion.
 
-Each hotel group should be represented as a separate tool behind a shared interface. The app should select the correct tool by `hotelGroup`, then pass the booking and watch plan. Hyatt is the first implementation target.
-
-Replace the placeholder collector result with a richer contract:
+## Stable Interfaces
 
 ```ts
-type CollectorRateCandidate = {
-  sourceName: string;
-  sourceType: "direct" | "ota" | "other";
-  inventoryType: "cash" | "award";
-  collectedAt: Date;
-  price: {
-    base: number | null;
-    taxes: number | null;
-    fees: number | null;
-    total: number;
-    currency: string;
-    points: number | null;
-    cashCopay: number | null;
-    taxesIncluded: boolean | null;
-    feesIncluded: boolean | null;
-  };
-  room: {
-    rawName: string;
-    normalizedName: string | null;
-    match: "exact" | "similar" | "unknown";
-    matchReason: string;
-  };
-  cancellation: {
-    rawPolicy: string;
-    deadline: Date | null;
-    match: "same_or_better" | "worse" | "unknown";
-    matchReason: string;
-  };
-  loyalty: {
-    eligible: boolean | null;
-    loginState: "not_required" | "anonymous" | "member" | "unknown";
-  };
-  source: {
-    url: string | null;
-    verified: boolean;
-    snapshot: unknown;
-  };
-};
+interface BookingPriceProvider {
+  hotelGroup: string;
+  buildLaunchUrl(input: BookingPriceInput): string;
+  planAction(snapshot: BrowserPageSnapshot): BrowserTaskAction;
+  parseSnapshot(snapshot: BrowserPageSnapshot, input: BookingPriceInput): ParsedBookingEvidence;
+}
+
+interface HotelSearchProvider {
+  hotelGroup: string;
+  buildSearchUrl(query: HotelSearchQuery): string;
+  parseSearchSnapshot(snapshot: BrowserPageSnapshot): HotelSearchResult[];
+}
+
+interface AccountBookingImporter {
+  hotelGroup: string;
+  buildLaunchUrl(taskId: string, endpoint: string): string;
+  isReservationDetailUrl(value: string): boolean;
+  parseSnapshots(snapshots: AccountPageSnapshot[]): AccountBookingExtraction;
+}
+
+interface PriceCheckRunner {
+  run(input: { bookingId: string; trigger: "manual" | "scheduled" }): Promise<BrowserTaskLaunch>;
+}
+
+interface RecommendationDecider {
+  name: string;
+  version: string;
+  decide(input: DecisionInput): Promise<DecisionOutput>;
+}
 ```
 
-Group tools should not directly create recommendations. They should only produce candidates, source URLs, run status, and evidence-ready raw data.
+Provider results contain facts only. Evidence builders assess comparability. Cost engines calculate numbers. Deciders choose and explain. Guardrails validate the final decision.
 
-### First Group Tool: Hyatt
+## Operational Constraints
 
-Implement Hyatt first, because the app already treats direct rates as the primary decision source.
-
-The first Hyatt tool should:
-
-- Accept booking fields as input.
-- Support cash and award inventory modes in the tool contract.
-- Build or open a direct Hyatt search URL.
-- Use Browser Companion import as the first Hyatt path for real-profile evidence capture.
-- Use normal Chrome plus the Browser Companion for every Hyatt product flow.
-- Create short-lived browser tasks for booking imports, city searches, and account imports; the app opens Hyatt and polls the local task while the extension posts visible evidence.
-- Detect empty Hyatt documents as an unreadable state rather than a no-rate result.
-- Add a `browser-extension` unpacked Chrome extension that reads the active tab only after a user click, extracts Hyatt visible text and candidate rates, and posts evidence to `POST /api/browser-evidence`.
-- Add a content-script auto-import mode. Booking detail pages should open the hotel source URL with `tripbuddyBookingId` in the URL hash; the extension should wait for readable rate text, then POST page evidence to the local API without clicking hotel controls.
-- Auto-import readiness should require rate-like tokens, not generic page controls. Accept examples include `Avg/Night`, `Avg / Night`, `per night`, points rates, `Total Cash`, `Price Summary`, and related final-total labels.
-- For Hyatt auto-import, attempt a conservative staged navigation from room list to rate plan to pre-payment price summary. If final total evidence appears, import only observation-ready final/detail evidence and suppress room-list nightly estimates for the same page import.
-- Store the booking ID and local endpoint in tab-scoped session storage after opening the auto-import URL so the content script can continue across Hyatt navigations even when the URL hash is dropped.
-- Use a state-machine-like content script loop: wait for room-list rates, click the lowest safe rate selector, detect rate-plan pages, click a safe rate-plan selector, then import only after final-total evidence appears or the fallback timeout expires.
-- Maintain hard click guardrails for payment, confirmation, purchase, complete-reservation, place-order, and submit-payment controls.
-- Add `POST /api/browser-evidence` to create a browser-extension `PriceCheckRun`, store parsed candidates as `PriceObservation`, update `lastCheckedAt`, and refresh the booking recommendation.
-- Add a Browser Import card on booking detail pages showing the booking ID, local endpoint, and extension usage instructions.
-- Prefer canonical hotel-specific `/en-US/shop/rooms/{hotelCode}` URLs when a Hyatt hotel code can be extracted from the booking URL.
-- Detect Hyatt E6020 automation blocks and store a clear failed run status.
-- Parse cash and award candidates conservatively from page text.
-- Support common Hyatt cash display formats across USD, JPY, EUR, GBP, SGD, MYR, HKD, CNY, THB, and KRW.
-- Preserve the observed Hyatt page currency for parsed cash rates.
-- Request the booking currency in Hyatt source URLs where Hyatt supports a currency query parameter.
-- Treat Hyatt `Avg/Night` as a nightly base rate, not a stay total. Calculate stay total as nightly rate multiplied by the number of nights, and store the nightly value in `basePrice`.
-- Capture the visible room name and rate plan near a Hyatt cash rate when the room list exposes them.
-- Mark cancellation policy as unknown when it is not visible in the Hyatt room list. Do not infer a policy from the existence of a rate.
-- In Browser Companion mode, use a conservative multi-step Hyatt flow: read the room list, identify the lowest visible safe cash rate, click its `Select & Book` control, wait for a pre-payment detail or review page, and extract final total, tax/fee text, and cancellation policy text when visible.
-- Add a hard automation guardrail: never click payment, purchase, confirm booking, place order, submit payment, or equivalent final-booking controls.
-- Treat room-list totals as transient estimates when detail-page final total is unavailable. Detail-page totals should override room-list nightly-rate estimates, and estimates must not be stored as `PriceObservation` rows when a final total was captured in the same import.
-- Split Hyatt extraction into two explicit phases:
-  1. Inventory phase: collect all visible room-list room/rate estimates, including rooms and suites. These are candidate-selection facts, not final observations.
-  2. Detail phase: select one or more backup candidates, navigate each selected candidate to its rate/detail or pre-payment page, and capture final total, tax/fee inclusion, breakfast inclusion, and cancellation policy.
-- The initial deterministic candidate selector can choose the closest matching current room and the cheapest safe candidate. Future LLM selection should choose candidates from the inventory phase using current booking details, party type, room preferences, breakfast preference, and cancellation sensitivity.
-- Future Hyatt detail extraction may use multiple TripBuddy-owned tabs or windows to collect final totals for selected candidates in parallel, provided all tabs preserve the original booking dates, guest count, currency, and no final booking action is clicked.
-- Parse any visible Hyatt cash or award candidate from the same loaded page when either inventory mode is enabled, because Hyatt award searches can still render cash rates.
-- Support award text variants such as `points`, `point/night`, and `pts/night`.
-- Store a short page-text sample in failed or partial run details when no rate token can be parsed.
-- Mark room and cancellation matches as `unknown` until structured extraction can verify equivalence.
-- Store one or more observations.
-- Attach evidence to each observation.
-- Fail safely with a `PriceCheckRun` error state.
-
-Manual observation remains the fallback when automated collection fails.
-
-### Evidence Builder
-
-Add a pure module, likely `src/lib/evidence.ts`, that converts a collector candidate and booking into an evidence object.
-
-Responsibilities:
-
-- Determine quality level.
-- Produce blockers and warnings.
-- Normalize "unknown" values.
-- Avoid recommendation-ready status when room or cancellation policy is unknown.
-- Preserve raw collector data for debugging.
-
-Quality rules:
-
-- `high`: source verified, exact room match, same or better cancellation, known tax/fee inclusion, loyalty eligibility known.
-- `medium`: no blockers, but one or more warnings such as similar room match or anonymous direct pricing.
-- `low`: important uncertainty exists, but no hard blocker.
-- `needs_review`: room match unknown, cancellation match unknown, currency mismatch, tax/fee ambiguity with material price impact, or collector failure.
-
-### Decision Engine
-
-Refactor `generateRecommendation` so it consumes:
-
-- Booking baseline.
-- Candidate observation.
-- Observation evidence.
-- Cost breakdown.
-- User profile and loyalty assumptions.
-
-The deterministic engine should return:
-
-- `verdict`
-- `estimatedSavings`
-- `riskLevel`: `low`, `medium`, `high`
-- `qualityLevel`
-- `blockers`
-- `warnings`
-- `candidateObservationId`
-- `costBreakdown`
-- `explanation`
-
-The current savings threshold should become a guardrail:
-
-- Below threshold: usually keep, unless cancellation deadline is close or user preference later requests sensitive alerts.
-- Above threshold: eligible for recommendation only if evidence has no hard blockers.
-- Missing tax/fee inclusion and currency mismatch are hard blockers that should return `needs_review`.
-
-### Future LLM Candidate Selection
-
-Before final recommendation, introduce an LLM-assisted candidate selector that consumes structured candidates, not raw page text. Inputs should include:
-
-- Current booking room type and rate.
-- Trip party type and user room preferences.
-- Breakfast requirement.
-- Cancellation preference.
-- Loyalty and promotion context.
-- Structured candidate rooms, rates, final totals, policy text, and evidence quality.
-
-The selector should choose or rank candidates and explain tradeoffs. Numeric cost calculations should remain deterministic.
-
-Until the LLM selector exists, keep a deterministic fallback:
-
-- First prefer exact or near-exact current room matches.
-- Also consider the cheapest safe room-list candidate.
-- For family or larger-party trips, include suite or larger-room candidates only after the detail phase can capture final total and policy.
-- Do not surface room-list estimates as final recommendations when their tax/fee inclusion is unknown.
-
-### Future LLM Layer
-
-Do not add the LLM decision layer until automated evidence is stable.
-
-When added, the LLM should receive only:
-
-- Structured evidence.
-- Cost breakdown.
-- User preference profile.
-- Recommendation guardrail result.
-- Relevant promotion summaries.
-
-It should not make unsupported factual claims from raw page text.
-
-The LLM output should be validated against an expected JSON shape before being saved.
-
-### UI Changes
-
-Booking detail should add:
-
-- "Run price check" button.
-- Price check run status.
-- Candidate cards grouped by source.
-- Evidence quality badge.
-- Blockers and warnings.
-- Raw details collapsible section.
-
-Dashboard should continue showing only the latest recommendation per booking.
-
-Manual observation forms should stay available, but should be visually secondary once automated checks exist. Existing observations should remain list-first: show summary rows, keep edit/delete/promote actions explicit, and avoid rendering full raw edit forms inline on the booking detail page.
-
-### Tests
-
-Data extraction changes have an additional real-browser requirement:
-
-- Hyatt extraction work must use normal Chrome plus the TripBuddy Browser Companion extension as the tested path.
-- Any behavior-changing parser, content-script, navigation, or evidence-import change must be tested once against a real Hyatt page through that profile and extension before being considered done.
-- Do not add an automated-profile fallback for Hyatt.
-- If a real-browser test cannot be completed, explicitly report that limitation and do not describe the extraction change as verified.
-
-Add unit tests for:
-
-- Evidence quality classification.
-- Exact room and same cancellation producing high quality.
-- Unknown room producing needs review.
-- OTA non-loyalty rate producing warning.
-- Currency mismatch producing blocker.
-- Collector failure creating failed run state.
-
-Add integration tests for:
-
-- Running a price check creates `PriceCheckRun`.
-- Successful candidate creates `PriceObservation` and `ObservationEvidence`.
-- Failed collector does not delete old observations.
-- Recommendation uses the newest direct candidate with acceptable evidence.
-
-Add UI smoke tests for:
-
-- Booking detail shows "Run price check".
-- Evidence quality badge renders.
-- Blockers appear on needs-review candidates.
-
-## Implementation Order
-
-1. Add docs rule and keep this file updated with every behavior-changing code change.
-2. Add database models and bootstrap SQL updates.
-3. Add evidence types and pure evidence builder.
-4. Refactor decision engine types around evidence quality and risk level.
-5. Add price check run server action.
-6. Add one placeholder automated collector that returns deterministic sample data in tests only.
-7. Add first real direct collector behind the same interface.
-8. Add UI for run status, candidate evidence, and failures.
-9. Add tests and run `npm test` and `npm run build`.
-10. For data extraction changes, reload the Browser Companion extension and run one real Hyatt import test through the Chrome `TripBuddy` profile.
-
-## Assumptions
-
-- Automated querying starts as user-triggered, not scheduled.
-- Direct hotel sources remain the first priority.
-- OTA prices remain reference-first.
-- Numeric confidence remains internal and should not be shown to users.
-- No automatic booking, cancellation, payment, or credential storage is introduced in v0.2.
+- No automatic booking, cancellation, payment, or final form submission.
+- No Playwright, CDP, copied Chrome profile, or automated-profile fallback.
+- No scheduler process or LLM call in v0.2.
+- No full page-text retention.
+- No compatibility migration for the prototype database; reset and seed are intentional.
+- Local Chrome profile directories are outside reset and cleanup scope.

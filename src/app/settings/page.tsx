@@ -16,7 +16,11 @@ export default async function SettingsPage() {
 
       <section className="grid three">
         <div className="card flat metric">
-          <span className="muted">Default currency</span>
+          <span className="muted">Primary calculation currency</span>
+          <strong>{profile?.defaultCurrency ?? "USD"}</strong>
+        </div>
+        <div className="card flat metric">
+          <span className="muted">Hotel search currency</span>
           <strong>{profile?.defaultCurrency ?? "USD"}</strong>
         </div>
         <div className="card flat metric">

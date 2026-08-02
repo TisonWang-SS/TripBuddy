@@ -7,7 +7,9 @@ describe("new booking page", () => {
     render(<NewBookingPage />);
     expect(screen.getByLabelText("Hotel group")).toBeInTheDocument();
     expect(screen.getByLabelText("Hotel name")).toBeInTheDocument();
-    expect(screen.getByLabelText("Original total price")).toBeInTheDocument();
-    expect(screen.getByText("Save booking")).toBeInTheDocument();
+    expect(screen.getByLabelText("Booking baseline")).toBeInTheDocument();
+    expect(screen.getByLabelText("Current cash total or points copay")).toBeInTheDocument();
+    expect(screen.getByLabelText("Current points total")).toBeInTheDocument();
+    expect(screen.getByText("Create booking")).toBeInTheDocument();
   });
 });
