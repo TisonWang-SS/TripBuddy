@@ -16,6 +16,7 @@ type SearchResult = {
 type CitySearchPayload = {
   capturedAt: string;
   results: SearchResult[];
+  searchSessionId: string;
   searchUrl: string;
   status: "succeeded" | "partial";
   summary: string;
@@ -25,10 +26,14 @@ type CitySearchPayload = {
 type TaxInclusiveTotalPayload = {
   capturedAt: string;
   currency: string;
+  fees: number | null;
   hotelName: string;
   nights: number;
   priceBasis: string;
+  searchSessionId: string;
   sourceUrl: string;
+  subtotal: number | null;
+  taxes: number | null;
   taxesAndFees: number | null;
   total: number;
 };
@@ -56,6 +61,7 @@ export function HotelSearchClient({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [payload, setPayload] = useState<CitySearchPayload | null>(null);
+  const [searchSessionId, setSearchSessionId] = useState<string | null>(null);
   const [totals, setTotals] = useState<Record<string, TotalState>>({});
 
   async function submitSearch(event: React.FormEvent<HTMLFormElement>) {
@@ -63,6 +69,7 @@ export function HotelSearchClient({
     const browserTab = window.open("about:blank", "_blank");
     setError(null);
     setPayload(null);
+    setSearchSessionId(null);
     setTotals({});
     setLoading(true);
     try {
@@ -74,15 +81,23 @@ export function HotelSearchClient({
         headers: { "Content-Type": "application/json" },
         method: "POST"
       });
-      const task = (await response.json()) as BrowserTaskPayload<CitySearchPayload> & { error?: string };
+      const task = (await response.json()) as BrowserTaskPayload<CitySearchPayload> & {
+        error?: string;
+        searchSessionId?: string;
+      };
       if (!response.ok) {
         throw new Error(task.error || `Search failed with ${response.status}.`);
       }
+      if (!task.searchSessionId) {
+        throw new Error("Hotel search session was not created.");
+      }
+      setSearchSessionId(task.searchSessionId);
       browserTab.location.href = task.launchUrl;
       const taskState = await waitForBrowserTask<CitySearchPayload>(task.taskId);
       if (!taskState.result) {
         throw new Error(taskState.errorMessage || "Hotel search returned no result.");
       }
+      setSearchSessionId(taskState.result.searchSessionId);
       setPayload(taskState.result);
     } catch (searchError) {
       browserTab?.close();
@@ -100,6 +115,9 @@ export function HotelSearchClient({
       if (!browserTab) {
         throw new Error("Chrome blocked the Hyatt tab. Allow pop-ups for TripBuddy and try again.");
       }
+      if (!searchSessionId) {
+        throw new Error("Run the city search again before requesting a final total.");
+      }
       const response = await fetch("/api/hotel-search", {
         body: JSON.stringify({
           adults: Number(adults),
@@ -108,7 +126,8 @@ export function HotelSearchClient({
           city,
           hotelGroup,
           hotelName: result.hotelName,
-          mode: "tax_inclusive_total"
+          mode: "tax_inclusive_total",
+          searchSessionId
         }),
         headers: { "Content-Type": "application/json" },
         method: "POST"
@@ -167,7 +186,7 @@ export function HotelSearchClient({
 
       {error ? <section className="card"><p className="eyebrow">Search failed</p><h2>Official search could not be completed</h2><p>{error}</p></section> : null}
       {payload ? (
-        <section className="card">
+        <section className="card" data-search-session-id={searchSessionId ?? undefined}>
           <div className="pageHeader">
             <div><p className="eyebrow">{hotelGroup} official results</p><h2>{payload.results.length} hotels found</h2><p>{payload.summary}</p>{payload.warning ? <p>{payload.warning}</p> : null}</div>
             <div className="inlineActions">
@@ -175,7 +194,7 @@ export function HotelSearchClient({
             </div>
           </div>
           {payload.results.length > 0 ? (
-            <table className="table"><thead><tr><th>Hotel</th><th>Starting price</th><th>Tax-inclusive total</th></tr></thead><tbody>
+            <table className="table"><thead><tr><th>Hotel</th><th>Starting price</th><th>Verified official stay price</th></tr></thead><tbody>
               {payload.results.map((result) => {
                 const total = totals[hotelKey(result)];
                 return (
@@ -184,7 +203,11 @@ export function HotelSearchClient({
                     <td>{formatMoney(result.avgNightlyRate, result.currency)} <small className="muted">Avg/night; taxes and fees not included</small></td>
                     <td>
                       {total?.status === "succeeded" ? (
-                        <><strong>{formatMoney(total.result.total, total.result.currency)}</strong><p className="muted">{total.result.nights}-night stay · taxes & fees {total.result.taxesAndFees === null ? "included" : formatMoney(total.result.taxesAndFees, total.result.currency)}</p></>
+                        <>
+                          <strong>Total {formatMoney(total.result.total, total.result.currency)}</strong>
+                          <p className="muted">Before taxes & fees {total.result.subtotal === null ? "not captured" : formatMoney(total.result.subtotal, total.result.currency)}</p>
+                          <p className="muted">{total.result.nights}-night stay · taxes & fees {total.result.taxesAndFees === null ? "included, breakdown not captured" : formatMoney(total.result.taxesAndFees, total.result.currency)}</p>
+                        </>
                       ) : total?.status === "loading" ? (
                         <span className="muted">Reading final Hyatt total…</span>
                       ) : (

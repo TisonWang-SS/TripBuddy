@@ -33,6 +33,37 @@ describe("browser agent planner", () => {
     });
   });
 
+  it("waits when the target hotel card is visible before its View Rates control hydrates", () => {
+    expect(
+      planBrowserAgentAction({
+        bookingId: "booking-1",
+        controls: [],
+        pageText: "Hyatt House Kuala Lumpur, Mont Kiara Rates from: $91 Avg/Night",
+        pageTitle: "Hyatt | Search Results",
+        sourceUrl: "https://www.hyatt.com/search/hotels/en-US/Kuala%20Lumpur",
+        targetHotelName: "Hyatt House Kuala Lumpur, Mont Kiara"
+      })
+    ).toMatchObject({ action: "wait" });
+  });
+
+  it("stops when hydrated search controls do not contain the requested hotel", () => {
+    expect(
+      planBrowserAgentAction({
+        bookingId: "booking-1",
+        controls: [
+          {
+            context: "Grand Hyatt Kuala Lumpur Rates from: MYR 820 Avg/Night View Rates",
+            elementId: "grand-hyatt",
+            label: "View Rates"
+          }
+        ],
+        pageText: "Grand Hyatt Kuala Lumpur Rates from: MYR 820 Avg/Night View Rates",
+        sourceUrl: "https://www.hyatt.com/search/hotels/en-US/Kuala%20Lumpur",
+        targetHotelName: "Hyatt House Kuala Lumpur, Mont Kiara"
+      })
+    ).toMatchObject({ action: "stop" });
+  });
+
   it("matches a View Rates link from the hotel slug when the card context is sparse", () => {
     expect(
       planBrowserAgentAction({

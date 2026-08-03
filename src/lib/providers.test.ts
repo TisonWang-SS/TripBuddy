@@ -58,6 +58,22 @@ describe("hotel provider registry", () => {
     ]);
   });
 
+  it("does not assign an unrecognized partner hotel's rate to the preceding Hyatt card", () => {
+    const provider = getHotelSearchProvider("Hyatt")!;
+    const results = provider.parseSearchSnapshot(
+      snapshot(
+        "Hyatt House Kuala Lumpur, Mont Kiara 4.5 (482) Award Category 1 Rates from: $91 Avg/Night HOTEL WEBSITE VIEW RATES Park Hyatt Kuala Lumpur Award Category 5 Rates from: $392 Avg/Night HOTEL WEBSITE VIEW RATES The Chow Kit 1.1 mi Rates from: $75 Avg/Night HOTEL WEBSITE VIEW RATES The RuMa Hotel and Residences 0.3 mi Rates from: $254 Avg/Night HOTEL WEBSITE VIEW RATES",
+        "https://www.hyatt.com/search/hotels/en-US/Kuala%20Lumpur?currency=USD"
+      )
+    );
+
+    expect(results).toEqual([
+      expect.objectContaining({ hotelName: "Hyatt House Kuala Lumpur, Mont Kiara", avgNightlyRate: 91 }),
+      expect.objectContaining({ hotelName: "Park Hyatt Kuala Lumpur", avgNightlyRate: 392 })
+    ]);
+    expect(results).not.toContainEqual(expect.objectContaining({ hotelName: "Park Hyatt Kuala Lumpur", avgNightlyRate: 75 }));
+  });
+
   it("keeps room-list cash estimates as inventory only", () => {
     const provider = getBookingPriceProvider("Hyatt")!;
     const parsed = provider.parseSnapshot(
@@ -67,6 +83,31 @@ describe("hotel provider registry", () => {
     expect(parsed.inventory).toEqual(expect.arrayContaining([expect.objectContaining({ cashBase: 401, cashTotal: 1203 })]));
     expect(parsed.observations).toHaveLength(0);
     expect(parsed.status).toBe("partial");
+  });
+
+  it("waits through Hyatt's title-only navigation state instead of failing the task", () => {
+    const provider = getBookingPriceProvider("Hyatt")!;
+    const loading = provider.parseSnapshot(snapshot(""), input);
+
+    expect(loading).toMatchObject({ errorCode: "page_loading", status: "partial" });
+    expect(provider.planAction(snapshot(""), input)).toMatchObject({ action: "wait" });
+
+    const empty = provider.parseSnapshot({ ...snapshot(""), pageTitle: "" }, input);
+    expect(empty).toMatchObject({ errorCode: "empty_page", status: "failed" });
+  });
+
+  it("fails fast when Hyatt visibly reports a request-processing error", () => {
+    const provider = getBookingPriceProvider("Hyatt")!;
+    const parsed = provider.parseSnapshot(
+      snapshot("Looks like an error occurred while your request was being processed. Edit Stay Details"),
+      input
+    );
+
+    expect(parsed).toMatchObject({
+      errorCode: "hyatt_page_error",
+      errorMessage: "Hyatt could not process the visible booking request after the page refresh.",
+      status: "failed"
+    });
   });
 
   it("emits final cash totals and explicit points as observation-ready", () => {

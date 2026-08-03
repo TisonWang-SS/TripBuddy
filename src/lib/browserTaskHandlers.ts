@@ -14,6 +14,13 @@ import {
 import { isActiveBookingDate } from "@/lib/bookingDates";
 import { inferIsSuite } from "@/lib/currency";
 import { prisma } from "@/lib/db";
+import {
+  createHotelSearchSession,
+  getHotelSearchSession,
+  hotelSearchQueriesMatch,
+  recordOfficialFinalTotal,
+  replaceOfficialSearchResults
+} from "@/lib/hotelSearchSessions";
 import { parseJson } from "@/lib/json";
 import { getProfileSearchCurrency } from "@/lib/profilePreferences";
 import {
@@ -36,11 +43,13 @@ type HotelSearchTaskContext = {
   hotelName: string | null;
   mode: HotelSearchTaskMode;
   query: HotelSearchQuery;
+  searchSessionId: string | null;
 };
 
 type HotelSearchTaskInput = Partial<HotelSearchQuery> & {
   hotelName?: unknown;
   mode?: unknown;
+  searchSessionId?: unknown;
 };
 
 export async function createHotelSearchTask(input: HotelSearchTaskInput) {
@@ -67,16 +76,40 @@ export async function createHotelSearchTask(input: HotelSearchTaskInput) {
   if (mode === "tax_inclusive_total" && !hotelName) {
     throw new BrowserTaskError("hotel_name_required", "Choose a hotel before requesting a tax-inclusive total.", 400);
   }
+  let searchSessionId: string;
+  if (mode === "city_results") {
+    searchSessionId = (await createHotelSearchSession(query)).id;
+  } else {
+    searchSessionId = String(input.searchSessionId ?? "").trim();
+    if (!searchSessionId) {
+      throw new BrowserTaskError(
+        "search_session_required",
+        "Start a city search before requesting a tax-inclusive total.",
+        400
+      );
+    }
+    const searchSession = await getHotelSearchSession(searchSessionId);
+    if (!searchSession) {
+      throw new BrowserTaskError("search_session_expired", "The hotel search session expired. Run the city search again.", 404);
+    }
+    if (!hotelSearchQueriesMatch(searchSession.query, query)) {
+      throw new BrowserTaskError(
+        "search_session_mismatch",
+        "The tax-inclusive request does not match the saved hotel search conditions.",
+        409
+      );
+    }
+  }
   const taskId = randomUUID();
   const launchUrl = addRequestedCurrency(addBrowserTaskHash(provider.buildSearchUrl(query), taskId), query.currency);
   const task = await createBrowserTask({
-    context: { hotelName, mode, query } satisfies HotelSearchTaskContext,
+    context: { hotelName, mode, query, searchSessionId } satisfies HotelSearchTaskContext,
     hotelGroup,
     id: taskId,
     kind: "hotel_search",
     launchUrl
   });
-  return serializeTaskState({ ...task, priceCheckRun: null });
+  return { ...serializeTaskState({ ...task, priceCheckRun: null }), searchSessionId };
 }
 
 export async function createAccountImportTask(hotelGroup = "Hyatt") {
@@ -150,6 +183,7 @@ async function captureHotelSearchTask(
   const result = {
     capturedAt: snapshot.capturedAt,
     results,
+    searchSessionId: context.searchSessionId,
     searchUrl: stripTaskHash(snapshot.sourceUrl),
     status: results.length > 0 ? ("succeeded" as const) : ("partial" as const),
     summary:
@@ -163,6 +197,16 @@ async function captureHotelSearchTask(
           ? "The source may have no availability or may have changed its visible page structure."
           : null
   };
+  if (context.searchSessionId) {
+    await replaceOfficialSearchResults({
+      capturedAt: snapshot.capturedAt,
+      hotelGroup,
+      results,
+      searchSessionId: context.searchSessionId,
+      summary: result.summary,
+      warning: result.warning
+    });
+  }
   await finishBrowserTask({
     errorCode: results.length > 0 ? null : "no_search_results",
     errorMessage: results.length > 0 ? null : result.warning,
@@ -222,7 +266,9 @@ async function captureTaxInclusiveHotelSearchTask(
       candidate.taxesIncluded === true &&
       candidate.feesIncluded === true
   );
-  if (!total) {
+  const totalCurrency = total?.cashCurrency ?? null;
+  const stayTotal = total?.cashTotal ?? null;
+  if (!total || !totalCurrency || stayTotal === null) {
     await finishBrowserTask({
       errorCode: "taxes_not_visible",
       errorMessage: "Hyatt reached a final price page, but did not visibly confirm a tax-and-fee-inclusive total.",
@@ -234,14 +280,37 @@ async function captureTaxInclusiveHotelSearchTask(
 
   const result = {
     capturedAt: snapshot.capturedAt,
-    currency: total.cashCurrency,
+    currency: totalCurrency,
+    fees: total.cashFees,
     hotelName: context.hotelName,
     nights: stayNights(context.query.checkIn, context.query.checkOut),
     priceBasis: "Official Hyatt pre-payment total including visible taxes and fees",
+    searchSessionId: context.searchSessionId,
     sourceUrl: stripTaskHash(snapshot.sourceUrl),
-    taxesAndFees: total.cashTaxes ?? total.cashFees,
-    total: total.cashTotal
+    subtotal: subtotalFromTotal(stayTotal, total.cashTaxes, total.cashFees, total.cashBase),
+    taxes: total.cashTaxes,
+    taxesAndFees: combineTaxesAndFees(total.cashTaxes, total.cashFees),
+    total: stayTotal
   };
+  if (context.searchSessionId) {
+    await recordOfficialFinalTotal({
+      breakfastIncluded: total.breakfastIncluded,
+      cancellationPolicy: total.cancellationPolicyRaw,
+      capturedAt: snapshot.capturedAt,
+      currency: totalCurrency,
+      feesAmount: total.cashFees,
+      hotelGroup,
+      hotelName: context.hotelName,
+      ratePlanName: total.ratePlanName,
+      roomType: total.roomTypeRaw,
+      searchSessionId: context.searchSessionId,
+      sourceUrl: result.sourceUrl,
+      staySubtotal: result.subtotal,
+      stayTotal,
+      taxesAmount: total.cashTaxes,
+      taxesAndFeesAmount: result.taxesAndFees
+    });
+  }
   await finishBrowserTask({ result, status: "succeeded", taskId });
   return serializeTaskState(await getBrowserTask(taskId));
 }
@@ -249,19 +318,23 @@ async function captureTaxInclusiveHotelSearchTask(
 function parseHotelSearchTaskContext(value: string): HotelSearchTaskContext | null {
   const parsed = parseJson<unknown>(value, null);
   if (isHotelSearchQuery(parsed)) {
-    return { hotelName: null, mode: "city_results", query: parsed };
+    return { hotelName: null, mode: "city_results", query: parsed, searchSessionId: null };
   }
   if (!parsed || typeof parsed !== "object") {
     return null;
   }
-  const context = parsed as { hotelName?: unknown; mode?: unknown; query?: unknown };
+  const context = parsed as { hotelName?: unknown; mode?: unknown; query?: unknown; searchSessionId?: unknown };
   if (!isHotelSearchQuery(context.query)) {
     return null;
   }
   return {
     hotelName: typeof context.hotelName === "string" && context.hotelName.trim() ? context.hotelName.trim() : null,
     mode: context.mode === "tax_inclusive_total" ? "tax_inclusive_total" : "city_results",
-    query: context.query
+    query: context.query,
+    searchSessionId:
+      typeof context.searchSessionId === "string" && context.searchSessionId.trim()
+        ? context.searchSessionId.trim()
+        : null
   };
 }
 
@@ -295,6 +368,21 @@ function stayNights(checkIn: string, checkOut: string) {
   const start = new Date(`${checkIn}T00:00:00.000Z`);
   const end = new Date(`${checkOut}T00:00:00.000Z`);
   return Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000));
+}
+
+function subtotalFromTotal(total: number, taxes: number | null, fees: number | null, capturedBase: number | null) {
+  const breakdown = [taxes, fees].filter((value): value is number => value !== null);
+  if (breakdown.length > 0) {
+    return Math.max(0, Math.round((total - breakdown.reduce((sum, value) => sum + value, 0)) * 100) / 100);
+  }
+  return capturedBase;
+}
+
+function combineTaxesAndFees(taxes: number | null, fees: number | null) {
+  const breakdown = [taxes, fees].filter((value): value is number => value !== null);
+  return breakdown.length > 0
+    ? Math.round(breakdown.reduce((sum, value) => sum + value, 0) * 100) / 100
+    : null;
 }
 
 async function captureAccountTask(taskId: string, hotelGroup: string, capture: BrowserTaskCapture) {

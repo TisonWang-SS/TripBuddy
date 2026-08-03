@@ -84,9 +84,13 @@ function parseHyattCitySearchPageText(text: string, sourceUrl: string) {
   const matches = [...text.matchAll(pricePattern)];
   const results: HyattCityRateResult[] = [];
 
-  for (const match of matches) {
-    const start = Math.max(0, (match.index ?? 0) - 260);
-    const before = text.slice(start, match.index);
+  for (const [index, match] of matches.entries()) {
+    const matchIndex = match.index ?? 0;
+    const previousMatch = matches[index - 1];
+    const cardBoundary = previousMatch
+      ? (previousMatch.index ?? 0) + previousMatch[0].length
+      : 0;
+    const before = text.slice(cardBoundary, matchIndex).slice(-600);
     const hotelName = extractHotelNameFromResultPrefix(before);
     if (!hotelName) {
       continue;

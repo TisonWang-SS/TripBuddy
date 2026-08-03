@@ -34,7 +34,7 @@ const bookingPrice: BookingPriceProvider = {
   },
   parseSnapshot(snapshot, input) {
     const pageText = snapshot.pageText.replace(/\s+/g, " ").trim();
-    if (!pageText) {
+    if (!pageText && !snapshot.pageTitle.trim()) {
       return {
         errorCode: "empty_page",
         errorMessage: "Hyatt returned an empty page document.",
@@ -43,6 +43,28 @@ const bookingPrice: BookingPriceProvider = {
         sourceUrl: snapshot.sourceUrl,
         status: "failed",
         summary: "Hyatt page evidence was empty and could not be read."
+      };
+    }
+    if (!pageText) {
+      return {
+        errorCode: "page_loading",
+        errorMessage: "Hyatt's page title was visible while its booking content was still loading.",
+        inventory: [],
+        observations: [],
+        sourceUrl: snapshot.sourceUrl,
+        status: "partial",
+        summary: "Hyatt's visible booking content was still loading."
+      };
+    }
+    if (/Looks like an error occurred while your request was being processed/i.test(pageText)) {
+      return {
+        errorCode: "hyatt_page_error",
+        errorMessage: "Hyatt could not process the visible booking request after the page refresh.",
+        inventory: [],
+        observations: [],
+        sourceUrl: snapshot.sourceUrl,
+        status: "failed",
+        summary: "Hyatt displayed a visible request-processing error page."
       };
     }
     if (/ERROR:E6020|browser did something unexpected|KPSDK/i.test(pageText)) {

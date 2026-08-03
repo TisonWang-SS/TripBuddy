@@ -1,10 +1,18 @@
 import { browserJson } from "@/lib/browserApi";
 import { createHotelSearchTask, supportedHotelSearchGroups } from "@/lib/browserTaskHandlers";
+import { getHotelSearchSession } from "@/lib/hotelSearchSessions";
 import { BrowserTaskError } from "@/lib/priceChecks";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const searchSessionId = new URL(request.url).searchParams.get("sessionId")?.trim();
+  if (searchSessionId) {
+    const session = await getHotelSearchSession(searchSessionId);
+    return session
+      ? browserJson(session)
+      : browserJson({ error: "Hotel search session was not found or expired." }, 404);
+  }
   return browserJson({ hotelGroups: supportedHotelSearchGroups() });
 }
 

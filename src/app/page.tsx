@@ -6,6 +6,8 @@ import { DEFAULT_PROFILE_ID } from "@/lib/constants";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { ImportHyattBookingsButton } from "./ImportHyattBookingsButton";
 
+export const dynamic = "force-dynamic";
+
 export default async function DashboardPage() {
   const [profile, bookings] = await Promise.all([
     prisma.userProfile.findUnique({ where: { id: DEFAULT_PROFILE_ID } }),

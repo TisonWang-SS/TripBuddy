@@ -12,6 +12,7 @@ let getBrowserTask: typeof import("@/lib/browserTasks")["getBrowserTask"];
 let captureBrowserTask: typeof import("@/lib/browserTaskHandlers")["captureBrowserTask"];
 let createAccountImportTask: typeof import("@/lib/browserTaskHandlers")["createAccountImportTask"];
 let createHotelSearchTask: typeof import("@/lib/browserTaskHandlers")["createHotelSearchTask"];
+let getHotelSearchSession: typeof import("@/lib/hotelSearchSessions")["getHotelSearchSession"];
 let buildObservationEvidence: typeof import("@/lib/evidence")["buildObservationEvidence"];
 let createRecommendationForBooking: typeof import("@/lib/recommendations")["createRecommendationForBooking"];
 
@@ -21,6 +22,7 @@ describe("persistent browser price-check flow", () => {
     const databasePath = join(workspace, "integration.db");
     const sqlite = new DatabaseSync(databasePath);
     sqlite.exec(readFileSync("prisma/migrations/20260801000000_v02_baseline/migration.sql", "utf8"));
+    sqlite.exec(readFileSync("prisma/migrations/20260803000000_hotel_search_sessions/migration.sql", "utf8"));
     sqlite.close();
     process.env.DATABASE_URL = `file:${databasePath}`;
 
@@ -28,6 +30,7 @@ describe("persistent browser price-check flow", () => {
     ({ BrowserCompanionPriceCheckRunner, captureBookingPriceTask } = await import("@/lib/priceChecks"));
     ({ getBrowserTask } = await import("@/lib/browserTasks"));
     ({ captureBrowserTask, createAccountImportTask, createHotelSearchTask } = await import("@/lib/browserTaskHandlers"));
+    ({ getHotelSearchSession } = await import("@/lib/hotelSearchSessions"));
     ({ buildObservationEvidence } = await import("@/lib/evidence"));
     ({ createRecommendationForBooking } = await import("@/lib/recommendations"));
 
@@ -219,6 +222,22 @@ describe("persistent browser price-check flow", () => {
 
     expect(task!.launchUrl).toContain("currency=USD");
     expect(task!.launchUrl).toContain("tripbuddyRequestedCurrency=USD");
+    expect(task!.searchSessionId).toEqual(expect.any(String));
+    await expect(getHotelSearchSession(task!.searchSessionId)).resolves.toMatchObject({
+      query: { city: "Tokyo", currency: "USD" },
+      results: { hotels: [] }
+    });
+    await expect(
+      createHotelSearchTask({
+        adults: 2,
+        checkIn: "2030-09-10",
+        checkOut: "2030-09-12",
+        city: "Tokyo",
+        hotelGroup: "Hyatt",
+        hotelName: "Grand Hyatt Tokyo",
+        mode: "tax_inclusive_total"
+      })
+    ).rejects.toMatchObject({ code: "search_session_required" });
     await expect(
       createHotelSearchTask({
         adults: 2,
@@ -233,6 +252,45 @@ describe("persistent browser price-check flow", () => {
 
   it("follows a selected city result through Hyatt's safe flow before returning a tax-inclusive total", async () => {
     const observationCount = await prisma.priceObservation.count();
+    const cityTask = await createHotelSearchTask({
+      adults: 2,
+      checkIn: "2030-09-10",
+      checkOut: "2030-09-12",
+      city: "Tokyo",
+      hotelGroup: "Hyatt"
+    });
+    const cityTaskId = cityTask.taskId;
+    if (!cityTaskId) {
+      throw new Error("Expected city search to create a browser task.");
+    }
+    const cityCaptured = await captureBrowserTask(cityTaskId, {
+      snapshot: {
+        capturedAt: new Date().toISOString(),
+        controls: [],
+        pageText: "Grand Hyatt Tokyo Rates from: USD 500 Avg/Night View Rates",
+        pageTitle: "Hyatt Tokyo search",
+        sourceUrl: "https://www.hyatt.com/search/hotels/en-US/Tokyo?checkinDate=2030-09-10&checkoutDate=2030-09-12"
+      }
+    });
+    expect(cityCaptured).toMatchObject({
+      result: { results: [{ avgNightlyRate: 500, hotelName: "Grand Hyatt Tokyo" }] },
+      status: "succeeded"
+    });
+    await expect(getHotelSearchSession(cityTask!.searchSessionId)).resolves.toMatchObject({
+      results: {
+        hotels: [{
+          availabilityLabel: expect.any(String),
+          hotelName: "Grand Hyatt Tokyo",
+          offers: [{
+            displayedPriceBasis: "tax_exclusive",
+            evidenceLevel: "starting_price",
+            startingAvgNightlyRate: 500,
+            staySubtotal: 1000,
+            stayTotal: null
+          }]
+        }]
+      }
+    });
     const task = await createHotelSearchTask({
       adults: 2,
       checkIn: "2030-09-10",
@@ -240,11 +298,16 @@ describe("persistent browser price-check flow", () => {
       city: "Tokyo",
       hotelGroup: "Hyatt",
       hotelName: "Grand Hyatt Tokyo",
-      mode: "tax_inclusive_total"
+      mode: "tax_inclusive_total",
+      searchSessionId: cityTask!.searchSessionId
     });
     expect(task).toMatchObject({ hotelSearchMode: "tax_inclusive_total" });
+    const totalTaskId = task.taskId;
+    if (!totalTaskId) {
+      throw new Error("Expected final-total search to create a browser task.");
+    }
 
-    const cityResult = await captureBrowserTask(task!.taskId, {
+    const cityResult = await captureBrowserTask(totalTaskId, {
       snapshot: {
         capturedAt: new Date().toISOString(),
         controls: [{
@@ -259,7 +322,7 @@ describe("persistent browser price-check flow", () => {
     });
     expect(cityResult).toMatchObject({ action: { action: "click", elementId: "grand-hyatt-rates" }, status: "running" });
 
-    const roomResult = await captureBrowserTask(task!.taskId, {
+    const roomResult = await captureBrowserTask(totalTaskId, {
       snapshot: {
         capturedAt: new Date().toISOString(),
         controls: [{
@@ -274,7 +337,7 @@ describe("persistent browser price-check flow", () => {
     });
     expect(roomResult).toMatchObject({ action: { action: "click", elementId: "select-room" }, status: "running" });
 
-    const completed = await captureBrowserTask(task!.taskId, {
+    const completed = await captureBrowserTask(totalTaskId, {
       snapshot: {
         capturedAt: new Date().toISOString(),
         controls: [],
@@ -288,10 +351,25 @@ describe("persistent browser price-check flow", () => {
         currency: "USD",
         hotelName: "Grand Hyatt Tokyo",
         nights: 2,
+        searchSessionId: cityTask!.searchSessionId,
+        subtotal: 1000,
         taxesAndFees: 90,
         total: 1090
       },
       status: "succeeded"
+    });
+    await expect(getHotelSearchSession(cityTask!.searchSessionId)).resolves.toMatchObject({
+      results: {
+        hotels: [{
+          offers: [{
+            evidenceLevel: "final_total",
+            feesAmount: 90,
+            staySubtotal: 1000,
+            stayTotal: 1090,
+            taxesAndFeesAmount: 90
+          }]
+        }]
+      }
     });
     expect(await prisma.priceObservation.count()).toBe(observationCount);
   });

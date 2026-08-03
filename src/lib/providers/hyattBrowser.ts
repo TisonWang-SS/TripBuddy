@@ -42,6 +42,16 @@ export function planBrowserAgentAction(snapshot: BrowserAgentSnapshot): BrowserA
       return { action: "click", elementId: hotelResult.elementId, reason: "Open the matching Hyatt View Rates result." };
     }
     if (targetHotelName) {
+      const normalizedTarget = normalizeComparableName(targetHotelName);
+      const targetCardIsVisible = normalizeComparableName(pageText).includes(normalizedTarget);
+      const rateControlsAreVisible = controls.some(isHyattRatesResultControl);
+      if (targetCardIsVisible || !rateControlsAreVisible) {
+        return {
+          action: "wait",
+          milliseconds: 1500,
+          reason: "Waiting for Hyatt's View Rates control to finish loading."
+        };
+      }
       return { action: "stop", reason: `No matching Hyatt View Rates result was found for ${targetHotelName}.` };
     }
     return { action: "wait", milliseconds: 1500, reason: "Waiting for Hyatt search results." };

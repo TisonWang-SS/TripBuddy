@@ -147,20 +147,21 @@ model CurrencyConversionRate {
 }
 
 model UserProfile {
-  id                 String              @id @default(cuid())
-  name               String              @default("Primary Traveler")
-  defaultCurrency    SupportedCurrency   @default(USD)
-  savingsThreshold   Float               @default(50)
-  urgentWindowHours  Int                 @default(24)
-  breakfastValue     Float               @default(25)
-  loungeValue        Float               @default(35)
-  lateCheckoutValue  Float               @default(15)
-  upgradeValue       Float               @default(40)
-  eliteNightValue    Float               @default(10)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  loyaltyAccounts    LoyaltyAccount[]
-  creditCardBenefits CreditCardBenefit[]
+  id                  String               @id @default(cuid())
+  name                String               @default("Primary Traveler")
+  defaultCurrency     SupportedCurrency    @default(USD)
+  savingsThreshold    Float                @default(50)
+  urgentWindowHours   Int                  @default(24)
+  breakfastValue      Float                @default(25)
+  loungeValue         Float                @default(35)
+  lateCheckoutValue   Float                @default(15)
+  upgradeValue        Float                @default(40)
+  eliteNightValue     Float                @default(10)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  loyaltyAccounts     LoyaltyAccount[]
+  creditCardBenefits  CreditCardBenefit[]
+  hotelSearchSessions HotelSearchSession[]
 }
 
 model LoyaltyAccount {
@@ -257,6 +258,20 @@ model BrowserTask {
   priceCheckRun PriceCheckRun?
 
   @@index([status, expiresAt])
+}
+
+model HotelSearchSession {
+  id          String      @id @default(cuid())
+  profileId   String      @default("primary")
+  queryJson   String
+  resultsJson String      @default("{\"hotels\":[]}")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  expiresAt   DateTime
+  profile     UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, createdAt])
+  @@index([expiresAt])
 }
 
 model PriceCheckRun {

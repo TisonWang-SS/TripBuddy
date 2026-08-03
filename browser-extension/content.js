@@ -1,6 +1,9 @@
 const TASK_ID_KEY = "tripbuddyTaskId";
 const ENDPOINT_KEY = "tripbuddyEndpoint";
 const ACCOUNT_STATE_KEY = "tripbuddyAccountState";
+const AUTO_RELOAD_STATE_KEY = "tripbuddyAutoReloadState";
+const AUTO_RELOAD_AFTER_MS = 15000;
+const TASK_TIMEOUT_MS = 120000;
 const CONTROL_ATTRIBUTE = "data-tripbuddy-control-id";
 const UNSAFE_CONTROL = /(payment|pay now|confirm|purchase|place order|complete reservation|submit payment|complete booking|finalize)/i;
 
@@ -35,16 +38,22 @@ async function runCurrentTask(force = false) {
   try {
     const task = await readTask(endpoint, taskId);
     if (["succeeded", "partial", "failed"].includes(task.status)) {
+      clearAutoReloadState(taskId);
       showStatus(task.errorMessage || `TripBuddy task is ${task.status}.`);
       return task;
     }
+    let result;
     if (task.kind === "hotel_search") {
-      return runHotelSearchTask(endpoint, taskId);
+      result = await runHotelSearchTask(endpoint, taskId, task.hotelSearchMode);
+    } else if (task.kind === "account_booking_import") {
+      result = await runAccountImportTask(endpoint, taskId);
+    } else {
+      result = await runBookingPriceTask(endpoint, taskId);
     }
-    if (task.kind === "account_booking_import") {
-      return runAccountImportTask(endpoint, taskId);
+    if (result && ["succeeded", "partial", "failed"].includes(result.status)) {
+      clearAutoReloadState(taskId);
     }
-    return runBookingPriceTask(endpoint, taskId);
+    return result;
   } finally {
     taskRunning = false;
   }
@@ -52,13 +61,14 @@ async function runCurrentTask(force = false) {
 
 async function runBookingPriceTask(endpoint, taskId) {
   showStatus("TripBuddy is waiting for visible Hyatt rate evidence...");
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 120000) {
+  const startedAt = rememberAutoReloadTaskStart(taskId);
+  while (Date.now() - startedAt < TASK_TIMEOUT_MS) {
     const readable = await waitForReadablePage(15000);
     if (!readable) {
       return reportFailure(endpoint, taskId, "empty_page", "Hyatt did not expose a readable page document.");
     }
-    const response = await postCapture(endpoint, taskId, { snapshot: buildPageSnapshot() });
+    const snapshot = buildPageSnapshot();
+    const response = await postCapture(endpoint, taskId, { snapshot });
     if (["succeeded", "partial", "failed"].includes(response.status)) {
       showStatus(response.errorMessage || `TripBuddy price check ${response.status}.`);
       return response;
@@ -85,22 +95,37 @@ async function runBookingPriceTask(endpoint, taskId) {
       await delay(1800);
       continue;
     }
+    if (autoReloadStalledHyattRoomPage(taskId, snapshot, action, Date.now() - startedAt)) {
+      return null;
+    }
     await delay(Math.min(Math.max(action.milliseconds || 1200, 500), 4000));
   }
   return reportFailure(endpoint, taskId, "task_timeout", "Hyatt did not reach a pre-payment price summary before the task timed out.");
 }
 
-async function runHotelSearchTask(endpoint, taskId) {
+async function runHotelSearchTask(endpoint, taskId, hotelSearchMode) {
   showStatus("TripBuddy is reading the visible official hotel search...");
-  const readable = await waitForText(/Rates from:|Avg\s*\/\s*Night|View Rates|No hotels|not available|Find Hotels/i, 60000);
+  const startedAt =
+    hotelSearchMode === "tax_inclusive_total" ? rememberAutoReloadTaskStart(taskId) : Date.now();
+  const readable =
+    hotelSearchMode === "tax_inclusive_total"
+      ? await waitForReadablePage(60000)
+      : await waitForText(/Rates from:|Avg\s*\/\s*Night|View Rates|No hotels|not available|Find Hotels/i, 60000);
   if (!readable) {
-    return reportFailure(endpoint, taskId, "search_unreadable", "Hyatt search results did not become readable in Chrome.");
+    return reportFailure(
+      endpoint,
+      taskId,
+      hotelSearchMode === "tax_inclusive_total" ? "price_page_unreadable" : "search_unreadable",
+      hotelSearchMode === "tax_inclusive_total"
+        ? "Hyatt's room or price page did not become readable in Chrome."
+        : "Hyatt search results did not become readable in Chrome."
+    );
   }
   const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
   const requestedCurrency = hash.get("tripbuddyRequestedCurrency") || new URL(location.href).searchParams.get("currency");
   if (requestedCurrency) {
     const currencyReady = await selectHyattCurrency(requestedCurrency);
-    if (!currencyReady && task.hotelSearchMode !== "tax_inclusive_total") {
+    if (!currencyReady && hotelSearchMode !== "tax_inclusive_total") {
       return reportFailure(
         endpoint,
         taskId,
@@ -112,9 +137,14 @@ async function runHotelSearchTask(endpoint, taskId) {
       showStatus(`Hyatt's search currency control was not readable. TripBuddy will only accept a final total visibly shown in ${requestedCurrency}.`);
     }
   }
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 120000) {
-    const result = await postCapture(endpoint, taskId, { snapshot: buildPageSnapshot() });
+  while (Date.now() - startedAt < TASK_TIMEOUT_MS) {
+    const snapshot = buildPageSnapshot();
+    if (!isReadableSnapshot(snapshot)) {
+      showStatus("TripBuddy is waiting for Hyatt's next page to finish loading...");
+      await delay(600);
+      continue;
+    }
+    const result = await postCapture(endpoint, taskId, { snapshot });
     if (["succeeded", "partial", "failed"].includes(result.status)) {
       const count = result.result?.results?.length ?? 0;
       showStatus(result.errorMessage || `TripBuddy captured ${count} visible hotel rate${count === 1 ? "" : "s"}.`);
@@ -141,6 +171,12 @@ async function runHotelSearchTask(endpoint, taskId) {
       activateSafeControl(element);
       await delay(1800);
       continue;
+    }
+    if (
+      hotelSearchMode === "tax_inclusive_total" &&
+      autoReloadStalledHyattRoomPage(taskId, snapshot, action, Date.now() - startedAt)
+    ) {
+      return null;
     }
     await delay(Math.min(Math.max(action.milliseconds || 1200, 500), 4000));
   }
@@ -366,6 +402,74 @@ function clearAccountState() {
   sessionStorage.removeItem(ACCOUNT_STATE_KEY);
 }
 
+function rememberAutoReloadTaskStart(taskId) {
+  const existing = readAutoReloadState(taskId);
+  if (existing) {
+    return existing.startedAt;
+  }
+  const state = { reloaded: false, startedAt: Date.now(), taskId };
+  sessionStorage.setItem(AUTO_RELOAD_STATE_KEY, JSON.stringify(state));
+  return state.startedAt;
+}
+
+function readAutoReloadState(taskId) {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(AUTO_RELOAD_STATE_KEY) || "null");
+    if (
+      parsed?.taskId === taskId &&
+      typeof parsed.startedAt === "number" &&
+      Number.isFinite(parsed.startedAt) &&
+      typeof parsed.reloaded === "boolean"
+    ) {
+      return parsed;
+    }
+  } catch {
+    // A malformed or stale marker is replaced when the task starts.
+  }
+  return null;
+}
+
+function clearAutoReloadState(taskId) {
+  if (readAutoReloadState(taskId)) {
+    sessionStorage.removeItem(AUTO_RELOAD_STATE_KEY);
+  }
+}
+
+function autoReloadStalledHyattRoomPage(taskId, snapshot, action, elapsedMs) {
+  const state = readAutoReloadState(taskId);
+  if (
+    !state ||
+    state.reloaded ||
+    elapsedMs < AUTO_RELOAD_AFTER_MS ||
+    action?.action !== "wait" ||
+    action.reason !== "Waiting for Hyatt booking content." ||
+    !isReloadableHyattRoomSnapshot(snapshot)
+  ) {
+    return false;
+  }
+  sessionStorage.setItem(AUTO_RELOAD_STATE_KEY, JSON.stringify({ ...state, reloaded: true }));
+  showStatus("Hyatt's room rates are still loading. TripBuddy is refreshing this page once and will resume the same task...");
+  location.reload();
+  return true;
+}
+
+function isReloadableHyattRoomSnapshot(snapshot) {
+  let url;
+  try {
+    url = new URL(snapshot?.sourceUrl || location.href);
+  } catch {
+    return false;
+  }
+  const text = String(snapshot?.pageText || "");
+  return (
+    url.protocol === "https:" &&
+    /(^|\.)hyatt\.com$/i.test(url.hostname) &&
+    /^\/shop\/rooms\/[a-z0-9]{4,6}\/?$/i.test(url.pathname) &&
+    /SELECT A ROOM|Choose a room/i.test(text) &&
+    !/ERROR:E6020|browser did something unexpected|KPSDK|captcha|verify you are human|access denied/i.test(text)
+  );
+}
+
 async function selectHyattCurrency(currencyCode) {
   const labels = {
     CNY: "Chinese Yuan",
@@ -437,7 +541,14 @@ function isHyattNavigationHref(value) {
 }
 
 async function waitForReadablePage(timeoutMs) {
-  return waitForCondition(() => Boolean(document.body && (pageText().length > 80 || document.title)), timeoutMs);
+  return waitForCondition(
+    () => isReadableSnapshot({ pageText: pageText(), pageTitle: document.title || "" }),
+    timeoutMs
+  );
+}
+
+function isReadableSnapshot(snapshot) {
+  return String(snapshot?.pageText || "").length > 80;
 }
 
 async function waitForText(pattern, timeoutMs) {
