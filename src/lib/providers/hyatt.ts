@@ -1,3 +1,4 @@
+import taskProtocol from "@extension/taskProtocol.js";
 import { planBrowserAgentAction } from "@/lib/providers/hyattBrowser";
 import {
   isHyattReservationDetailUrl,
@@ -139,10 +140,10 @@ const accountImporter: AccountBookingImporter = {
   hotelGroup: "Hyatt",
   name: "hyatt-account-import",
   buildLaunchUrl(taskId, endpoint) {
-    const hash = new URLSearchParams({
-      tripbuddyEndpoint: endpoint,
-      tripbuddyTaskId: taskId
-    });
+    const hash = new URLSearchParams([
+      [taskProtocol.endpointKey, endpoint],
+      [taskProtocol.taskIdKey, taskId]
+    ]);
     return `https://www.hyatt.com/profile/en-US/my-stays#upcoming-stays&${hash.toString()}`;
   },
   isReservationDetailUrl: isHyattReservationDetailUrl,

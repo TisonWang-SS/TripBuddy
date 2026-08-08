@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { BookingBaselineType } from "@prisma/client";
+import taskProtocol from "@extension/taskProtocol.js";
 import {
   addBrowserTaskHash,
   appendBrowserSnapshot,
@@ -515,7 +516,7 @@ function normalizeAccountSnapshots(input: BrowserTaskCapture["snapshots"]): Acco
 function addRequestedCurrency(sourceUrl: string, currency: string) {
   const url = new URL(sourceUrl);
   const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
-  hash.set("tripbuddyRequestedCurrency", currency);
+  hash.set(taskProtocol.requestedCurrencyKey, currency);
   url.hash = hash.toString();
   return url.toString();
 }

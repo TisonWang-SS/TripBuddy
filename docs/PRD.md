@@ -39,7 +39,7 @@ The v0.2 release does not include:
 
 - The extension reads visible page evidence and may perform only server-planned, visible navigation toward a pre-payment price summary.
 - It must never activate payment, purchase, booking confirmation, place-order, complete-reservation, or equivalent final actions.
-- The provider planner and Browser Companion enforce the same shared unsafe-control rules independently, and the extension fails closed if those rules are unavailable.
+- The provider planner and Browser Companion enforce the same shared unsafe-control rules independently. Browser task fragment and storage keys also come from one shared protocol module. The extension fails closed if either shared module is unavailable.
 - Hyatt work uses normal Chrome with the installed Browser Companion. There is no automated or copied-profile fallback.
 - An empty Hyatt DOM, E6020 response, KPSDK challenge, missing rate evidence, or task timeout is an unreadable/failed result, not valid no-availability evidence.
 - Booking context persists across same-tab Hyatt navigation.

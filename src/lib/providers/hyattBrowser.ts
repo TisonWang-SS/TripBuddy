@@ -1,4 +1,4 @@
-import safetyRules from "../../../browser-extension/safetyRules.js";
+import safetyRules from "@extension/safetyRules.js";
 import { HYATT_CURRENCY_PATTERN } from "@/lib/providers/hyattCurrency";
 
 const { isUnsafeBookingControl } = safetyRules;

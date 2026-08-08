@@ -1,15 +1,21 @@
-const TASK_ID_KEY = "tripbuddyTaskId";
-const ENDPOINT_KEY = "tripbuddyEndpoint";
 const ACCOUNT_STATE_KEY = "tripbuddyAccountState";
 const AUTO_RELOAD_STATE_KEY = "tripbuddyAutoReloadState";
 const AUTO_RELOAD_AFTER_MS = 15000;
 const TASK_TIMEOUT_MS = 120000;
 const CONTROL_ATTRIBUTE = "data-tripbuddy-control-id";
+const TASK_PROTOCOL = globalThis.TripBuddyTaskProtocol;
 const SAFETY_RULES = globalThis.TripBuddySafetyRules;
 
+if (!TASK_PROTOCOL?.taskIdKey || !TASK_PROTOCOL?.endpointKey || !TASK_PROTOCOL?.requestedCurrencyKey) {
+  throw new Error("TripBuddy task protocol failed to load.");
+}
 if (!SAFETY_RULES?.isUnsafeBookingControl) {
   throw new Error("TripBuddy safety rules failed to load.");
 }
+
+const TASK_ID_KEY = TASK_PROTOCOL.taskIdKey;
+const ENDPOINT_KEY = TASK_PROTOCOL.endpointKey;
+const REQUESTED_CURRENCY_KEY = TASK_PROTOCOL.requestedCurrencyKey;
 
 let taskRunning = false;
 
@@ -126,7 +132,7 @@ async function runHotelSearchTask(endpoint, taskId, hotelSearchMode) {
     );
   }
   const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
-  const requestedCurrency = hash.get("tripbuddyRequestedCurrency") || new URL(location.href).searchParams.get("currency");
+  const requestedCurrency = hash.get(REQUESTED_CURRENCY_KEY) || new URL(location.href).searchParams.get("currency");
   if (requestedCurrency) {
     const currencyReady = await selectHyattCurrency(requestedCurrency);
     if (!currencyReady && hotelSearchMode !== "tax_inclusive_total") {

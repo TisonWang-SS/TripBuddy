@@ -2,10 +2,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
+import taskProtocol from "@extension/taskProtocol.js";
 
 const content = readFileSync(resolve("browser-extension/content.js"), "utf8");
+const taskProtocolSource = readFileSync(resolve("browser-extension/taskProtocol.js"), "utf8");
 const safetyRules = readFileSync(resolve("browser-extension/safetyRules.js"), "utf8");
-const extensionSource = `${safetyRules}\n${content}`;
+const extensionSource = `${taskProtocolSource}\n${safetyRules}\n${content}`;
 const popup = readFileSync(resolve("browser-extension/popup.js"), "utf8");
 const manifest = JSON.parse(readFileSync(resolve("browser-extension/manifest.json"), "utf8")) as {
   content_scripts: Array<{ js: string[] }>;
@@ -19,14 +21,17 @@ describe("Browser Companion source", () => {
     expect(content).not.toContain("/api/browser-agent/snapshot");
   });
 
-  it("loads one shared final-action guard before the content script", () => {
-    expect(manifest.content_scripts[0].js).toEqual(["safetyRules.js", "content.js"]);
+  it("loads shared protocol and final-action guards before the content script", () => {
+    expect(manifest.content_scripts[0].js).toEqual(["taskProtocol.js", "safetyRules.js", "content.js"]);
     expect(safetyRules).toMatch(/payment\|pay now\|confirm\|purchase\|place order\|complete reservation/);
+    expect(content).toContain("TASK_PROTOCOL.requestedCurrencyKey");
     expect(content).toContain("SAFETY_RULES.isUnsafeBookingControl(label)");
     expect(content).toContain("activateSafeControl(element)");
 
     const context = vm.createContext({});
+    new vm.Script(taskProtocolSource).runInContext(context);
     new vm.Script(safetyRules).runInContext(context);
+    expect(vm.runInContext("TripBuddyTaskProtocol", context)).toEqual(taskProtocol);
     expect(vm.runInContext('TripBuddySafetyRules.isUnsafeBookingControl("Continue to payment")', context)).toBe(true);
     expect(vm.runInContext('TripBuddySafetyRules.isUnsafeBookingControl("Select & Book")', context)).toBe(false);
   });
@@ -71,8 +76,8 @@ describe("Browser Companion source", () => {
       chrome: { runtime: { onMessage: { addListener: vi.fn() } } },
       console,
       location: {
-        hash: "#tripbuddyRequestedCurrency=CNY",
-        href: "https://www.hyatt.com/search/hotels/en-US/Kuala-Lumpur#tripbuddyRequestedCurrency=CNY",
+        hash: `#${taskProtocol.requestedCurrencyKey}=CNY`,
+        href: `https://www.hyatt.com/search/hotels/en-US/Kuala-Lumpur#${taskProtocol.requestedCurrencyKey}=CNY`,
         origin: "https://www.hyatt.com",
         pathname: "/search/hotels/en-US/Kuala-Lumpur"
       },
@@ -124,7 +129,7 @@ describe("Browser Companion source", () => {
       console,
       document: { title: "" },
       location: {
-        hash: "#tripbuddyRequestedCurrency=USD",
+        hash: `#${taskProtocol.requestedCurrencyKey}=USD`,
         href: "https://www.hyatt.com/shop/rooms/kulph",
         origin: "https://www.hyatt.com",
         pathname: "/shop/rooms/kulph"

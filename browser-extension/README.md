@@ -21,4 +21,8 @@ The task ID and local endpoint live in the URL fragment and tab `sessionStorage`
 
 The companion may read visible text and navigate through room, rate-plan, cart, and pre-payment summary pages. It must never click payment, purchase, confirmation, complete-reservation, place-order, or submit-payment controls.
 
-The server-side planner and content script execute the same shared rule module in `safetyRules.js`. The extension fails closed if that module is unavailable.
+The server-side planner and content script execute the same shared rule module in `safetyRules.js`. Task fragment and session-storage keys come from the shared `taskProtocol.js`. The extension fails closed if either module is unavailable.
+
+## Shared module boundary
+
+The nested `package.json` is intentional and must not be removed as unused metadata. Its `"type": "commonjs"` declaration lets the classic Chrome content scripts and the Next.js server import the same `safetyRules.js` and `taskProtocol.js` files. Server code references this boundary through the `@extension/*` TypeScript path alias.

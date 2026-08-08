@@ -1,4 +1,5 @@
 import type { BrowserTaskKind, BrowserTaskStatus } from "@prisma/client";
+import taskProtocol from "@extension/taskProtocol.js";
 import { prisma } from "@/lib/db";
 import { parseJson, sanitizeEvidenceText, toJson } from "@/lib/json";
 import type { BrowserPageSnapshot, SanitizedBrowserSnapshot } from "@/lib/providers/types";
@@ -91,8 +92,8 @@ export async function finishBrowserTask(input: {
 export function addBrowserTaskHash(sourceUrl: string, taskId: string, endpoint = DEFAULT_LOCAL_ENDPOINT) {
   const url = new URL(sourceUrl);
   const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
-  hash.set("tripbuddyEndpoint", endpoint);
-  hash.set("tripbuddyTaskId", taskId);
+  hash.set(taskProtocol.endpointKey, endpoint);
+  hash.set(taskProtocol.taskIdKey, taskId);
   url.hash = hash.toString();
   return url.toString();
 }
@@ -155,9 +156,9 @@ export function stripBrowserTaskHash(value: string) {
   try {
     const url = new URL(value);
     const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
-    hash.delete("tripbuddyEndpoint");
-    hash.delete("tripbuddyTaskId");
-    hash.delete("tripbuddyRequestedCurrency");
+    hash.delete(taskProtocol.endpointKey);
+    hash.delete(taskProtocol.taskIdKey);
+    hash.delete(taskProtocol.requestedCurrencyKey);
     url.hash = hash.toString();
     return url.toString();
   } catch {
