@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TripBuddy Browser Companion",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Import visible hotel rate evidence from the user's real browser into the local TripBuddy app.",
   "action": {
     "default_popup": "popup.html",
@@ -15,6 +15,7 @@
   "content_scripts": [
     {
       "js": [
+        "safetyRules.js",
         "content.js"
       ],
       "matches": [

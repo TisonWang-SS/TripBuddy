@@ -4,19 +4,31 @@ import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
 const content = readFileSync(resolve("browser-extension/content.js"), "utf8");
+const safetyRules = readFileSync(resolve("browser-extension/safetyRules.js"), "utf8");
+const extensionSource = `${safetyRules}\n${content}`;
 const popup = readFileSync(resolve("browser-extension/popup.js"), "utf8");
+const manifest = JSON.parse(readFileSync(resolve("browser-extension/manifest.json"), "utf8")) as {
+  content_scripts: Array<{ js: string[] }>;
+};
 
 describe("Browser Companion source", () => {
   it("is valid JavaScript and uses one browser-task API", () => {
-    expect(() => new vm.Script(content)).not.toThrow();
+    expect(() => new vm.Script(extensionSource)).not.toThrow();
     expect(content).toContain("/api/browser-tasks/");
     expect(content).not.toContain("/api/browser-evidence");
     expect(content).not.toContain("/api/browser-agent/snapshot");
   });
 
-  it("keeps explicit final-action guardrails", () => {
-    expect(content).toMatch(/payment\|pay now\|confirm\|purchase\|place order\|complete reservation/);
+  it("loads one shared final-action guard before the content script", () => {
+    expect(manifest.content_scripts[0].js).toEqual(["safetyRules.js", "content.js"]);
+    expect(safetyRules).toMatch(/payment\|pay now\|confirm\|purchase\|place order\|complete reservation/);
+    expect(content).toContain("SAFETY_RULES.isUnsafeBookingControl(label)");
     expect(content).toContain("activateSafeControl(element)");
+
+    const context = vm.createContext({});
+    new vm.Script(safetyRules).runInContext(context);
+    expect(vm.runInContext('TripBuddySafetyRules.isUnsafeBookingControl("Continue to payment")', context)).toBe(true);
+    expect(vm.runInContext('TripBuddySafetyRules.isUnsafeBookingControl("Select & Book")', context)).toBe(false);
   });
 
   it("keeps approved Hyatt links in the same task tab", () => {
@@ -71,7 +83,7 @@ describe("Browser Companion source", () => {
       },
       setTimeout
     });
-    new vm.Script(content).runInContext(context);
+    new vm.Script(extensionSource).runInContext(context);
     vm.runInContext(
       `
         var waitForTextCalls = 0;
@@ -124,7 +136,7 @@ describe("Browser Companion source", () => {
       },
       setTimeout
     });
-    new vm.Script(content).runInContext(context);
+    new vm.Script(extensionSource).runInContext(context);
     vm.runInContext(
       `
         var captureCount = 0;
@@ -168,7 +180,7 @@ describe("Browser Companion source", () => {
       sessionStorage: { getItem: vi.fn(() => null), removeItem: vi.fn(), setItem: vi.fn() },
       setTimeout
     });
-    new vm.Script(content).runInContext(context);
+    new vm.Script(extensionSource).runInContext(context);
 
     expect(vm.runInContext('isReadableSnapshot({ pageTitle: "Hyatt", pageText: "" })', context)).toBe(false);
     expect(vm.runInContext('isReadableSnapshot({ pageTitle: "", pageText: "A".repeat(81) })', context)).toBe(true);
@@ -196,7 +208,7 @@ describe("Browser Companion source", () => {
       },
       setTimeout
     });
-    new vm.Script(content).runInContext(context);
+    new vm.Script(extensionSource).runInContext(context);
     vm.runInContext(
       `
         showStatus = () => {};
@@ -268,7 +280,7 @@ describe("Browser Companion source", () => {
       },
       setTimeout
     });
-    new vm.Script(content).runInContext(context);
+    new vm.Script(extensionSource).runInContext(context);
     vm.runInContext(
       `
         showStatus = () => {};

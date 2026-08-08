@@ -59,7 +59,7 @@ export async function appendBrowserSnapshot(taskId: string, snapshot: BrowserPag
     capturedAt: snapshot.capturedAt,
     pageTitle: snapshot.pageTitle.slice(0, 200),
     phase: inferSnapshotPhase(snapshot.pageText),
-    sourceUrl: stripTaskHash(snapshot.sourceUrl),
+    sourceUrl: stripBrowserTaskHash(snapshot.sourceUrl),
     textSample: sanitizeEvidenceText(snapshot.pageText)
   });
   return prisma.browserTask.update({
@@ -151,12 +151,13 @@ function inferSnapshotPhase(text: string): SanitizedBrowserSnapshot["phase"] {
   return "other";
 }
 
-function stripTaskHash(value: string) {
+export function stripBrowserTaskHash(value: string) {
   try {
     const url = new URL(value);
     const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
     hash.delete("tripbuddyEndpoint");
     hash.delete("tripbuddyTaskId");
+    hash.delete("tripbuddyRequestedCurrency");
     url.hash = hash.toString();
     return url.toString();
   } catch {

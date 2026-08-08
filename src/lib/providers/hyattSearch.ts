@@ -1,22 +1,7 @@
 import { HYATT_CURRENCY_TOKENS, normalizeHyattCurrency } from "@/lib/providers/hyattCurrency";
+import type { HotelSearchQuery, HotelSearchResult } from "@/lib/providers/types";
 
-export type HyattCitySearchQuery = {
-  adults: number;
-  checkIn: string;
-  checkOut: string;
-  city: string;
-  currency: string;
-};
-
-export type HyattCityRateResult = {
-  availabilityLabel: string;
-  avgNightlyRate: number;
-  currency: string;
-  hotelName: string;
-  locationLabel: string | null;
-  priceBasis: string;
-  sourceUrl: string;
-};
+type HyattCitySearchQuery = Omit<HotelSearchQuery, "hotelGroup">;
 
 export function normalizeHyattCitySearchQuery(input: Partial<HyattCitySearchQuery>) {
   const adults = Number(input.adults ?? 2);
@@ -55,12 +40,12 @@ export function buildHyattCitySearchUrl(query: HyattCitySearchQuery) {
   return `https://www.hyatt.com/search/hotels/en-US/${encodeURIComponent(query.city)}?${params.toString()}`;
 }
 
-export function parseHyattCitySearchCards(cardTexts: string[], sourceUrl: string): HyattCityRateResult[] {
+export function parseHyattCitySearchCards(cardTexts: string[], sourceUrl: string): HotelSearchResult[] {
   const results = cardTexts.flatMap((text) => parseHyattCitySearchText(text, sourceUrl));
   return dedupeHyattCityRateResults(results);
 }
 
-function parseHyattCitySearchText(text: string, sourceUrl: string): HyattCityRateResult[] {
+function parseHyattCitySearchText(text: string, sourceUrl: string): HotelSearchResult[] {
   const compactText = text.replace(/\s+/g, " ").trim();
   const explicitCard = parseHyattCitySearchCard(compactText, sourceUrl);
   const pageResults = parseHyattCitySearchPageText(compactText, sourceUrl);
@@ -73,7 +58,7 @@ function parseHyattCitySearchPageText(text: string, sourceUrl: string) {
     "gi"
   );
   const matches = [...text.matchAll(pricePattern)];
-  const results: HyattCityRateResult[] = [];
+  const results: HotelSearchResult[] = [];
 
   for (const [index, match] of matches.entries()) {
     const matchIndex = match.index ?? 0;
@@ -104,7 +89,7 @@ function parseHyattCitySearchPageText(text: string, sourceUrl: string) {
   return results;
 }
 
-function parseHyattCitySearchCard(rawText: string, sourceUrl: string): HyattCityRateResult | null {
+function parseHyattCitySearchCard(rawText: string, sourceUrl: string): HotelSearchResult | null {
   const text = rawText.replace(/\s+/g, " ").trim();
   const pricePattern = new RegExp(
     `(${HYATT_CURRENCY_TOKENS.join("|")})\\s?([0-9][0-9,]{1,8})(?:\\.\\d{2})?\\s*(?:Avg\\s*\\/\\s*Night|Average\\s*\\/\\s*Night|per\\s*night|\\/\\s*night)`,
@@ -181,8 +166,8 @@ function extractLocation(text: string, hotelName: string) {
   return match ? cleanLabel(match[1]) : null;
 }
 
-function dedupeHyattCityRateResults(results: HyattCityRateResult[]) {
-  const byHotel = new Map<string, HyattCityRateResult>();
+function dedupeHyattCityRateResults(results: HotelSearchResult[]) {
+  const byHotel = new Map<string, HotelSearchResult>();
   for (const result of results) {
     const key = normalizeHotelName(result.hotelName);
     const existing = byHotel.get(key);

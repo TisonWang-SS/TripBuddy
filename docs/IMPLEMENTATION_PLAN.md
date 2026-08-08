@@ -24,7 +24,7 @@ The application is divided into four boundaries:
 ### 2. Provider and Browser Task Core
 
 - Define `BookingPriceProvider`, `HotelSearchProvider`, and `AccountBookingImporter` contracts plus a hotel-group registry.
-- Move Hyatt URL creation, parsing, and safe action planning into one provider implementation.
+- Move Hyatt URL creation, parsing, and safe action planning into one provider implementation, with one unsafe-control rule module executed independently by the provider and Browser Companion.
 - Persist browser tasks with an expiry and one linked price-check run for booking checks.
 - Expose one task status/capture protocol for booking checks, city search, and account import.
 - Store only sanitized structured evidence; inventory nightly cash estimates do not create observations.

@@ -186,6 +186,24 @@ describe("browser agent planner", () => {
     });
   });
 
+  it("refuses to click a cart control containing an unsafe final-action token", () => {
+    const action = planBrowserAgentAction({
+      bookingId: "booking-1",
+      sourceUrl: "https://www.hyatt.com/booking/cart",
+      pageText: "My Cart Grand Hyatt Kuala Lumpur Room total $302 Continue to payment",
+      controls: [
+        {
+          context: "My Cart Grand Hyatt Kuala Lumpur Room total $302 Continue to payment",
+          elementId: "payment",
+          label: "Continue to payment"
+        }
+      ]
+    });
+
+    expect(action).toMatchObject({ action: "wait" });
+    expect(action).not.toMatchObject({ action: "click", elementId: "payment" });
+  });
+
   it("selects the lowest Hyatt rate plan", () => {
     const snapshot: BrowserAgentSnapshot = {
       bookingId: "booking-1",

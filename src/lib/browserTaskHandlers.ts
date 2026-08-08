@@ -9,6 +9,7 @@ import {
   finishBrowserTask,
   getBrowserTask,
   normalizeBrowserSnapshot,
+  stripBrowserTaskHash,
   type BrowserTaskCapture
 } from "@/lib/browserTasks";
 import { isActiveBookingDate } from "@/lib/bookingDates";
@@ -184,7 +185,7 @@ async function captureHotelSearchTask(
     capturedAt: snapshot.capturedAt,
     results,
     searchSessionId: context.searchSessionId,
-    searchUrl: stripTaskHash(snapshot.sourceUrl),
+    searchUrl: stripBrowserTaskHash(snapshot.sourceUrl),
     status: results.length > 0 ? ("succeeded" as const) : ("partial" as const),
     summary:
       results.length > 0
@@ -286,7 +287,7 @@ async function captureTaxInclusiveHotelSearchTask(
     nights: stayNights(context.query.checkIn, context.query.checkOut),
     priceBasis: "Official Hyatt pre-payment total including visible taxes and fees",
     searchSessionId: context.searchSessionId,
-    sourceUrl: stripTaskHash(snapshot.sourceUrl),
+    sourceUrl: stripBrowserTaskHash(snapshot.sourceUrl),
     subtotal: subtotalFromTotal(stayTotal, total.cashTaxes, total.cashFees, total.cashBase),
     taxes: total.cashTaxes,
     taxesAndFees: combineTaxesAndFees(total.cashTaxes, total.cashFees),
@@ -515,16 +516,6 @@ function addRequestedCurrency(sourceUrl: string, currency: string) {
   const url = new URL(sourceUrl);
   const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
   hash.set("tripbuddyRequestedCurrency", currency);
-  url.hash = hash.toString();
-  return url.toString();
-}
-
-function stripTaskHash(sourceUrl: string) {
-  const url = new URL(sourceUrl);
-  const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
-  hash.delete("tripbuddyEndpoint");
-  hash.delete("tripbuddyTaskId");
-  hash.delete("tripbuddyRequestedCurrency");
   url.hash = hash.toString();
   return url.toString();
 }

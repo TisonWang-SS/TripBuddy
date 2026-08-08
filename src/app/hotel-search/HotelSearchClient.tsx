@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { waitForBrowserTask, type BrowserTaskPayload } from "@/lib/browserTaskClient";
+import { formatMoney } from "@/lib/format";
 
 type SearchResult = {
   availabilityLabel: string;
@@ -233,12 +234,4 @@ function offsetDateInput(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
   return date.toISOString().slice(0, 10);
-}
-
-function formatMoney(amount: number, currency: string) {
-  return new Intl.NumberFormat("en-US", {
-    currency,
-    maximumFractionDigits: Number.isInteger(amount) ? 0 : 2,
-    style: "currency"
-  }).format(amount);
 }

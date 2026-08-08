@@ -5,7 +5,11 @@ const AUTO_RELOAD_STATE_KEY = "tripbuddyAutoReloadState";
 const AUTO_RELOAD_AFTER_MS = 15000;
 const TASK_TIMEOUT_MS = 120000;
 const CONTROL_ATTRIBUTE = "data-tripbuddy-control-id";
-const UNSAFE_CONTROL = /(payment|pay now|confirm|purchase|place order|complete reservation|submit payment|complete booking|finalize)/i;
+const SAFETY_RULES = globalThis.TripBuddySafetyRules;
+
+if (!SAFETY_RULES?.isUnsafeBookingControl) {
+  throw new Error("TripBuddy safety rules failed to load.");
+}
 
 let taskRunning = false;
 
@@ -87,7 +91,7 @@ async function runBookingPriceTask(endpoint, taskId) {
         continue;
       }
       const label = controlLabel(element);
-      if (UNSAFE_CONTROL.test(label)) {
+      if (SAFETY_RULES.isUnsafeBookingControl(label)) {
         return reportFailure(endpoint, taskId, "unsafe_control", `TripBuddy refused to click an unsafe control: ${label}`);
       }
       showStatus(action.reason);
@@ -164,7 +168,7 @@ async function runHotelSearchTask(endpoint, taskId, hotelSearchMode) {
         continue;
       }
       const label = controlLabel(element);
-      if (UNSAFE_CONTROL.test(label)) {
+      if (SAFETY_RULES.isUnsafeBookingControl(label)) {
         return reportFailure(endpoint, taskId, "unsafe_control", `TripBuddy refused to click an unsafe control: ${label}`);
       }
       showStatus(action.reason);

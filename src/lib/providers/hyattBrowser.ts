@@ -1,4 +1,7 @@
+import safetyRules from "../../../browser-extension/safetyRules.js";
 import { HYATT_CURRENCY_PATTERN } from "@/lib/providers/hyattCurrency";
+
+const { isUnsafeBookingControl } = safetyRules;
 
 export type BrowserAgentControlSnapshot = {
   context?: string | null;
@@ -263,10 +266,6 @@ function isHyattCartContinueControl(label: string) {
     /\b(?:continue|checkout|check out|booking summary)\b/i.test(label) ||
     /\breview\s+(?:booking|reservation|summary)\b/i.test(label)
   ) && !isUnsafeBookingControl(label);
-}
-
-function isUnsafeBookingControl(label: string) {
-  return /(payment|pay now|confirm|purchase|place order|complete reservation|submit payment|complete booking|finalize)/i.test(label);
 }
 
 function extractLowestAmount(text: string) {

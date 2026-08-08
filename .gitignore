@@ -4,7 +4,6 @@ data
 .env
 .env.local
 coverage
-docs/
 *.log
 *.DS_Store
 *.tsbuildinfo

@@ -2,7 +2,7 @@ export function formatMoney(value: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency,
-    maximumFractionDigits: 0
+    maximumFractionDigits: Number.isInteger(value) ? 0 : 2
   }).format(value);
 }
 

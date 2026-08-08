@@ -20,3 +20,5 @@ The task ID and local endpoint live in the URL fragment and tab `sessionStorage`
 ## Safety boundary
 
 The companion may read visible text and navigate through room, rate-plan, cart, and pre-payment summary pages. It must never click payment, purchase, confirmation, complete-reservation, place-order, or submit-payment controls.
+
+The server-side planner and content script execute the same shared rule module in `safetyRules.js`. The extension fails closed if that module is unavailable.
