@@ -6,14 +6,6 @@ export function supportedCurrencyValue(value: FormDataEntryValue | string | null
   return SUPPORTED_CURRENCIES.includes(normalized as SupportedCurrency) ? (normalized as SupportedCurrency) : fallback;
 }
 
-export function externalCurrencyCode(currency: string) {
-  return currency;
-}
-
-export function displayCurrencyCode(currency: string) {
-  return currency;
-}
-
 export function inferIsSuite(roomType: string) {
   return /\bsuite\b/i.test(roomType);
 }

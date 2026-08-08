@@ -47,7 +47,7 @@ export function parseHyattAccountBookingsFromSnapshots(snapshots: AccountPageSna
   };
 }
 
-export function isHyattLoginRequired(text: string, url = HYATT_LOGIN_URL) {
+function isHyattLoginRequired(text: string, url = HYATT_LOGIN_URL) {
   const compactText = text.replace(/\s+/g, " ");
   const loginUrlSignal = /\/(?:profile|login|signin|sign-in|auth)\b/i.test(url);
   const signInSignals =

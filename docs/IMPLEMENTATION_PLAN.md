@@ -97,4 +97,4 @@ Provider results contain facts only. Evidence builders assess comparability. Cos
 - No scheduler process or LLM call in v0.2.
 - No full page-text retention.
 - No compatibility migration for the prototype database; reset and seed are intentional.
-- Local Chrome profile directories are outside reset and cleanup scope.
+- The user's normal Chrome profiles outside this repository are outside reset and cleanup scope. Repo-local copied or CDP profiles under `data/` are prohibited legacy artifacts and must not be created or preserved.

@@ -1,4 +1,4 @@
-import type { CostBreakdown, RecommendationDecider } from "@/lib/decision";
+import type { RecommendationDecider } from "@/lib/decision";
 import {
   calculateStayCost,
   decideWithGuardrails,
@@ -6,7 +6,7 @@ import {
 } from "@/lib/decision";
 import { DEFAULT_PROFILE_ID } from "@/lib/constants";
 import { prisma } from "@/lib/db";
-import { parseJson, stringList, toJson } from "@/lib/json";
+import { stringList, toJson } from "@/lib/json";
 import { getCurrencyConversion } from "@/lib/systemSettings";
 
 export async function createRecommendationForBooking(
@@ -128,10 +128,6 @@ export async function createRecommendationForBooking(
       warningsJson: selectedEvidence.warningsJson
     }
   });
-}
-
-export function readCostBreakdown(value: string) {
-  return parseJson<{ baseline: CostBreakdown; candidate: CostBreakdown } | null>(value, null);
 }
 
 async function comparableCashTotal(amount: number | null, sourceCurrency: string | null, targetCurrency: "USD" | "CNY") {

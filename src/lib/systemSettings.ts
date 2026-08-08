@@ -3,7 +3,7 @@ import { DEFAULT_SYSTEM_SETTING_ID } from "@/lib/constants";
 import { normalizeObservedCurrency, roundMoney } from "@/lib/currency";
 import { prisma } from "@/lib/db";
 
-export async function getSystemSettings() {
+async function getSystemSettings() {
   return prisma.systemSetting.upsert({
     where: { id: DEFAULT_SYSTEM_SETTING_ID },
     update: {},

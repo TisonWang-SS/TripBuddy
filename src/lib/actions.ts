@@ -429,13 +429,6 @@ export async function createCreditCardBenefit(formData: FormData) {
   revalidatePath("/profile");
 }
 
-export async function createRecommendationAction(formData: FormData) {
-  const bookingId = value(formData, "bookingId");
-  await createRecommendationForBooking(bookingId);
-  revalidatePath("/");
-  revalidatePath(`/bookings/${bookingId}`);
-}
-
 async function buildFormEvidence(
   formData: FormData,
   booking: { currency: "USD" | "CNY"; roomType: string },

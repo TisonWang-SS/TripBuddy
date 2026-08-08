@@ -18,15 +18,6 @@ export type HyattCityRateResult = {
   sourceUrl: string;
 };
 
-export type HyattCitySearchRun = {
-  capturedAt: Date;
-  results: HyattCityRateResult[];
-  searchUrl: string;
-  status: "succeeded" | "partial" | "failed";
-  summary: string;
-  warning: string | null;
-};
-
 export function normalizeHyattCitySearchQuery(input: Partial<HyattCitySearchQuery>) {
   const adults = Number(input.adults ?? 2);
   const query = {

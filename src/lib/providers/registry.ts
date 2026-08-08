@@ -3,7 +3,7 @@ import type { HotelProvider } from "@/lib/providers/types";
 
 const providers: HotelProvider[] = [hyattProvider];
 
-export function getHotelProvider(hotelGroup: string) {
+function getHotelProvider(hotelGroup: string) {
   return providers.find((provider) => provider.hotelGroup.toLowerCase() === hotelGroup.trim().toLowerCase()) ?? null;
 }
 

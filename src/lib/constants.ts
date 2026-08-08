@@ -8,8 +8,6 @@ export const ROOM_MATCHES = ["exact", "similar", "unknown"] as const;
 
 export const CANCELLATION_MATCHES = ["same_or_better", "worse", "unknown"] as const;
 
-export const VERDICTS = ["keep", "rebook_direct", "consider_ota", "needs_review", "urgent"] as const;
-
 export const DEFAULT_PROFILE_ID = "primary";
 
 export const DEFAULT_SYSTEM_SETTING_ID = "primary";

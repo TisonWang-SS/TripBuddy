@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  isHyattLoginRequired,
   isHyattReservationDetailUrl,
   parseHyattAccountBookingsFromSnapshots
 } from "@/lib/providers/hyattAccount";
@@ -11,13 +10,18 @@ describe("account booking extraction", () => {
     expect(isHyattReservationDetailUrl("https://www.hyatt.com/profile/en-US/my-stays/stay-details")).toBe(true);
     expect(isHyattReservationDetailUrl("https://www.hyatt.com/profile/en-US/my-stays")).toBe(false);
   });
-  it("detects a Hyatt account sign-in page", () => {
-    expect(
-      isHyattLoginRequired(
-        "Introducing Passkeys First time signing in? Activate your online account Not a member? Join World of Hyatt Password",
-        "https://www.hyatt.com/profile/en-US/account-overview"
-      )
-    ).toBe(true);
+
+  it("detects a Hyatt account sign-in page through the account parser", () => {
+    const result = parseHyattAccountBookingsFromSnapshots([
+      {
+        links: [],
+        text: "Introducing Passkeys First time signing in? Activate your online account Not a member? Join World of Hyatt Password",
+        title: "Hyatt Sign In",
+        url: "https://www.hyatt.com/profile/en-US/account-overview"
+      }
+    ]);
+
+    expect(result.loginState).toBe("login_required");
   });
 
   it("returns login required when any account snapshot is a sign-in page", () => {

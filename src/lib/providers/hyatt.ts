@@ -4,7 +4,6 @@ import {
   parseHyattAccountBookingsFromSnapshots
 } from "@/lib/providers/hyattAccount";
 import { normalizeBrowserEvidencePayload, parseHyattEvidenceFromText } from "@/lib/providers/hyattEvidence";
-import { externalCurrencyCode } from "@/lib/currency";
 import {
   buildHyattCitySearchUrl,
   normalizeHyattCitySearchQuery,
@@ -163,7 +162,7 @@ export function buildHyattBookingSearchUrl(input: BookingPriceInput) {
     adults: String(input.guests),
     checkinDate: input.checkIn.toISOString().slice(0, 10),
     checkoutDate: input.checkOut.toISOString().slice(0, 10),
-    currency: externalCurrencyCode(input.currency),
+    currency: input.currency,
     kids: "0",
     location: `${input.hotelName} ${input.city}`,
     rooms: "1"
