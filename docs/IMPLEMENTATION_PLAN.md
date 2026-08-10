@@ -43,6 +43,7 @@ The application is divided into four boundaries:
 ### 4. UI and Extension Integration
 
 - Replace booking-page Chrome links and unused server actions with a single task-driven Run price check client.
+- Keep client actions shared by multiple routes under `app/components`, not inside a dynamic route segment.
 - Show evidence quality, blockers, warnings, source facts, and sanitized details; remove numeric confidence.
 - Reuse booking and observation form components.
 - Generalize `/hotel-search` around the provider registry while exposing Hyatt only.

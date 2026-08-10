@@ -30,6 +30,7 @@ The v0.2 release does not include:
 ## Booking Price Checks
 
 - A booking detail page has one primary **Run price check** action.
+- Booking detail and Dashboard due-queue entries reuse the same foreground price-check action.
 - The app creates a persistent browser task and one linked `PriceCheckRun` before opening Hyatt.
 - Task context travels in the URL fragment and tab-scoped session storage. It is not required by the Hyatt server.
 - Browser task status is queryable by the initiating page and ends as `succeeded`, `partial`, `failed`, or expired. A task must not leave a linked run permanently `running`.

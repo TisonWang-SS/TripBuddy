@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { RunPriceCheckButton } from "@/app/bookings/[id]/RunPriceCheckButton";
+import { RunPriceCheckButton } from "@/app/components/RunPriceCheckButton";
 import { promoteObservationToBooking } from "@/lib/actions";
 import { formatBookingBaseline } from "@/lib/bookingPrice";
 import { prisma } from "@/lib/db";

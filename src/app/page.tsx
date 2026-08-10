@@ -6,7 +6,7 @@ import { DEFAULT_PROFILE_ID } from "@/lib/constants";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { buildDuePriceCheckQueue } from "@/lib/watchQueue";
 import { ImportHyattBookingsButton } from "./ImportHyattBookingsButton";
-import { RunPriceCheckButton } from "./bookings/[id]/RunPriceCheckButton";
+import { RunPriceCheckButton } from "./components/RunPriceCheckButton";
 
 export const dynamic = "force-dynamic";
 
