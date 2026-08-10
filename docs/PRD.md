@@ -71,6 +71,8 @@ Cancellation equivalence may be assessed automatically only when the current boo
 
 Raw browser storage is deliberately bounded: persist structured stage data and short sanitized text samples, not full visible pages. Confirmation numbers and similar account identifiers must be removed from diagnostic samples.
 
+Hotel evidence extractors are compared offline against one shared, provider-specific fixture set. The evaluation reports field-level assertion coverage, fixture pass counts, and one normalized score so deterministic and future model extractors can be compared without changing the acceptance criteria.
+
 ## Cost and Recommendation Behavior
 
 - Monetary and points calculations remain deterministic.

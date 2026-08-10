@@ -50,6 +50,7 @@ The application is divided into four boundaries:
 ### 5. Verification
 
 - Unit-test providers, parsers, evidence, pricing, decider validation, expiry, and click guardrails.
+- Score every hotel evidence extractor against the same provider fixture set before it can replace or supplement a deterministic parser.
 - Integration-test task/run identity, stage completion, observation readiness, failure preservation, manual correction, city dispatch, and account baselines.
 - Smoke-test booking/check UI, evidence rendering, forms, and search provider selection.
 - Run test, lint, typecheck, production build, and clean reset/seed.
