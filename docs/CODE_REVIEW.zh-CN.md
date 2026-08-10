@@ -1,8 +1,9 @@
 # TripBuddy 代码审查报告
 
 > 首次审查基线:`b7a55ec`(2026-08-08)
-> 最新复查基线:`e658fd5`(2026-08-10)
-> 门禁状态:`npm test` 23 文件 101 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / `prisma migrate deploy` 在全新库干净应用
+> 最新复查基线:`a825360`(2026-08-10)
+> 门禁状态:`npm test` 24 文件 114 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / `prisma migrate deploy` 在全新库干净应用
+> ✅ 套件已时区稳定:外部 `TZ` 设为 -7 / 0 / +14 分别运行,均 114 全过(`vitest.config.ts` 固定 `TZ: "UTC"`,跨时区用例在测试内显式切换)
 
 本文是一份**持续更新**的审查记录。已完成项保留条目和结论(压缩成一行并标注落地 commit),便于回溯;未完成项保留完整论证。章节编号保持稳定,方便跨轮次引用。
 
@@ -12,14 +13,23 @@
 
 项目的架构骨架比同阶段的大多数项目要好。核心思路——**事实 → 证据 → 成本 → 决策,每一层保持纯函数、可独立测试**——是落到代码里的,不只是停在实施计划的文字上。
 
-经过三轮清理后,几个关键判断已经兑现:
+经过六轮清理后,几个关键判断已经兑现:
 
 - **自动化链路能自己走通了。** 取消政策从"永远 unknown"变成确定性分类,浏览器采集的观察现在可以在无人介入的情况下产出 `high` 质量和 `rebook_direct` 结论(`b29f414`)。
 - **任务层有了统一扩展点。** `captureBrowserTask` 里 `kind` 分支归零,新增任务类型只需注册一个 definition(`7187a09`)。
 - **安全规则和任务协议只有一份真相。** `safetyRules.js` / `taskProtocol.js` 由扩展和服务端共同执行,扩展在规则缺失时 fail-closed(`d41dee6` 及后续)。
 - **Scheduler 的架构矛盾被显式关闭。** 用 ADR 记录决策,枚举改名为 `due_queue`,cadence 字段从死字段变成真实驱动 Dashboard 提醒(`e658fd5`)。
+- **取消截止时间的时区往返被修正,账户导入变成原子事务。** 表单写入/回填口径统一为本地时刻,四个时区实测往返稳定(`a5af2de`、`56f81fe`)。
+- **日期约定成为可执行的规则而不是口头约定。** `dateSemantics.ts` 提供表意 helper,所有 formatter 按约定重命名,schema 逐字段注明归属,测试套件固定时区并带跨时区用例(`67f2a93`)。
 
-当前剩余问题分三类:**运行时正确性**(§3.10、§3.11 是新发现,优先级最高)、**写了没人读的数据**(§1.5、§1.6)、以及**尚未动工的加固项**(§2.4、§3.2、§3.3、§3.6–§3.9)。
+- **产品取舍被测试锁定,而不只是写在注释里。** 「成功检查沿用完整 cadence、clamp 仅用于失败重试」现在有专门用例守着,改动会立刻变红(`a825360`)。
+
+当前剩余问题分两类:
+
+1. **写了没人读的数据**——§1.5、§1.6。
+2. **尚未动工的加固项**——§2.4、§3.2、§3.5、§3.6–§3.9。
+
+**已无已知的用户可见缺陷。** §3.10–§3.16 全部关闭,且每一条都做了反证验证(还原修复 → 对应用例变红),不是只靠读 diff 判断。三轮反证的失败信息与最初报告的症状逐字对应:`retry in 8.866666666666667 hours`、`Sep 9, 2026`、`2026-02-30 → 1772409600000`。
 
 ---
 
@@ -146,13 +156,13 @@
 
 结果:任何 JPY / EUR 的观察都会拿到一个**用户永远无法解除的硬 blocker**。要么补一个汇率录入/导入入口,要么就不要宣称支持多币种采集。
 
-### 3.3 账户导入会留下部分写入 — ⬜ 待办
+### 3.3 账户导入会留下部分写入 — ✅ 已完成(`56f81fe`)
 
-`importAccountBookings`(现位于 `accountBookings.ts`)在事务外顺序执行 N 次 create/update。第 3 条失败,前 2 条已经落库——这正是 PRD 说绝不能发生的:
+写入循环包进 `prisma.$transaction`,集成测试证明回滚(第二条日期非法 → 整体 reject → 落库数为 0)。
 
-> An unreadable account DOM must stop the import rather than write partial or empty booking data.
+一个值得记下的实现细节:`convertMoneyToSystemCurrency`(自身会读库)被**提到事务外**做预处理,事务里只留写入。顺序反过来会无谓拉长事务持有时间。
 
-现有守卫都在循环**之前**,覆盖不到循环**之中**的失败。现在这段逻辑已经是独立模块,包一层 `prisma.$transaction` 是几行的事。
+⬜ **观察**:Prisma 交互式事务默认 5s 超时,而循环内是逐条 `findFirst` + 写入。当前导入量(几条行程)远不到阈值,若将来导入历史订单需要重新评估。
 
 ### 3.4 金额显示丢掉分 — ✅ 已完成(`d41dee6`)
 
@@ -191,37 +201,107 @@
 
 ⬜ `browserExtensionContent.test.ts` 仍有 27 处 `expect(content).toContain("字面量源码")`,测的是源码文本而非行为,改个变量名就会红。同文件的 `vm.createContext` 测试才是对的做法。更好的方向:把扩展里的纯逻辑抽成模块,让扩展和测试都 import 它——`safetyRules.js` 和 `taskProtocol.js` 已经证明这条路可行,可以继续推。
 
-### 3.10 【新】失败的检查永远出不了到期队列 — ⬜ 待办
+### 3.10 失败的检查永远出不了到期队列 — ✅ 已完成(`ee4f6de`、`4dd2abe`、`8072b9f`)
 
-`lastCheckedAt` 只在 `completePriceCheckTask`(`priceChecks.ts:337`)写入,`failPriceCheckTask` 完全不碰它。而 `buildDuePriceCheckQueue` 的 `nextCheckAt` 完全由 `lastCheckedAt` 推导。
+新增 `WatchPlan.lastAttemptedAt` 与 `consecutiveFailures`,在**四个点**都正确维护:run 启动、失败、任务过期(并入 `expireBrowserTask` 已有的事务)、成功(清零)。运行中隐藏用的是带 `status: "running"` + `expiresAt > now` 过滤的关联查询,而不是全量 `priceCheckRuns`。
 
-后果:
+✅ **退避越过 urgent 窗口 — 已修(`4dd2abe`)**
 
-- 一个持续失败的订单会**永久停在 Dashboard 队列里**,没有退避,也没有 snooze。
-- 队列分不清"从没检查过"和"失败了 12 次"——两种情况都表现为 `lastCheckedAt === null` 或陈旧。
-- 运行中的任务期间队列仍把该订单列为 due(runner 本身正确复用了活跃 run,只是队列不知道)。
+原策略 `cadenceHours × 2^min(failures, 4)` 在默认 urgent cadence 6h 下,第 3 次失败就跳到 48h、第 4 次 96h,而 `urgentWindowHours` 默认只有 72h ——越接近截止反而越静默,与设计意图相反。
 
-建议加一个独立的 `lastAttemptedAt`(或 `consecutiveFailures`),让队列能按失败次数退避,并在有活跃 run 时隐藏该条目。
+现在对 urgent 且已失败的路径额外夹一次:`min(exponential, hoursToCancellation / 2)`。
 
-### 3.11 【新】时区接缝现在会喂给 blocker — ⬜ 待办
+不变量已推导确认:设最后一次尝试在 `now - ε`、剩余 `R` 小时,则 `nextCheckAt = (now - ε) + R/2 < now + R = 截止时间`,对任意 `R > 0` 恒成立 ——**失败的 urgent 检查永远不会被推过取消截止时间**。截止时间已过时 `hoursToCancellation < 0`,urgency 回落 `normal`,负数不会漏进 `Math.min`。
 
-`cancellationDeadline` 的读写口径不一致:
+✅ **`priceCheckRuns` 类型前提 — 已修(`8072b9f`)** 改为显式的 `hasActiveRun: boolean`,映射在 page 边界完成,类型本身表达前提。
 
-- **写入**:`<input type="datetime-local">` → `dateValue` → `new Date(raw)`,按 **local** 时间解析(`actions.ts:52`)。
-- **回填**:`formatDateTimeInput` → `new Date(value).toISOString().slice(0,16)`,渲染的是 **UTC** 墙钟(`format.ts:47`)。
+✅ **上限只作用于失败路径 — 已确认为有意取舍(`a825360`)**
 
-两个后果:
+若一次检查在截止前不久**成功**,下一次提醒仍是整整一个 urgent cadence 之后,可能越过截止时间。这个不对称是有意的:用户刚看过新鲜数据,而 clamp 存在的理由是「采集一直失败」这个状态本身需要被告知。
 
-1. 编辑订单再保存一次,deadline 会按时区偏移**每次漂移一轮**。
-2. §3.1 的 `inferCancellationMatch` 按 UTC 日粒度比较(`utcDay`)。对 UTC 以西的用户,"Sep 8 20:00" 存成 `Sep 9 04:00Z` → `utcDay` 得到 Sep 9 → 一个真实截止在 Sep 8 的候选被判成 `worse` → **触发 blocker**。UTC 以东则误差反向,一个确实更早的候选可能被判成 `same_or_better`。
+现在这条取舍由 `watchQueue.ts` 的注释和一条专门用例共同守着 —— 反证确认:把 clamp 改成无条件套用(去掉 `consecutiveFailures > 0`),该用例立刻变红。
 
-往返不对称在 `b29f414` 之前就存在,但那次改动把 `cancellationDeadline` 从展示数据提升成了 **blocker 输入**,所以它从"显示别扭"变成了"结论出错"。
+### 3.11 时区接缝喂给 blocker — ✅ 已完成(`a5af2de`)
 
-建议顺序:先修表单往返(按本地时间渲染,或干脆把 deadline 存成日历日期 + 时间),再决定 UTC 日粒度比较是不是正确的收敛方式。
+`formatDateTimeInput` 改为按**本地**分量拼装(并补了 NaN 守卫),与 `dateValue` 的本地解析口径对齐;`inferCancellationMatch` 的当前截止改用 `localDay`。账户导入侧 `extractCancellationDeadline` 也同步改成本地零点,两条写入路径不再分叉。
 
-### 3.12 【新】共享客户端组件住在动态路由目录 — ⬜ 待办
+四个时区实测往返稳定,且 LA 下的判定从修前的 `worse`(误报 blocker)变为正确的 `same_or_better`。新增的 TZ 测试**不是空跑**——把 `localDay` 改回 `utcDay` 该测试会失败。
 
-`src/app/page.tsx` 从 `./bookings/[id]/RunPriceCheckButton` 引入组件。能工作,但一个被多处复用的客户端组件住在动态路由文件夹里是结构异味,应挪到 `src/app/components/`。
+> 注:该测试依赖 V8 响应运行时 `process.env.TZ` 变更。Node 25 支持,但这是版本相关行为,升降级 Node 时值得留意。
+
+⚠️ 这次只修了 `cancellationDeadline`。**兄弟字段 `checkIn`/`checkOut` 的同类问题仍在**,见 §3.13。
+
+### 3.12 共享客户端组件住在动态路由目录 — ✅ 已完成(`15209c0`、`59bbf89`)
+
+`RunPriceCheckButton` 连同测试文件迁至 `src/app/components/`,两处引用统一为 `@/app/components/` 别名。
+
+### 3.13 日历日约定没有覆盖 `checkIn` / `checkOut` — ✅ 已完成(`67f2a93`)
+
+原问题:`checkIn`/`checkOut` 存为 UTC 零点却用本地语义消费,导致 UTC 以西用户「当天入住的订单从 Dashboard 消失、账户导入时被静默跳过、住宿日期显示早一天」。
+
+修复:`isActiveBookingDate` 改为 `calendarDayOf(checkIn) >= localInstantDayOf(now)`,Dashboard 查询边界改用 `currentLocalDayAsCalendarDate(now)`,`formatCalendarDate` 加 `timeZone: "UTC"`。
+
+**跨时区实测**(直接调用仓库内真实函数,`checkIn` 经 `parseCalendarDate("2026-09-10")` 写入,本地「今天」为 9 月 10 日):
+
+| TZ | 偏移 | 显示 | 当天订单可见 | 查询边界 |
+|---|---|---|---|---|
+| Asia/Shanghai | +8 | Sep 10 | ✅ | ✅ |
+| UTC | 0 | Sep 10 | ✅ | ✅ |
+| America/Los_Angeles | −7 | Sep 10 | ✅ | ✅ |
+| America/New_York | −4 | Sep 10 | ✅ | ✅ |
+| Pacific/Kiritimati | +14 | Sep 10 | ✅ | ✅ |
+
+### 3.14 两套日期约定没有任何守卫 — ✅ 已完成(`67f2a93`)
+
+新增 `src/lib/dateSemantics.ts` 作为唯一的约定入口,并把约定带进了**函数名本身**:
+
+| 旧名 | 新名 |
+|---|---|
+| `formatDate` | `formatCalendarDate`(+ `timeZone: "UTC"`) |
+| `formatDateTime` | `formatLocalInstant` |
+| `formatDateInput` | `formatCalendarDateInput` |
+| `formatDateTimeInput` | `formatLocalInstantInput` |
+| `dateValue` | `optionalCalendarDateValue` / `optionalLocalInstantValue` |
+
+这比单纯加注释更强:现在挑错 formatter 会在**阅读调用点时**就不对劲,而不是等跨时区才暴露。`schema.prisma` 也为每个日期字段加了 `///` 文档注释标明归属。旧名零残留。
+
+额外收获:`parseCalendarDate` 不只是 TZ 无关解析,还做了往返校验,现在会拒绝旧路径静默接受的输入:
+
+```
+"2026-09-10" -> 2026-09-10T00:00:00.000Z
+"2026-02-30" -> Invalid Date   (旧路径会滚成 3 月 2 日)
+"2026-9-10"  -> Invalid Date
+"10/09/2026" -> Invalid Date
+```
+
+✅ **独立测试已补齐(`8f0ae88`)** `dateSemantics.test.ts` 在 `America/Los_Angeles` 下同时断言两套语义在同一瞬时上的差异(`calendarDayOf` → 9/10、`localInstantDayOf` → 9/9),并覆盖 `parseCalendarDate` 的三条拒绝分支。反证确认:去掉往返校验后 `2026-02-30` 会返回 `1772409600000`(即 3 月 2 日)而非 `NaN`,用例变红。
+
+### 3.15 测试套件没有固定时区 — ✅ 已完成(`67f2a93`)
+
+`vitest.config.ts` 加 `env: { TZ: "UTC" }` 固定基线,跨时区用例在测试内显式切换到 `America/Los_Angeles`。外部 `TZ` 设为 −7 / 0 / +14 分别运行,均 110 全过。
+
+**反证验证**(确认新用例不是空跑):
+
+| 还原的修复 | 结果 |
+|---|---|
+| 去掉 `formatCalendarDate` 的 `timeZone: "UTC"` | 红,`expected 'Sep 9, 2026' to be 'Sep 10, 2026'` |
+| `isActiveBookingDate` 改回 `localInstantDayOf(checkIn)` | 红,`expected false to be true` |
+
+> 注:跨时区用例依赖 V8 响应运行时 `process.env.TZ` 变更(Node 25 支持),且依赖 vitest 默认 `pool: "forks"` 的进程隔离。若将来改用共享进程的 pool,这类用例需要重新评估。
+
+### 3.16 `retryDelayHours` 在界面上是未格式化的浮点数 — ✅ 已完成(`4c2d4a2`)
+
+原渲染结果是 `retry after 8.866666666666667 hours`。新增 `formatRetryDelay` 统一处理:
+
+| 输入(小时) | 渲染 |
+|---|---|
+| ≤ 0 | `retry now` |
+| 0.001 | `retry in 1 minute`(下界钳到 1,不会出现 0 minutes) |
+| 0.5 | `retry in 30 minutes` |
+| 1 | `retry in 1 hour`(单复数正确) |
+| 8.8666 | `retry in 9 hours` |
+
+回归测试渲染的是**真实 Dashboard 组件**而非仅仅调用 formatter,断言完整文案。反证确认:去掉取整后该用例变红,错误信息正是最初报告的 `retry in 8.866666666666667 hours`。
 
 ---
 
@@ -315,18 +395,27 @@
 | 6 | 建抽取评测集(§4.6) | `f1e4cd6` |
 | 7 | 拆 `browserTaskHandlers.ts`(§2.1、§2.2、§2.3) | `7187a09` |
 | 8 | 决策 scheduler 去向(§2.5,含 ADR 0001) | `e658fd5` |
+| 9 | 修取消截止时间的时区往返与判定(§3.11) | `a5af2de` |
+| 10 | 到期队列加失败退避、隐藏运行中任务(§3.10) | `ee4f6de` |
+| 11 | 账户导入改为原子事务(§3.3) | `56f81fe` |
+| 12 | 共享 `RunPriceCheckButton` 移入公共组件目录(§3.12) | `15209c0`、`59bbf89` |
+| 13 | `checkIn`/`checkOut` 日历日语义 + 语义化 helper + 固定测试时区(§3.13–§3.15) | `67f2a93` |
+| 14 | urgent 失败退避用剩余截止时间夹一次(§3.10 遗留) | `4dd2abe` |
+| 15 | 队列输入改为显式 `hasActiveRun`(§3.10 nit) | `8072b9f` |
+| 16 | `retryDelayHours` 渲染格式化(§3.16) | `4c2d4a2` |
+| 17 | `dateSemantics` 补独立测试(§3.14 观察) | `8f0ae88` |
+| 18 | 锁定「成功检查沿用完整 cadence」的产品取舍(§3.10 观察) | `a825360` |
 
 ### 后续建议顺序
 
 | 顺序 | 事项 | 理由 |
 |---|---|---|
-| 9 | 修时区往返与日粒度比较(§3.11) | 唯一会**产出错误结论**的问题:第 5 项把 deadline 提升成了 blocker 输入 |
-| 10 | 到期队列加失败退避(§3.10) | 第 8 项的直接后遗症,失败订单会永久占据 Dashboard |
-| 11 | 账户导入包事务(§3.3) | 违反 PRD 明文规则,现在已是独立模块,几行的事 |
-| 12 | 确认 `worse` 作为 blocker 是有意的(§3.1) | 产品取舍,不是技术债,但需要一次显式确认 |
-| 13 | 币种录入入口或收缩多币种声明(§3.2) | 当前是用户无法解除的死 blocker |
-| 14 | 处理 write-only 数据(§1.5)与未使用字段(§1.6) | 用户填了系统不用,属于产品失真 |
-| 15 | 超时收敛到 `expiresAt`(§3.6)、CORS 收紧(§3.7) | 加固项,无用户可见症状 |
-| 16 | 接 LLM 抽取器(§4.2 第 1 项) | 评测集已就位,这是下一个能显著降低 provider 接入成本的动作 |
+| 19 | 确认 `worse` 作为 blocker 是有意的(§3.1) | 产品取舍,不需改代码,只需一次决策 |
+| 20 | 币种录入入口或收缩多币种声明(§3.2) | 当前是用户无法解除的死 blocker |
+| 21 | 处理 write-only 数据(§1.5)与未使用字段(§1.6) | 用户填了系统不用,属于产品失真 |
+| 22 | 超时收敛到 `expiresAt`(§3.6)、CORS 收紧(§3.7)、JSON 列加 codec(§2.4) | 加固项,无用户可见症状 |
+| 23 | 接 LLM 抽取器(§4.2 第 1 项) | 评测集已就位,这是下一个能显著降低 provider 接入成本的动作 |
 
-第 9–11 项建议尽快做完:它们都是最近三轮改动的直接后遗症,趁上下文还热的时候处理成本最低。
+第 13–15 项作为一组一起做是对的:它们是同一条日期约定接缝的三个面,第 9 项(`a5af2de`)就是分开修、只修了一半的例子。
+
+**当前状态**:已无已知的用户可见缺陷,§3 的正确性问题全部关闭。第 19 项只需一句答复。**建议重心从修复转向第 23 项**——评测集(§4.6)、provider 契约(§2.1–§2.3)、安全边界(§1.7)都已就位,接 LLM 抽取器是下一个能带来量级变化的动作,也是目前唯一能显著降低「接入第二个酒店集团」成本的路径。
