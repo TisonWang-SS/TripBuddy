@@ -72,6 +72,27 @@ describe("foreground price-check queue", () => {
     expect(queue).toMatchObject([{ consecutiveFailures: 2, retryDelayHours: 96 }]);
   });
 
+  it("keeps failed urgent checks due before the cancellation deadline", () => {
+    const queue = buildDuePriceCheckQueue([
+      {
+        ...base,
+        cancellationDeadline: new Date("2026-08-11T12:00:00.000Z"),
+        watchPlan: {
+          ...base.watchPlan!,
+          consecutiveFailures: 4,
+          lastAttemptedAt: new Date("2026-08-09T23:00:00.000Z"),
+          lastCheckedAt: null
+        }
+      }
+    ], now);
+
+    expect(queue).toMatchObject([{
+      consecutiveFailures: 4,
+      retryDelayHours: 12,
+      urgency: "urgent"
+    }]);
+  });
+
   it("hides a due booking while a price check is active", () => {
     const queue = buildDuePriceCheckQueue([
       { ...base, priceCheckRuns: [{ id: "run-1" }] }

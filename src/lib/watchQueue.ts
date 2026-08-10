@@ -53,10 +53,14 @@ function duePriceCheck(booking: WatchQueueBooking, now: Date): DuePriceCheck | n
     hoursToCancellation >= 0 && hoursToCancellation <= plan.urgentWindowHours ? "urgent" : "normal";
   const cadenceHours = urgency === "urgent" ? plan.urgentCadenceHours : plan.normalCadenceHours;
   const maximumRetryDelayHours = Math.max(cadenceHours, 168);
-  const retryDelayHours = Math.min(
+  const exponentialRetryDelayHours = Math.min(
     cadenceHours * 2 ** Math.min(plan.consecutiveFailures, 4),
     maximumRetryDelayHours
   );
+  const retryDelayHours =
+    urgency === "urgent" && plan.consecutiveFailures > 0
+      ? Math.min(exponentialRetryDelayHours, hoursToCancellation / 2)
+      : exponentialRetryDelayHours;
   const anchor = latestDate(plan.lastAttemptedAt, plan.lastCheckedAt) ?? booking.createdAt;
   const hasAttempt = plan.lastAttemptedAt !== null || plan.lastCheckedAt !== null;
 
