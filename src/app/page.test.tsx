@@ -52,12 +52,15 @@ describe("dashboard page", () => {
         hotelName: "Grand Hyatt Tokyo",
         id: "booking-1",
         observations: [],
+        priceCheckRuns: [],
         recommendations: [],
         watchPlan: {
           awardEnabled: true,
           cashEnabled: true,
+          consecutiveFailures: 0,
           enabled: true,
           lastCheckedAt: null,
+          lastAttemptedAt: null,
           normalCadenceHours: 24,
           urgentCadenceHours: 6,
           urgentWindowHours: 72

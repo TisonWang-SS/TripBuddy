@@ -114,6 +114,10 @@ export class BrowserCompanionPriceCheckRunner implements PriceCheckRunner {
           trigger,
           watchPlanId: watchPlan.id
         }
+      }),
+      prisma.watchPlan.update({
+        where: { id: watchPlan.id },
+        data: { lastAttemptedAt: new Date() }
       })
     ]);
 
@@ -334,7 +338,10 @@ async function completePriceCheckTask(input: {
         status
       }
     });
-    await tx.watchPlan.update({ where: { id: task.priceCheckRun!.watchPlanId! }, data: { lastCheckedAt: finishedAt } });
+    await tx.watchPlan.update({
+      where: { id: task.priceCheckRun!.watchPlanId! },
+      data: { consecutiveFailures: 0, lastAttemptedAt: finishedAt, lastCheckedAt: finishedAt }
+    });
   });
   return observationIds;
 }
@@ -349,6 +356,10 @@ async function failPriceCheckTask(taskId: string, errorCode: string, errorMessag
     prisma.priceCheckRun.update({
       where: { browserTaskId: taskId },
       data: { errorCode, errorMessage, finishedAt: now, status: "failed", summary: "Browser price check failed." }
+    }),
+    prisma.watchPlan.updateMany({
+      where: { priceCheckRuns: { some: { browserTaskId: taskId } } },
+      data: { consecutiveFailures: { increment: 1 }, lastAttemptedAt: now }
     })
   ]);
 }

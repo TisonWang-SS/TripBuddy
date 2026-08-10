@@ -1,0 +1,2 @@
+ALTER TABLE "WatchPlan" ADD COLUMN "lastAttemptedAt" DATETIME;
+ALTER TABLE "WatchPlan" ADD COLUMN "consecutiveFailures" INTEGER NOT NULL DEFAULT 0;

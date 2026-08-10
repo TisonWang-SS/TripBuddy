@@ -4,11 +4,14 @@ export type WatchQueueBooking = {
   createdAt: Date;
   id: string;
   hotelName: string;
+  priceCheckRuns: readonly { id: string }[];
   watchPlan: {
     awardEnabled: boolean;
     cashEnabled: boolean;
     enabled: boolean;
+    consecutiveFailures: number;
     lastCheckedAt: Date | null;
+    lastAttemptedAt: Date | null;
     normalCadenceHours: number;
     urgentCadenceHours: number;
     urgentWindowHours: number;
@@ -18,8 +21,10 @@ export type WatchQueueBooking = {
 export type DuePriceCheck = {
   bookingId: string;
   cadenceHours: number;
+  consecutiveFailures: number;
   hotelName: string;
   nextCheckAt: Date;
+  retryDelayHours: number;
   urgency: "normal" | "urgent";
 };
 
@@ -37,7 +42,7 @@ export function buildDuePriceCheckQueue(bookings: readonly WatchQueueBooking[], 
 
 function duePriceCheck(booking: WatchQueueBooking, now: Date): DuePriceCheck | null {
   const plan = booking.watchPlan;
-  if (!plan?.enabled || (!plan.cashEnabled && !plan.awardEnabled)) {
+  if (!plan?.enabled || (!plan.cashEnabled && !plan.awardEnabled) || booking.priceCheckRuns.length > 0) {
     return null;
   }
 
@@ -47,15 +52,33 @@ function duePriceCheck(booking: WatchQueueBooking, now: Date): DuePriceCheck | n
   const urgency =
     hoursToCancellation >= 0 && hoursToCancellation <= plan.urgentWindowHours ? "urgent" : "normal";
   const cadenceHours = urgency === "urgent" ? plan.urgentCadenceHours : plan.normalCadenceHours;
-  const anchor = plan.lastCheckedAt ?? booking.createdAt;
+  const maximumRetryDelayHours = Math.max(cadenceHours, 168);
+  const retryDelayHours = Math.min(
+    cadenceHours * 2 ** Math.min(plan.consecutiveFailures, 4),
+    maximumRetryDelayHours
+  );
+  const anchor = latestDate(plan.lastAttemptedAt, plan.lastCheckedAt) ?? booking.createdAt;
+  const hasAttempt = plan.lastAttemptedAt !== null || plan.lastCheckedAt !== null;
 
   return {
     bookingId: booking.id,
     cadenceHours,
+    consecutiveFailures: plan.consecutiveFailures,
     hotelName: booking.hotelName,
-    nextCheckAt: plan.lastCheckedAt
-      ? new Date(anchor.getTime() + cadenceHours * 3_600_000)
+    nextCheckAt: hasAttempt
+      ? new Date(anchor.getTime() + retryDelayHours * 3_600_000)
       : anchor,
+    retryDelayHours,
     urgency
   };
+}
+
+function latestDate(left: Date | null, right: Date | null) {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+  return left > right ? left : right;
 }

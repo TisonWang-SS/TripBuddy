@@ -225,19 +225,21 @@ model HotelBooking {
 }
 
 model WatchPlan {
-  id                 String          @id @default(cuid())
-  bookingId          String          @unique
-  enabled            Boolean         @default(true)
-  cashEnabled        Boolean         @default(true)
-  awardEnabled       Boolean         @default(true)
-  normalCadenceHours Int             @default(24)
-  urgentCadenceHours Int             @default(6)
-  urgentWindowHours  Int             @default(72)
-  lastCheckedAt      DateTime?
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  booking            HotelBooking    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  priceCheckRuns     PriceCheckRun[]
+  id                  String          @id @default(cuid())
+  bookingId           String          @unique
+  enabled             Boolean         @default(true)
+  cashEnabled         Boolean         @default(true)
+  awardEnabled        Boolean         @default(true)
+  normalCadenceHours  Int             @default(24)
+  urgentCadenceHours  Int             @default(6)
+  urgentWindowHours   Int             @default(72)
+  lastCheckedAt       DateTime?
+  lastAttemptedAt     DateTime?
+  consecutiveFailures Int             @default(0)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  booking             HotelBooking    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  priceCheckRuns      PriceCheckRun[]
 }
 
 model BrowserTask {

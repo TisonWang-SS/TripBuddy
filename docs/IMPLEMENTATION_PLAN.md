@@ -38,6 +38,7 @@ The application is divided into four boundaries:
 - Refactor the cost engine around cash, points, copay, conversion, promotion, card, elite, and benefit components.
 - Add `RecommendationDecider`; use the deterministic implementation by default and validate every result against guardrails.
 - Add a foreground-only `PriceCheckRunner` with `manual` and `due_queue` provenance. Use cadence only to surface work while the Dashboard is open; never start Chrome unattended.
+- Track last attempts and consecutive failures separately from successful checks; suppress active runs and apply bounded exponential backoff to failed due-queue items.
 
 ### 4. UI and Extension Integration
 

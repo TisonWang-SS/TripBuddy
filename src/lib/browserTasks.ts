@@ -140,6 +140,10 @@ export function normalizeBrowserSnapshot(input: Partial<BrowserPageSnapshot> | n
 async function expireBrowserTask(taskId: string) {
   const now = new Date();
   return prisma.$transaction(async (tx) => {
+    const run = await tx.priceCheckRun.findUnique({
+      where: { browserTaskId: taskId },
+      select: { watchPlanId: true }
+    });
     const task = await tx.browserTask.update({
       where: { id: taskId },
       data: {
@@ -158,6 +162,12 @@ async function expireBrowserTask(taskId: string) {
         status: "failed"
       }
     });
+    if (run?.watchPlanId) {
+      await tx.watchPlan.update({
+        where: { id: run.watchPlanId },
+        data: { consecutiveFailures: { increment: 1 }, lastAttemptedAt: now }
+      });
+    }
     return tx.browserTask.findUnique({ where: { id: task.id }, include: { priceCheckRun: true } });
   });
 }

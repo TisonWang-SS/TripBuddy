@@ -11,13 +11,19 @@ import { RunPriceCheckButton } from "./bookings/[id]/RunPriceCheckButton";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  const now = new Date();
   const [profile, bookings] = await Promise.all([
     prisma.userProfile.findUnique({ where: { id: DEFAULT_PROFILE_ID } }),
     prisma.hotelBooking.findMany({
-      where: { checkIn: { gte: startOfToday() } },
+      where: { checkIn: { gte: startOfToday(now) } },
       orderBy: { checkIn: "asc" },
       include: {
         observations: { orderBy: { observedAt: "desc" }, take: 1 },
+        priceCheckRuns: {
+          where: { expiresAt: { gt: now }, status: "running" },
+          select: { id: true },
+          take: 1
+        },
         recommendations: { where: { candidateObservationId: { not: null } }, orderBy: { generatedAt: "desc" }, take: 1 },
         watchPlan: true
       }
@@ -31,7 +37,7 @@ export default async function DashboardPage() {
 
   const actionable = latestRecommendations.filter((item) => item.verdict !== "keep").length;
   const urgent = latestRecommendations.filter((item) => item.verdict === "urgent").length;
-  const dueQueue = buildDuePriceCheckQueue(bookings);
+  const dueQueue = buildDuePriceCheckQueue(bookings, now);
 
   return (
     <div className="grid">
@@ -75,7 +81,9 @@ export default async function DashboardPage() {
               <div className="listItem" key={due.bookingId}>
                 <div>
                   <h3><Link href={`/bookings/${due.bookingId}`}>{due.hotelName}</Link></h3>
-                  <p>{due.urgency === "urgent" ? "Urgent" : "Normal"} cadence · every {due.cadenceHours} hours</p>
+                  <p>{due.consecutiveFailures > 0
+                    ? `${due.consecutiveFailures} failed attempt(s) · retry after ${due.retryDelayHours} hours`
+                    : `${due.urgency === "urgent" ? "Urgent" : "Normal"} cadence · every ${due.cadenceHours} hours`}</p>
                   <small className="muted">Due since {formatDateTime(due.nextCheckAt)}</small>
                 </div>
                 <RunPriceCheckButton bookingId={due.bookingId} trigger="due_queue" />

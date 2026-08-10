@@ -117,6 +117,11 @@ describe("persistent browser price-check flow", () => {
     expect(await prisma.priceObservation.count({ where: { bookingId: booking.id } })).toBe(2);
     expect(await prisma.observationEvidence.count()).toBe(2);
     expect(await prisma.recommendation.count({ where: { bookingId: booking.id } })).toBe(1);
+    await expect(prisma.watchPlan.findUniqueOrThrow({ where: { bookingId: booking.id } })).resolves.toMatchObject({
+      consecutiveFailures: 0,
+      lastAttemptedAt: expect.any(Date),
+      lastCheckedAt: expect.any(Date)
+    });
 
     const cashObservation = await prisma.priceObservation.findFirstOrThrow({
       where: { bookingId: booking.id, inventoryType: "cash" },
@@ -140,6 +145,10 @@ describe("persistent browser price-check flow", () => {
     });
     expect((await prisma.priceCheckRun.findUnique({ where: { id: failed.runId } }))?.status).toBe("failed");
     expect(await prisma.priceObservation.count({ where: { bookingId: booking.id } })).toBe(2);
+    await expect(prisma.watchPlan.findUniqueOrThrow({ where: { bookingId: booking.id } })).resolves.toMatchObject({
+      consecutiveFailures: 1,
+      lastAttemptedAt: expect.any(Date)
+    });
 
     const expiring = await runner.run({ bookingId: booking.id, trigger: "due_queue" });
     const expiredAt = new Date(Date.now() - 1_000);
@@ -151,6 +160,9 @@ describe("persistent browser price-check flow", () => {
     expect(expired?.status).toBe("failed");
     expect(expired?.priceCheckRun?.status).toBe("failed");
     expect(expired?.errorCode).toBe("task_expired");
+    await expect(prisma.watchPlan.findUniqueOrThrow({ where: { bookingId: booking.id } })).resolves.toMatchObject({
+      consecutiveFailures: 2
+    });
   });
 
   it("imports active Hyatt cash, points, and certificate baselines but skips an already-started stay", async () => {

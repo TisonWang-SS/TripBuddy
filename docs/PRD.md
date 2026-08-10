@@ -37,6 +37,7 @@ The v0.2 release does not include:
 - A failed check preserves all earlier observations and recommendations.
 - The watch plan controls cash and award inventory, normal and urgent reminder cadence, the urgent cancellation window, and the last completed check.
 - When the Dashboard opens, TripBuddy derives a due queue from those facts. The queue never starts work itself; the user must explicitly start each visible Browser Companion check. See `docs/decisions/0001-foreground-price-checks.md`.
+- Watch plans record attempts separately from successful checks. Active runs are hidden from the due queue; failures use exponential retry backoff capped at seven days without shortening a longer configured cadence, and reset after the next completed check.
 
 ### Browser Companion Safety
 
