@@ -52,6 +52,18 @@ export function formatLocalInstantInput(value: Date | string | null | undefined)
   return `${date.getFullYear()}-${twoDigits(date.getMonth() + 1)}-${twoDigits(date.getDate())}T${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
 }
 
+export function formatRetryDelay(hours: number) {
+  if (hours <= 0) {
+    return "now";
+  }
+  if (hours < 1) {
+    const minutes = Math.max(1, Math.round(hours * 60));
+    return `in ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  }
+  const roundedHours = Math.round(hours);
+  return `in ${roundedHours} hour${roundedHours === 1 ? "" : "s"}`;
+}
+
 export function nightsBetween(checkIn: Date, checkOut: Date) {
   const dayMs = 24 * 60 * 60 * 1000;
   return Math.max(1, Math.round((checkOut.getTime() - checkIn.getTime()) / dayMs));

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { formatCalendarDate, formatCalendarDateInput, formatLocalInstantInput, formatMoney } from "@/lib/format";
+import {
+  formatCalendarDate,
+  formatCalendarDateInput,
+  formatLocalInstantInput,
+  formatMoney,
+  formatRetryDelay
+} from "@/lib/format";
 
 describe("money formatting", () => {
   it("preserves cents when the amount has a fractional part", () => {
@@ -29,5 +35,12 @@ describe("money formatting", () => {
     } finally {
       process.env.TZ = previousTimezone ?? "UTC";
     }
+  });
+
+  it("formats fractional retry delays for display", () => {
+    expect(formatRetryDelay(8.866666666666667)).toBe("in 9 hours");
+    expect(formatRetryDelay(0.5)).toBe("in 30 minutes");
+    expect(formatRetryDelay(1)).toBe("in 1 hour");
+    expect(formatRetryDelay(0)).toBe("now");
   });
 });

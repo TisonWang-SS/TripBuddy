@@ -4,7 +4,7 @@ import { currentLocalDayAsCalendarDate } from "@/lib/bookingDates";
 import { formatBookingBaseline } from "@/lib/bookingPrice";
 import { DEFAULT_PROFILE_ID } from "@/lib/constants";
 import { prisma } from "@/lib/db";
-import { formatCalendarDate, formatLocalInstant, formatMoney } from "@/lib/format";
+import { formatCalendarDate, formatLocalInstant, formatMoney, formatRetryDelay } from "@/lib/format";
 import { buildDuePriceCheckQueue } from "@/lib/watchQueue";
 import { ImportHyattBookingsButton } from "./ImportHyattBookingsButton";
 
@@ -88,7 +88,7 @@ export default async function DashboardPage() {
                 <div>
                   <h3><Link href={`/bookings/${due.bookingId}`}>{due.hotelName}</Link></h3>
                   <p>{due.consecutiveFailures > 0
-                    ? `${due.consecutiveFailures} failed attempt(s) · retry after ${due.retryDelayHours} hours`
+                    ? `${due.consecutiveFailures} failed attempt(s) · retry ${formatRetryDelay(due.retryDelayHours)}`
                     : `${due.urgency === "urgent" ? "Urgent" : "Normal"} cadence · every ${due.cadenceHours} hours`}</p>
                   <small className="muted">Due since {formatLocalInstant(due.nextCheckAt)}</small>
                 </div>
