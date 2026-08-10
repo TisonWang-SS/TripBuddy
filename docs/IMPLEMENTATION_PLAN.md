@@ -49,6 +49,7 @@ The application is divided into four boundaries:
 - Keep city search in the profile's single calculation currency. Offer an on-demand Hyatt `View Rates` flow that returns a tax-inclusive total only after visible final-total and tax/fee evidence is captured.
 - Refactor Browser Companion to one task context and one server parsing path. The popup imports the current task only.
 - Preserve Hyatt account import behavior, including direct reservation-detail navigation and active-date filtering.
+- Prepare account-import conversions before entering one transaction that atomically resolves and writes every active booking.
 
 ### 5. Verification
 

@@ -102,6 +102,7 @@ The decision boundary is a replaceable `RecommendationDecider`. It receives only
 - Cash, points, and free-night certificate baselines are represented explicitly.
 - A Hyatt stay is active only when its check-in date is today or later.
 - An unreadable account DOM must stop the import rather than write partial or empty booking data.
+- Account-import booking creates and updates are atomic: conversion and validation finish before one transaction applies the complete active-booking set.
 
 ## Documentation and Validation Rule
 

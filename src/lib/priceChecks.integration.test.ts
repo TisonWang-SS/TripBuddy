@@ -13,6 +13,7 @@ let captureBrowserTask: typeof import("@/lib/browserTaskHandlers")["captureBrows
 let createAccountImportTask: typeof import("@/lib/browserTaskHandlers")["createAccountImportTask"];
 let createHotelSearchTask: typeof import("@/lib/browserTaskHandlers")["createHotelSearchTask"];
 let getHotelSearchSession: typeof import("@/lib/hotelSearchSessions")["getHotelSearchSession"];
+let importAccountBookings: typeof import("@/lib/accountBookings")["importAccountBookings"];
 
 describe("persistent browser price-check flow", () => {
   beforeAll(async () => {
@@ -34,6 +35,7 @@ describe("persistent browser price-check flow", () => {
     ({ getBrowserTask } = await import("@/lib/browserTasks"));
     ({ captureBrowserTask, createAccountImportTask, createHotelSearchTask } = await import("@/lib/browserTaskHandlers"));
     ({ getHotelSearchSession } = await import("@/lib/hotelSearchSessions"));
+    ({ importAccountBookings } = await import("@/lib/accountBookings"));
 
     await prisma.systemSetting.create({ data: { id: "primary", displayCurrency: "USD" } });
     await prisma.userProfile.create({
@@ -197,6 +199,39 @@ describe("persistent browser price-check flow", () => {
     expect(imported.map((booking) => booking.baselineType)).toEqual(["cash", "points", "certificate"]);
     expect(imported[1]).toMatchObject({ baselineCashTotal: null, baselinePoints: 22500 });
     expect(imported[2]).toMatchObject({ baselineAwardLabel: "1 Free Night", baselineCashTotal: null });
+  });
+
+  it("rolls back every account booking when a later write fails", async () => {
+    const booking = (hotelName: string, checkOut: Date) => ({
+      awardLabel: null,
+      bookingUrl: `https://www.hyatt.com/res/en-US/detail/${hotelName.toLowerCase().replace(/\s+/g, "-")}`,
+      cancellationDeadline: null,
+      cashTotal: 900,
+      checkIn: new Date("2031-09-10T00:00:00.000Z"),
+      checkOut,
+      city: "Tokyo",
+      confirmationNumber: null,
+      currency: "USD",
+      guests: 2,
+      hotelGroup: "Hyatt",
+      hotelName,
+      pointsPrice: null,
+      priceSource: "cash" as const,
+      roomType: "1 King Bed"
+    });
+
+    await expect(importAccountBookings({
+      bookings: [
+        booking("Atomic Hyatt One", new Date("2031-09-12T00:00:00.000Z")),
+        booking("Atomic Hyatt Two", new Date("invalid"))
+      ],
+      loginState: "logged_in",
+      loginUrl: "https://www.hyatt.com/login",
+      sourceUrl: "https://www.hyatt.com/profile/en-US/my-stays",
+      summary: "Atomic import fixture"
+    })).rejects.toThrow();
+
+    expect(await prisma.hotelBooking.count({ where: { hotelName: { startsWith: "Atomic Hyatt" } } })).toBe(0);
   });
 
   it("uses the single profile currency for city search and rejects client currency overrides", async () => {
