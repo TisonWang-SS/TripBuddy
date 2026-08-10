@@ -13,8 +13,6 @@ let captureBrowserTask: typeof import("@/lib/browserTaskHandlers")["captureBrows
 let createAccountImportTask: typeof import("@/lib/browserTaskHandlers")["createAccountImportTask"];
 let createHotelSearchTask: typeof import("@/lib/browserTaskHandlers")["createHotelSearchTask"];
 let getHotelSearchSession: typeof import("@/lib/hotelSearchSessions")["getHotelSearchSession"];
-let buildObservationEvidence: typeof import("@/lib/evidence")["buildObservationEvidence"];
-let createRecommendationForBooking: typeof import("@/lib/recommendations")["createRecommendationForBooking"];
 
 describe("persistent browser price-check flow", () => {
   beforeAll(async () => {
@@ -31,8 +29,6 @@ describe("persistent browser price-check flow", () => {
     ({ getBrowserTask } = await import("@/lib/browserTasks"));
     ({ captureBrowserTask, createAccountImportTask, createHotelSearchTask } = await import("@/lib/browserTaskHandlers"));
     ({ getHotelSearchSession } = await import("@/lib/hotelSearchSessions"));
-    ({ buildObservationEvidence } = await import("@/lib/evidence"));
-    ({ createRecommendationForBooking } = await import("@/lib/recommendations"));
 
     await prisma.systemSetting.create({ data: { id: "primary", displayCurrency: "USD" } });
     await prisma.userProfile.create({
@@ -70,6 +66,7 @@ describe("persistent browser price-check flow", () => {
         baselineCashTotal: 1200,
         baselineType: "cash",
         bookingChannel: "direct",
+        cancellationDeadline: new Date("2026-09-08T00:00:00.000Z"),
         checkIn: new Date("2026-09-10T00:00:00.000Z"),
         checkOut: new Date("2026-09-13T00:00:00.000Z"),
         city: "Tokyo",
@@ -106,7 +103,7 @@ describe("persistent browser price-check flow", () => {
         capturedAt: new Date().toISOString(),
         controls: [],
         pageText:
-          "Price Summary Total Cash USD 990.00 Taxes & Fees USD 90.00 1 King Bed Cancellation Policy Free cancellation",
+          "Price Summary Total Cash USD 990.00 Taxes & Fees USD 90.00 1 King Bed Cancellation Policy 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE",
         pageTitle: "Hyatt price summary",
         sourceUrl: "https://www.hyatt.com/booking/summary?checkinDate=2026-09-10&checkoutDate=2026-09-13"
       }
@@ -117,41 +114,15 @@ describe("persistent browser price-check flow", () => {
     expect(await prisma.recommendation.count({ where: { bookingId: booking.id } })).toBe(1);
 
     const cashObservation = await prisma.priceObservation.findFirstOrThrow({
-      where: { bookingId: booking.id, inventoryType: "cash" }
+      where: { bookingId: booking.id, inventoryType: "cash" },
+      include: { evidence: true }
     });
-    const corrected = buildObservationEvidence({
-      bookingCurrency: "USD",
-      bookingRoomType: "1 King Bed",
-      cancellationPolicyRaw: cashObservation.cancellationPolicyRaw,
-      cashCurrency: cashObservation.cashCurrency,
-      collectionMethod: "browser_companion",
-      conversionAvailable: true,
-      feesIncluded: true,
-      inventoryType: "cash",
-      loyaltyEligible: true,
-      overrides: { cancellationMatch: "same_or_better", roomMatch: "exact" },
-      roomTypeRaw: cashObservation.roomTypeRaw,
-      sourceType: "direct",
-      sourceUrl: cashObservation.sourceUrl,
-      taxesIncluded: true
+    expect(cashObservation.evidence).toMatchObject({
+      cancellationAssessmentSource: "automated",
+      cancellationMatch: "same_or_better",
+      qualityLevel: "high"
     });
-    await prisma.observationEvidence.update({
-      where: { observationId: cashObservation.id },
-      data: {
-        blockersJson: JSON.stringify(corrected.blockers),
-        cancellationAssessmentSource: corrected.cancellationAssessmentSource,
-        cancellationMatch: corrected.cancellationMatch,
-        cancellationMatchReason: corrected.cancellationMatchReason,
-        qualityLevel: corrected.qualityLevel,
-        reviewedAt: new Date(),
-        roomAssessmentSource: corrected.roomAssessmentSource,
-        roomMatch: corrected.roomMatch,
-        roomMatchReason: corrected.roomMatchReason,
-        warningsJson: JSON.stringify(corrected.warnings)
-      }
-    });
-    const correctedRecommendation = await createRecommendationForBooking(booking.id);
-    expect(correctedRecommendation).toMatchObject({
+    expect(await prisma.recommendation.findFirstOrThrow({ where: { bookingId: booking.id } })).toMatchObject({
       candidateObservationId: cashObservation.id,
       qualityLevel: "high",
       verdict: "rebook_direct"

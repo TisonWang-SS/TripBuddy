@@ -74,6 +74,7 @@ export class BrowserCompanionPriceCheckRunner implements PriceCheckRunner {
     const context: BookingPriceInput = {
       bookingId,
       bookingUrl: booking.bookingUrl,
+      cancellationDeadline: booking.cancellationDeadline,
       checkIn: booking.checkIn,
       checkOut: booking.checkOut,
       city: booking.city,
@@ -255,6 +256,8 @@ async function completePriceCheckTask(input: {
         !candidate.cashCurrency ||
         (await getCurrencyConversion(candidate.cashCurrency, input.context.currency as "USD" | "CNY")) !== null;
       const evidence = buildObservationEvidence({
+        bookingCancellationDeadline: input.context.cancellationDeadline,
+        bookingCheckIn: input.context.checkIn,
         bookingCurrency: input.context.currency,
         bookingRoomType: input.context.roomType,
         cancellationPolicyRaw: candidate.cancellationPolicyRaw,
@@ -391,7 +394,12 @@ function mergeCandidates(current: ParsedObservationDraft[], incoming: ParsedObse
 }
 
 function serializeBookingContext(input: BookingPriceInput) {
-  return { ...input, checkIn: input.checkIn.toISOString(), checkOut: input.checkOut.toISOString() };
+  return {
+    ...input,
+    cancellationDeadline: input.cancellationDeadline?.toISOString() ?? null,
+    checkIn: input.checkIn.toISOString(),
+    checkOut: input.checkOut.toISOString()
+  };
 }
 
 function parseBookingContext(value: string): BookingPriceInput | null {
@@ -401,12 +409,17 @@ function parseBookingContext(value: string): BookingPriceInput | null {
   }
   const checkIn = new Date(String(context.checkIn ?? ""));
   const checkOut = new Date(String(context.checkOut ?? ""));
+  const cancellationDeadline = context.cancellationDeadline ? new Date(String(context.cancellationDeadline)) : null;
   if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) {
+    return null;
+  }
+  if (cancellationDeadline && Number.isNaN(cancellationDeadline.getTime())) {
     return null;
   }
   return {
     bookingId: context.bookingId,
     bookingUrl: typeof context.bookingUrl === "string" ? context.bookingUrl : null,
+    cancellationDeadline,
     checkIn,
     checkOut,
     city: String(context.city ?? ""),

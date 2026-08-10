@@ -67,6 +67,8 @@ User-facing quality levels are:
 
 Evidence answers where the rate came from, how it was collected, whether room and policy are comparable, whether taxes and fees are included, whether loyalty and promotions apply, and which facts remain uncertain.
 
+Cancellation equivalence may be assessed automatically only when the current booking has a cancellation deadline and the candidate policy exposes an explicit calendar-date or Hyatt-style days/hours-before-arrival cutoff. A candidate cutoff on or after the current cutoff is `same_or_better`; an earlier cutoff or an explicitly non-refundable candidate is `worse` and hard-blocks automatic rebooking. Missing or ambiguous cutoffs remain `unknown`. A user correction can override the automated assessment and is recorded as user-sourced evidence.
+
 Raw browser storage is deliberately bounded: persist structured stage data and short sanitized text samples, not full visible pages. Confirmation numbers and similar account identifiers must be removed from diagnostic samples.
 
 ## Cost and Recommendation Behavior

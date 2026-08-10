@@ -5,6 +5,7 @@ import { buildHyattBookingSearchUrl, extractHyattHotelCode } from "@/lib/provide
 const input = {
   bookingId: "booking-1",
   bookingUrl: null,
+  cancellationDeadline: new Date("2026-09-08T00:00:00.000Z"),
   checkIn: new Date("2026-09-10T00:00:00.000Z"),
   checkOut: new Date("2026-09-13T00:00:00.000Z"),
   city: "Tokyo",

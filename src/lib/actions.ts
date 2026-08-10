@@ -431,7 +431,12 @@ export async function createCreditCardBenefit(formData: FormData) {
 
 async function buildFormEvidence(
   formData: FormData,
-  booking: { currency: "USD" | "CNY"; roomType: string },
+  booking: {
+    cancellationDeadline: Date | null;
+    checkIn: Date;
+    currency: "USD" | "CNY";
+    roomType: string;
+  },
   cashCurrency: string,
   inventoryType: "cash" | "award",
   sourceType: SourceType,
@@ -441,6 +446,8 @@ async function buildFormEvidence(
 ) {
   const conversionAvailable = (await getCurrencyConversion(cashCurrency, booking.currency)) !== null;
   const evidence = buildObservationEvidence({
+    bookingCancellationDeadline: booking.cancellationDeadline,
+    bookingCheckIn: booking.checkIn,
     bookingCurrency: booking.currency,
     bookingRoomType: booking.roomType,
     cancellationPolicyRaw: optionalValue(formData, "cancellationPolicyRaw"),

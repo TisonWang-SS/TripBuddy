@@ -16,6 +16,8 @@ export type EvidenceAssessmentOverride = {
 };
 
 export type EvidenceInput = {
+  bookingCancellationDeadline: Date | string | null;
+  bookingCheckIn: Date | string;
   bookingCurrency: string;
   bookingRoomType: string;
   cancellationPolicyRaw: string | null;
@@ -57,8 +59,13 @@ export type BuiltEvidence = {
 
 export function buildObservationEvidence(input: EvidenceInput): BuiltEvidence {
   const inferredRoom = inferRoomMatch(input.bookingRoomType, input.roomTypeRaw);
+  const inferredCancellation = inferCancellationMatch(
+    input.bookingCancellationDeadline,
+    input.bookingCheckIn,
+    input.cancellationPolicyRaw
+  );
   const roomMatch = input.overrides?.roomMatch ?? inferredRoom.match;
-  const cancellationMatch = input.overrides?.cancellationMatch ?? "unknown";
+  const cancellationMatch = input.overrides?.cancellationMatch ?? inferredCancellation.match;
   const roomAssessmentSource: AssessmentSource = input.overrides?.roomMatch ? "user" : "automated";
   const cancellationAssessmentSource: AssessmentSource = input.overrides?.cancellationMatch ? "user" : "automated";
   const taxesIncluded = inclusion(input.taxesIncluded);
@@ -80,6 +87,9 @@ export function buildObservationEvidence(input: EvidenceInput): BuiltEvidence {
   if (cancellationMatch === "unknown") {
     blockers.push("Cancellation-policy equivalence is unknown.");
   }
+  if (cancellationMatch === "worse") {
+    blockers.push("The candidate has a weaker cancellation policy.");
+  }
   if (input.inventoryType === "cash" && taxesIncluded !== "yes") {
     blockers.push("Final tax inclusion is not verified.");
   }
@@ -88,9 +98,6 @@ export function buildObservationEvidence(input: EvidenceInput): BuiltEvidence {
   }
   if (!currencyComparable) {
     blockers.push(`No conversion is available from ${input.cashCurrency ?? "the observed currency"} to ${input.bookingCurrency}.`);
-  }
-  if (cancellationMatch === "worse") {
-    warnings.push("The candidate has a weaker cancellation policy.");
   }
   if (roomMatch === "similar") {
     warnings.push("The candidate room is similar rather than an exact match.");
@@ -111,9 +118,7 @@ export function buildObservationEvidence(input: EvidenceInput): BuiltEvidence {
     cancellationMatchReason:
       cancellationAssessmentSource === "user"
         ? "Confirmed by the user."
-        : input.cancellationPolicyRaw
-          ? "Policy text was captured, but equivalence requires review."
-          : "Cancellation policy was not captured.",
+        : inferredCancellation.reason,
     currencyComparable,
     feesIncluded,
     loginState: sourceVerified ? "unknown" : "not_required",
@@ -132,6 +137,134 @@ export function buildObservationEvidence(input: EvidenceInput): BuiltEvidence {
     taxesIncluded,
     warnings
   };
+}
+
+function inferCancellationMatch(
+  bookingCancellationDeadline: Date | string | null,
+  bookingCheckIn: Date | string,
+  cancellationPolicyRaw: string | null
+): { match: CancellationMatch; reason: string } {
+  const policy = cancellationPolicyRaw?.replace(/\s+/g, " ").trim() ?? "";
+  if (!policy || /policy not captured/i.test(policy)) {
+    return { match: "unknown", reason: "Cancellation policy was not captured." };
+  }
+
+  const currentDeadline = validDate(bookingCancellationDeadline);
+  if (!currentDeadline) {
+    return {
+      match: "unknown",
+      reason: "The current booking has no cancellation deadline to compare."
+    };
+  }
+
+  if (/\b(?:non[ -]?refundable|no refunds?|no cancellation|cannot be cancelled)\b/i.test(policy)) {
+    return {
+      match: "worse",
+      reason: "The candidate is explicitly non-refundable while the current booking has a cancellation deadline."
+    };
+  }
+
+  const candidateDeadline = extractCancellationDeadline(policy, bookingCheckIn);
+  if (!candidateDeadline) {
+    return {
+      match: "unknown",
+      reason: "The captured policy does not contain an explicit cancellation cutoff that TripBuddy can compare."
+    };
+  }
+
+  const candidateDay = utcDay(candidateDeadline);
+  const currentDay = utcDay(currentDeadline);
+  const candidateLabel = formatUtcDay(candidateDeadline);
+  const currentLabel = formatUtcDay(currentDeadline);
+  if (candidateDay >= currentDay) {
+    return {
+      match: "same_or_better",
+      reason: `The candidate cancellation cutoff (${candidateLabel}) is on or after the current booking cutoff (${currentLabel}).`
+    };
+  }
+  return {
+    match: "worse",
+    reason: `The candidate cancellation cutoff (${candidateLabel}) is before the current booking cutoff (${currentLabel}).`
+  };
+}
+
+function extractCancellationDeadline(policy: string, bookingCheckIn: Date | string) {
+  const absoluteDate = extractExplicitPolicyDate(policy);
+  if (absoluteDate) {
+    return parsePolicyDate(absoluteDate);
+  }
+
+  const relative = policy.match(
+    /\b(\d{1,3}|one|two|three|four|five|six|seven)\s*(days?|hours?|hrs?)\s*(?:bfr|before|prior to)\s*(?:arrv|arrival|check-?in)\b/i
+  );
+  const checkIn = validDate(bookingCheckIn);
+  if (!relative || !checkIn) {
+    return null;
+  }
+  const quantity = parsePolicyQuantity(relative[1]);
+  const unit = relative[2].toLowerCase();
+  const days = unit.startsWith("day") ? quantity : quantity % 24 === 0 ? quantity / 24 : null;
+  if (days === null) {
+    return null;
+  }
+  return new Date(utcDay(checkIn) - days * 86_400_000);
+}
+
+function extractExplicitPolicyDate(policy: string) {
+  const datePattern =
+    /\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}\b|\b\d{4}-\d{2}-\d{2}\b/gi;
+  for (const match of policy.matchAll(datePattern)) {
+    const prefix = policy.slice(Math.max(0, match.index - 48), match.index);
+    if (
+      /\b(?:by|before|until)\s+(?:(?:[0-2]?\d(?::[0-5]\d)?\s*(?:am|pm))\s+(?:(?:hotel|local)\s+)?time\s+(?:on\s+)?)?$/i.test(
+        prefix
+      )
+    ) {
+      return match[0];
+    }
+  }
+  return null;
+}
+
+function parsePolicyDate(value: string) {
+  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    return validUtcDate(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  }
+  const named = value.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/);
+  if (!named) {
+    return null;
+  }
+  const month = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(
+    named[1].slice(0, 3).toLowerCase()
+  );
+  return validUtcDate(Number(named[3]), month, Number(named[2]));
+}
+
+function validUtcDate(year: number, month: number, day: number) {
+  const date = new Date(Date.UTC(year, month, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month && date.getUTCDate() === day ? date : null;
+}
+
+function validDate(value: Date | string | null) {
+  if (!value) {
+    return null;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parsePolicyQuantity(value: string) {
+  const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7 };
+  return words[value.toLowerCase()] ?? Number(value);
+}
+
+function utcDay(value: Date) {
+  return Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate());
+}
+
+function formatUtcDay(value: Date) {
+  return new Date(utcDay(value)).toISOString().slice(0, 10);
 }
 
 function inclusion(value: boolean | null): InclusionStatus {

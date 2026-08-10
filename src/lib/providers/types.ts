@@ -5,6 +5,7 @@ export type InventoryTypeValue = "cash" | "award";
 export type BookingPriceInput = {
   bookingId: string;
   bookingUrl: string | null;
+  cancellationDeadline: Date | null;
   checkIn: Date;
   checkOut: Date;
   city: string;

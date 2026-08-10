@@ -354,6 +354,7 @@ function toCitySearchPriceInput(taskId: string, hotelGroup: string, context: Hot
   return {
     bookingId: taskId,
     bookingUrl: null,
+    cancellationDeadline: null,
     checkIn: new Date(`${context.query.checkIn}T00:00:00.000Z`),
     checkOut: new Date(`${context.query.checkOut}T00:00:00.000Z`),
     city: context.query.city,

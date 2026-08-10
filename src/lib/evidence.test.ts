@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { buildObservationEvidence } from "@/lib/evidence";
 
 const base = {
+  bookingCancellationDeadline: new Date("2026-09-08T00:00:00.000Z"),
+  bookingCheckIn: new Date("2026-09-10T00:00:00.000Z"),
   bookingCurrency: "USD",
   bookingRoomType: "1 King Bed",
   cancellationPolicyRaw: "Cancel before arrival",
@@ -18,10 +20,73 @@ const base = {
 };
 
 describe("observation evidence", () => {
-  it("keeps automated cancellation equivalence review-only", () => {
+  it("keeps a policy without an explicit cutoff review-only", () => {
     const evidence = buildObservationEvidence(base);
     expect(evidence.qualityLevel).toBe("needs_review");
     expect(evidence.blockers).toContain("Cancellation-policy equivalence is unknown.");
+  });
+
+  it("accepts an explicit cutoff on or after the current booking cutoff", () => {
+    const sameDay = buildObservationEvidence({
+      ...base,
+      cancellationPolicyRaw: "Cancellation Policy Free cancellation before Sep 8, 2026"
+    });
+    const later = buildObservationEvidence({
+      ...base,
+      cancellationPolicyRaw: "Cancel by 2026-09-09"
+    });
+
+    expect(sameDay).toMatchObject({
+      cancellationAssessmentSource: "automated",
+      cancellationMatch: "same_or_better",
+      qualityLevel: "high"
+    });
+    expect(later.cancellationMatch).toBe("same_or_better");
+  });
+
+  it("compares Hyatt relative arrival cutoffs deterministically", () => {
+    const evidence = buildObservationEvidence({
+      ...base,
+      cancellationPolicyRaw: "Cancellation Policy 11:59PM HOTEL TIME 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE"
+    });
+
+    expect(evidence).toMatchObject({ cancellationMatch: "same_or_better", qualityLevel: "high" });
+    expect(evidence.cancellationMatchReason).toContain("2026-09-08");
+  });
+
+  it("hard-blocks an earlier cutoff or an explicitly non-refundable rate", () => {
+    const earlier = buildObservationEvidence({
+      ...base,
+      cancellationPolicyRaw: "Cancellation Policy 3 days before arrival"
+    });
+    const nonRefundable = buildObservationEvidence({
+      ...base,
+      cancellationPolicyRaw: "Cancellation Policy FULL PREPAYMENT/NO REFUND/NO CHANGES"
+    });
+
+    expect(earlier.cancellationMatch).toBe("worse");
+    expect(earlier.blockers).toContain("The candidate has a weaker cancellation policy.");
+    expect(nonRefundable).toMatchObject({ cancellationMatch: "worse", qualityLevel: "needs_review" });
+  });
+
+  it("does not infer equivalence without the current booking cutoff", () => {
+    const evidence = buildObservationEvidence({
+      ...base,
+      bookingCancellationDeadline: null,
+      cancellationPolicyRaw: "Free cancellation before Sep 8, 2026"
+    });
+
+    expect(evidence.cancellationMatch).toBe("unknown");
+    expect(evidence.cancellationMatchReason).toContain("current booking has no cancellation deadline");
+  });
+
+  it("does not mistake a later stay date for an absolute cancellation cutoff", () => {
+    const evidence = buildObservationEvidence({
+      ...base,
+      cancellationPolicyRaw: "Free cancellation before arrival for stays beginning Sep 8, 2026"
+    });
+
+    expect(evidence.cancellationMatch).toBe("unknown");
   });
 
   it("records user overrides and produces high quality evidence", () => {
