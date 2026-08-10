@@ -54,7 +54,7 @@ describe("observation evidence", () => {
     expect(evidence.cancellationMatchReason).toContain("2026-09-08");
   });
 
-  it("hard-blocks an earlier cutoff or an explicitly non-refundable rate", () => {
+  it("warns without blocking an earlier cutoff or an explicitly non-refundable rate", () => {
     const earlier = buildObservationEvidence({
       ...base,
       cancellationPolicyRaw: "Cancellation Policy 3 days before arrival"
@@ -64,9 +64,10 @@ describe("observation evidence", () => {
       cancellationPolicyRaw: "Cancellation Policy FULL PREPAYMENT/NO REFUND/NO CHANGES"
     });
 
-    expect(earlier.cancellationMatch).toBe("worse");
-    expect(earlier.blockers).toContain("The candidate has a weaker cancellation policy.");
-    expect(nonRefundable).toMatchObject({ cancellationMatch: "worse", qualityLevel: "needs_review" });
+    expect(earlier).toMatchObject({ blockers: [], cancellationMatch: "worse", qualityLevel: "medium" });
+    expect(earlier.warnings).toContain("The candidate has a weaker cancellation policy.");
+    expect(nonRefundable).toMatchObject({ blockers: [], cancellationMatch: "worse", qualityLevel: "medium" });
+    expect(nonRefundable.warnings).toContain("The candidate has a weaker cancellation policy.");
   });
 
   it("does not infer equivalence without the current booking cutoff", () => {

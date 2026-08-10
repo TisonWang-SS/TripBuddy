@@ -89,7 +89,7 @@ export function buildObservationEvidence(input: EvidenceInput): BuiltEvidence {
     blockers.push("Cancellation-policy equivalence is unknown.");
   }
   if (cancellationMatch === "worse") {
-    blockers.push("The candidate has a weaker cancellation policy.");
+    warnings.push("The candidate has a weaker cancellation policy.");
   }
   if (input.inventoryType === "cash" && taxesIncluded !== "yes") {
     blockers.push("Final tax inclusion is not verified.");

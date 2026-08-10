@@ -99,6 +99,16 @@ describe("decision boundary", () => {
     expect(result).toMatchObject({ estimatedSavings: 200, verdict: "rebook_direct" });
   });
 
+  it("allows a direct candidate with a weaker-cancellation warning", async () => {
+    const decisionInput = input();
+    decisionInput.candidates[0].qualityLevel = "medium";
+    decisionInput.candidates[0].warnings = ["The candidate has a weaker cancellation policy."];
+
+    const result = await decideWithGuardrails(new DeterministicRecommendationDecider(), decisionInput);
+
+    expect(result).toMatchObject({ estimatedSavings: 200, riskLevel: "medium", verdict: "rebook_direct" });
+  });
+
   it("forces a future decider through deterministic blockers", async () => {
     const unsafeDecider: RecommendationDecider = {
       name: "future-llm",
