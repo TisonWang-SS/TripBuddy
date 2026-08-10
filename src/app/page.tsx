@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { prisma } from "@/lib/db";
+import { RunPriceCheckButton } from "@/app/components/RunPriceCheckButton";
 import { currentLocalDayAsCalendarDate } from "@/lib/bookingDates";
 import { formatBookingBaseline } from "@/lib/bookingPrice";
 import { DEFAULT_PROFILE_ID } from "@/lib/constants";
+import { prisma } from "@/lib/db";
 import { formatCalendarDate, formatLocalInstant, formatMoney } from "@/lib/format";
 import { buildDuePriceCheckQueue } from "@/lib/watchQueue";
 import { ImportHyattBookingsButton } from "./ImportHyattBookingsButton";
-import { RunPriceCheckButton } from "./components/RunPriceCheckButton";
 
 export const dynamic = "force-dynamic";
 
