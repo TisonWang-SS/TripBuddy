@@ -47,6 +47,23 @@ describe("foreground price-check queue", () => {
     expect(queue).toMatchObject([{ cadenceHours: 6, urgency: "urgent" }]);
   });
 
+  it("does not shorten the urgent cadence after a successful check", () => {
+    const queue = buildDuePriceCheckQueue([
+      {
+        ...base,
+        cancellationDeadline: new Date("2026-08-10T15:00:00.000Z"),
+        watchPlan: {
+          ...base.watchPlan!,
+          consecutiveFailures: 0,
+          lastAttemptedAt: new Date("2026-08-10T08:00:00.000Z"),
+          lastCheckedAt: new Date("2026-08-10T08:00:00.000Z")
+        }
+      }
+    ], now);
+
+    expect(queue).toEqual([]);
+  });
+
   it("omits checks that are not due or have been disabled", () => {
     const queue = buildDuePriceCheckQueue([
       { ...base, watchPlan: { ...base.watchPlan!, lastCheckedAt: new Date("2026-08-10T10:00:00.000Z") } },

@@ -57,6 +57,8 @@ function duePriceCheck(booking: WatchQueueBooking, now: Date): DuePriceCheck | n
     cadenceHours * 2 ** Math.min(plan.consecutiveFailures, 4),
     maximumRetryDelayHours
   );
+  // A successful check remains fresh for the configured cadence. Only failures are
+  // clamped so repeated collection errors cannot silence reminders past the deadline.
   const retryDelayHours =
     urgency === "urgent" && plan.consecutiveFailures > 0
       ? Math.min(exponentialRetryDelayHours, hoursToCancellation / 2)
