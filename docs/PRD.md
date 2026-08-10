@@ -32,6 +32,7 @@ The v0.2 release does not include:
 - The app creates a persistent browser task and one linked `PriceCheckRun` before opening Hyatt.
 - Task context travels in the URL fragment and tab-scoped session storage. It is not required by the Hyatt server.
 - Browser task status is queryable by the initiating page and ends as `succeeded`, `partial`, `failed`, or expired. A task must not leave a linked run permanently `running`.
+- Browser task creation and capture dispatch through one registry keyed by task kind. Booking price checks, city searches, and account imports each own their context, capture handling, and result persistence behind the same definition contract.
 - A failed check preserves all earlier observations and recommendations.
 - The watch plan controls cash and award inventory. Cadence data is reserved for a future scheduler but is not presented as an active scheduling feature.
 
@@ -92,6 +93,7 @@ The decision boundary is a replaceable `RecommendationDecider`. It receives only
 - City-search currency is the profile's single primary calculation currency. A search opens one normal-Chrome Hyatt task, visibly switches the selector to that currency, and shows only results in that rendered currency. It neither trusts a URL parameter nor silently applies FX conversion.
 - City listings may show Hyatt's `Avg/Night` starting price, explicitly marked as excluding taxes and fees. A user can request a tax-inclusive total for one listed hotel. The same task safely follows that hotel's `View Rates` path toward Hyatt's pre-payment summary and returns a total only when visible `Taxes & Fees` and final-total evidence confirm inclusion. City-search totals remain transient search facts, not booking observations.
 - Hyatt account import starts from `My Stays`, collects visible `Stay Details` URLs, then opens each detail URL directly in the same tab.
+- Account-import task handling parses browser evidence; booking creation and updates are owned by a separate account-booking domain service.
 - Cash, points, and free-night certificate baselines are represented explicitly.
 - A Hyatt stay is active only when its check-in date is today or later.
 - An unreadable account DOM must stop the import rather than write partial or empty booking data.

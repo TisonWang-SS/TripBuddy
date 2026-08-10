@@ -50,6 +50,26 @@ export async function getBrowserTask(id: string) {
   return task;
 }
 
+export function serializeTaskState(task: Awaited<ReturnType<typeof getBrowserTask>>) {
+  if (!task) {
+    return null;
+  }
+  return {
+    errorCode: task.errorCode,
+    errorMessage: task.errorMessage,
+    expiresAt: task.expiresAt.toISOString(),
+    finishedAt: task.finishedAt?.toISOString() ?? null,
+    hotelGroup: task.hotelGroup,
+    hotelSearchMode: task.kind === "hotel_search" ? readHotelSearchMode(task.contextJson) : null,
+    kind: task.kind,
+    launchUrl: task.launchUrl,
+    result: parseJson<unknown>(task.resultJson, null),
+    runId: task.priceCheckRun?.id ?? null,
+    status: task.status,
+    taskId: task.id
+  };
+}
+
 export async function appendBrowserSnapshot(taskId: string, snapshot: BrowserPageSnapshot) {
   const task = await prisma.browserTask.findUnique({ where: { id: taskId } });
   if (!task) {
@@ -164,6 +184,21 @@ export function stripBrowserTaskHash(value: string) {
   } catch {
     return value;
   }
+}
+
+export class BrowserTaskError extends Error {
+  constructor(
+    public code: string,
+    message: string,
+    public status: number
+  ) {
+    super(message);
+  }
+}
+
+function readHotelSearchMode(contextJson: string) {
+  const context = parseJson<{ mode?: unknown }>(contextJson, {});
+  return context.mode === "tax_inclusive_total" ? "tax_inclusive_total" : "city_results";
 }
 
 function validCapturedAt(value: string | undefined) {

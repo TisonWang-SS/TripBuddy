@@ -1,7 +1,7 @@
 import { browserJson } from "@/lib/browserApi";
 import { createHotelSearchTask, supportedHotelSearchGroups } from "@/lib/browserTaskHandlers";
+import { BrowserTaskError } from "@/lib/browserTasks";
 import { getHotelSearchSession } from "@/lib/hotelSearchSessions";
-import { BrowserTaskError } from "@/lib/priceChecks";
 
 export const dynamic = "force-dynamic";
 

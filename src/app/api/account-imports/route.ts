@@ -1,6 +1,6 @@
 import { browserJson } from "@/lib/browserApi";
 import { createAccountImportTask } from "@/lib/browserTaskHandlers";
-import { BrowserTaskError } from "@/lib/priceChecks";
+import { BrowserTaskError } from "@/lib/browserTasks";
 
 export const dynamic = "force-dynamic";
 

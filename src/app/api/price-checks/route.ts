@@ -1,5 +1,6 @@
 import { browserJson } from "@/lib/browserApi";
-import { BrowserCompanionPriceCheckRunner, BrowserTaskError } from "@/lib/priceChecks";
+import { createBookingPriceTask } from "@/lib/browserTaskHandlers";
+import { BrowserTaskError } from "@/lib/browserTasks";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ export async function POST(request: Request) {
     if (!bookingId) {
       return browserJson({ error: "bookingId is required." }, 400);
     }
-    const task = await new BrowserCompanionPriceCheckRunner().run({
+    const task = await createBookingPriceTask({
       bookingId,
       trigger: payload.trigger === "scheduled" ? "scheduled" : "manual"
     });

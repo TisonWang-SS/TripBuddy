@@ -27,6 +27,7 @@ The application is divided into four boundaries:
 - Move Hyatt URL creation, parsing, and safe action planning into one provider implementation, with shared task-protocol keys and one unsafe-control rule module executed independently by the provider and Browser Companion.
 - Persist browser tasks with an expiry and one linked price-check run for booking checks.
 - Expose one task status/capture protocol for booking checks, city search, and account import.
+- Register each task kind behind a `BrowserTaskDefinition`; keep the capture router branch-free and isolate search, account-import, and booking-price lifecycle services.
 - Store only sanitized structured evidence; inventory nightly cash estimates do not create observations.
 
 ### 3. Evidence and Recommendation Core
@@ -59,6 +60,12 @@ The application is divided into four boundaries:
 ## Stable Interfaces
 
 ```ts
+interface BrowserTaskDefinition<TCreateInput, TLaunchResult> {
+  kind: BrowserTaskKind;
+  create(input: TCreateInput): Promise<TLaunchResult>;
+  capture(taskId: string, capture: BrowserTaskCapture): Promise<unknown>;
+}
+
 interface BookingPriceProvider {
   hotelGroup: string;
   buildLaunchUrl(input: BookingPriceInput): string;

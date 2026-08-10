@@ -1,7 +1,11 @@
 import { browserJson, browserOptionsResponse } from "@/lib/browserApi";
 import { captureBrowserTask } from "@/lib/browserTaskHandlers";
-import { getBrowserTask, type BrowserTaskCapture } from "@/lib/browserTasks";
-import { BrowserTaskError, serializeTaskState } from "@/lib/priceChecks";
+import {
+  BrowserTaskError,
+  getBrowserTask,
+  serializeTaskState,
+  type BrowserTaskCapture
+} from "@/lib/browserTasks";
 
 export const dynamic = "force-dynamic";
 
