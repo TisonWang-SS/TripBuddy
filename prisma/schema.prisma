@@ -200,7 +200,9 @@ model HotelBooking {
   hotelGroup           String
   hotelName            String
   city                 String
+  /// Calendar date stored as UTC midnight; read using UTC date components.
   checkIn              DateTime
+  /// Calendar date stored as UTC midnight; read using UTC date components.
   checkOut             DateTime
   guests               Int                 @default(1)
   roomType             String
@@ -211,6 +213,7 @@ model HotelBooking {
   baselineAwardLabel   String?
   currency             SupportedCurrency   @default(USD)
   bookingChannel       SourceType          @default(direct)
+  /// Local wall-clock deadline stored as an instant; read using the user's local timezone.
   cancellationDeadline DateTime?
   breakfastIncluded    Boolean             @default(false)
   loyaltyEligible      Boolean             @default(true)
@@ -370,7 +373,9 @@ model Promotion {
   hotelGroup                String
   title                     String
   description               String?
+  /// Calendar date stored as UTC midnight; read using UTC date components.
   startDate                 DateTime?
+  /// Calendar date stored as UTC midnight; read using UTC date components.
   endDate                   DateTime?
   bonusMultiplier           Float     @default(0)
   flatValue                 Float     @default(0)

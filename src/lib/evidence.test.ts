@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildObservationEvidence } from "@/lib/evidence";
 
 const base = {
-  bookingCancellationDeadline: new Date("2026-09-08T00:00:00.000Z"),
+  bookingCancellationDeadline: new Date(2026, 8, 8),
   bookingCheckIn: new Date("2026-09-10T00:00:00.000Z"),
   bookingCurrency: "USD",
   bookingRoomType: "1 King Bed",

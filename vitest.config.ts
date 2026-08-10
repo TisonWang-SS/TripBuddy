@@ -5,6 +5,7 @@ export default defineConfig({
     jsx: "automatic"
   },
   test: {
+    env: { TZ: "UTC" },
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"]

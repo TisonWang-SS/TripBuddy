@@ -1,7 +1,7 @@
 import { createPromotion } from "@/lib/actions";
 import { HOTEL_GROUPS } from "@/lib/constants";
 import { prisma } from "@/lib/db";
-import { formatDate } from "@/lib/format";
+import { formatCalendarDate } from "@/lib/format";
 
 export default async function PromotionsPage() {
   const promotions = await prisma.promotion.findMany({
@@ -97,7 +97,7 @@ export default async function PromotionsPage() {
                   <td>{promotion.hotelGroup}</td>
                   <td>{promotion.title}</td>
                   <td>
-                    {formatDate(promotion.startDate)} to {formatDate(promotion.endDate)}
+                    {formatCalendarDate(promotion.startDate)} to {formatCalendarDate(promotion.endDate)}
                   </td>
                   <td>
                     {promotion.bonusMultiplier}x bonus · {promotion.flatValue} flat

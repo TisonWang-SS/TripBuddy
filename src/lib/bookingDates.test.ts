@@ -1,14 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { isActiveBookingDate, startOfToday } from "@/lib/bookingDates";
+import { currentLocalDayAsCalendarDate, isActiveBookingDate } from "@/lib/bookingDates";
+import { parseCalendarDate } from "@/lib/dateSemantics";
 
 describe("booking date helpers", () => {
-  it("uses local start of day as the active booking boundary", () => {
-    const now = new Date("2026-07-27T12:00:00+08:00");
+  it("compares stored calendar dates with the current local calendar day", () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    try {
+      const now = new Date("2026-07-27T19:00:00.000Z");
 
-    expect(startOfToday(now).getFullYear()).toBe(2026);
-    expect(startOfToday(now).getMonth()).toBe(6);
-    expect(startOfToday(now).getDate()).toBe(27);
-    expect(isActiveBookingDate(new Date("2026-07-27T00:00:00+08:00"), now)).toBe(true);
-    expect(isActiveBookingDate(new Date("2026-07-26T23:59:59+08:00"), now)).toBe(false);
+      expect(currentLocalDayAsCalendarDate(now).toISOString()).toBe("2026-07-27T00:00:00.000Z");
+      expect(isActiveBookingDate(new Date("2026-07-27T00:00:00.000Z"), now)).toBe(true);
+      expect(isActiveBookingDate(new Date("2026-07-26T00:00:00.000Z"), now)).toBe(false);
+    } finally {
+      process.env.TZ = previousTimezone ?? "UTC";
+    }
+  });
+
+  it("parses HTML date values as UTC-midnight calendar dates in a non-UTC timezone", () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    try {
+      expect(parseCalendarDate("2026-09-10").toISOString()).toBe("2026-09-10T00:00:00.000Z");
+    } finally {
+      process.env.TZ = previousTimezone ?? "UTC";
+    }
   });
 });

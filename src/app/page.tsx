@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { startOfToday } from "@/lib/bookingDates";
+import { currentLocalDayAsCalendarDate } from "@/lib/bookingDates";
 import { formatBookingBaseline } from "@/lib/bookingPrice";
 import { DEFAULT_PROFILE_ID } from "@/lib/constants";
-import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { formatCalendarDate, formatLocalInstant, formatMoney } from "@/lib/format";
 import { buildDuePriceCheckQueue } from "@/lib/watchQueue";
 import { ImportHyattBookingsButton } from "./ImportHyattBookingsButton";
 import { RunPriceCheckButton } from "./components/RunPriceCheckButton";
@@ -15,7 +15,7 @@ export default async function DashboardPage() {
   const [profile, bookings] = await Promise.all([
     prisma.userProfile.findUnique({ where: { id: DEFAULT_PROFILE_ID } }),
     prisma.hotelBooking.findMany({
-      where: { checkIn: { gte: startOfToday(now) } },
+      where: { checkIn: { gte: currentLocalDayAsCalendarDate(now) } },
       orderBy: { checkIn: "asc" },
       include: {
         observations: { orderBy: { observedAt: "desc" }, take: 1 },
@@ -84,7 +84,7 @@ export default async function DashboardPage() {
                   <p>{due.consecutiveFailures > 0
                     ? `${due.consecutiveFailures} failed attempt(s) · retry after ${due.retryDelayHours} hours`
                     : `${due.urgency === "urgent" ? "Urgent" : "Normal"} cadence · every ${due.cadenceHours} hours`}</p>
-                  <small className="muted">Due since {formatDateTime(due.nextCheckAt)}</small>
+                  <small className="muted">Due since {formatLocalInstant(due.nextCheckAt)}</small>
                 </div>
                 <RunPriceCheckButton bookingId={due.bookingId} trigger="due_queue" />
               </div>
@@ -115,8 +115,8 @@ export default async function DashboardPage() {
                     <div>
                       <h3>{booking.hotelName}</h3>
                       <p>
-                        {booking.hotelGroup} · {booking.city} · {formatDate(booking.checkIn)} to{" "}
-                        {formatDate(booking.checkOut)}
+                        {booking.hotelGroup} · {booking.city} · {formatCalendarDate(booking.checkIn)} to{" "}
+                        {formatCalendarDate(booking.checkOut)}
                       </p>
                     </div>
                     <div>
@@ -146,10 +146,10 @@ export default async function DashboardPage() {
                   <div>
                     <h3>{recommendation.booking.hotelName}</h3>
                     <p>
-                      {formatDate(recommendation.booking.checkIn)} to {formatDate(recommendation.booking.checkOut)}
+                      {formatCalendarDate(recommendation.booking.checkIn)} to {formatCalendarDate(recommendation.booking.checkOut)}
                     </p>
                     <p>{recommendation.explanation}</p>
-                    <small className="muted">{formatDateTime(recommendation.generatedAt)}</small>
+                    <small className="muted">{formatLocalInstant(recommendation.generatedAt)}</small>
                   </div>
                   <div>
                     <span className={`badge ${recommendation.verdict}`}>{recommendation.verdict}</span>

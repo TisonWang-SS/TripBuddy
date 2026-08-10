@@ -6,7 +6,7 @@ export function formatMoney(value: number, currency: string) {
   }).format(value);
 }
 
-export function formatDate(value: Date | string | null | undefined) {
+export function formatCalendarDate(value: Date | string | null | undefined) {
   if (!value) {
     return "Not set";
   }
@@ -14,11 +14,12 @@ export function formatDate(value: Date | string | null | undefined) {
   return new Intl.DateTimeFormat("en-US", {
     year: "numeric",
     month: "short",
-    day: "numeric"
+    day: "numeric",
+    timeZone: "UTC"
   }).format(new Date(value));
 }
 
-export function formatDateTime(value: Date | string | null | undefined) {
+export function formatLocalInstant(value: Date | string | null | undefined) {
   if (!value) {
     return "Not set";
   }
@@ -32,7 +33,7 @@ export function formatDateTime(value: Date | string | null | undefined) {
   }).format(new Date(value));
 }
 
-export function formatDateInput(value: Date | string | null | undefined) {
+export function formatCalendarDateInput(value: Date | string | null | undefined) {
   if (!value) {
     return "";
   }
@@ -40,7 +41,7 @@ export function formatDateInput(value: Date | string | null | undefined) {
   return new Date(value).toISOString().slice(0, 10);
 }
 
-export function formatDateTimeInput(value: Date | string | null | undefined) {
+export function formatLocalInstantInput(value: Date | string | null | undefined) {
   if (!value) {
     return "";
   }

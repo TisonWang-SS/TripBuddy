@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteObservation, promoteObservationToBooking } from "@/lib/actions";
 import { prisma } from "@/lib/db";
-import { formatDateTime, formatMoney } from "@/lib/format";
+import { formatLocalInstant, formatMoney } from "@/lib/format";
 import { parseJson, stringList } from "@/lib/json";
 
 export default async function BookingLogsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -40,18 +40,18 @@ export default async function BookingLogsPage({ params }: { params: Promise<{ id
                 {warnings.map((item) => <p className="muted" key={item}>{item}</p>)}
                 {snapshot.textSample ? <details><summary>Sanitized evidence sample</summary><p className="muted">{snapshot.textSample}</p></details> : null}
               </div>
-              <div><span className={`badge ${observation.evidence?.qualityLevel ?? "needs_review"}`}>{observation.evidence?.qualityLevel ?? "needs_review"}</span><p>{formatDateTime(observation.observedAt)}</p><div className="buttonRow"><Link className="button secondary" href={`/bookings/${id}/observations/${observation.id}/edit`}>Review</Link><form action={promoteObservationToBooking}><input type="hidden" name="bookingId" value={id} /><input type="hidden" name="observationId" value={observation.id} /><button type="submit">Use as current</button></form><form action={deleteObservation}><input type="hidden" name="bookingId" value={id} /><input type="hidden" name="observationId" value={observation.id} /><button className="danger" type="submit">Delete</button></form></div></div>
+              <div><span className={`badge ${observation.evidence?.qualityLevel ?? "needs_review"}`}>{observation.evidence?.qualityLevel ?? "needs_review"}</span><p>{formatLocalInstant(observation.observedAt)}</p><div className="buttonRow"><Link className="button secondary" href={`/bookings/${id}/observations/${observation.id}/edit`}>Review</Link><form action={promoteObservationToBooking}><input type="hidden" name="bookingId" value={id} /><input type="hidden" name="observationId" value={observation.id} /><button type="submit">Use as current</button></form><form action={deleteObservation}><input type="hidden" name="bookingId" value={id} /><input type="hidden" name="observationId" value={observation.id} /><button className="danger" type="submit">Delete</button></form></div></div>
             </article>;
           })}</div>
         )}
       </section>
 
       <section className="card"><p className="eyebrow">Price check runs</p><h2>Browser task activity</h2><div className="divider" />
-        {booking.priceCheckRuns.length === 0 ? <div className="empty"><h3>No price checks</h3><p>Run a check from the booking page.</p></div> : <div className="list">{booking.priceCheckRuns.map((run) => <div className="listItem" key={run.id}><div><h3>{run.providerName}</h3><p>{run.summary ?? run.errorMessage ?? "Waiting for evidence."}</p>{run.sourceUrl ? <a className="muted" href={run.sourceUrl} rel="noreferrer" target="_blank">Open source</a> : null}</div><div><span className={`badge ${run.status}`}>{run.status}</span><p>{formatDateTime(run.startedAt)}</p><small className="muted">Task {run.browserTask.status}</small></div></div>)}</div>}
+        {booking.priceCheckRuns.length === 0 ? <div className="empty"><h3>No price checks</h3><p>Run a check from the booking page.</p></div> : <div className="list">{booking.priceCheckRuns.map((run) => <div className="listItem" key={run.id}><div><h3>{run.providerName}</h3><p>{run.summary ?? run.errorMessage ?? "Waiting for evidence."}</p>{run.sourceUrl ? <a className="muted" href={run.sourceUrl} rel="noreferrer" target="_blank">Open source</a> : null}</div><div><span className={`badge ${run.status}`}>{run.status}</span><p>{formatLocalInstant(run.startedAt)}</p><small className="muted">Task {run.browserTask.status}</small></div></div>)}</div>}
       </section>
 
       <section className="card"><p className="eyebrow">Decision history</p><h2>Past recommendations</h2><div className="divider" />
-        {booking.recommendations.length === 0 ? <div className="empty"><h3>No decisions</h3><p>A decision is saved after an observation exists.</p></div> : <table className="table"><thead><tr><th>Generated</th><th>Verdict</th><th>Savings</th><th>Evidence</th><th>Explanation</th></tr></thead><tbody>{booking.recommendations.map((item) => <tr key={item.id}><td>{formatDateTime(item.generatedAt)}</td><td><span className={`badge ${item.verdict}`}>{item.verdict}</span></td><td>{formatMoney(item.estimatedSavings, item.currency)}</td><td>{item.qualityLevel} · {item.riskLevel} risk</td><td>{item.explanation}</td></tr>)}</tbody></table>}
+        {booking.recommendations.length === 0 ? <div className="empty"><h3>No decisions</h3><p>A decision is saved after an observation exists.</p></div> : <table className="table"><thead><tr><th>Generated</th><th>Verdict</th><th>Savings</th><th>Evidence</th><th>Explanation</th></tr></thead><tbody>{booking.recommendations.map((item) => <tr key={item.id}><td>{formatLocalInstant(item.generatedAt)}</td><td><span className={`badge ${item.verdict}`}>{item.verdict}</span></td><td>{formatMoney(item.estimatedSavings, item.currency)}</td><td>{item.qualityLevel} · {item.riskLevel} risk</td><td>{item.explanation}</td></tr>)}</tbody></table>}
       </section>
     </div>
   );

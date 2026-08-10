@@ -4,7 +4,7 @@ import { RunPriceCheckButton } from "@/app/components/RunPriceCheckButton";
 import { promoteObservationToBooking } from "@/lib/actions";
 import { formatBookingBaseline } from "@/lib/bookingPrice";
 import { prisma } from "@/lib/db";
-import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { formatCalendarDate, formatLocalInstant, formatMoney } from "@/lib/format";
 import { stringList } from "@/lib/json";
 
 export default async function BookingDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -35,7 +35,7 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
   return (
     <div className="grid">
       <div className="pageHeader">
-        <div><p className="eyebrow">{booking.hotelGroup}</p><h1>{booking.hotelName}</h1><p>{booking.city} · {formatDate(booking.checkIn)} to {formatDate(booking.checkOut)} · {booking.guests} guest{booking.guests === 1 ? "" : "s"} · {booking.isSuite ? "Suite" : "Standard room"}</p></div>
+        <div><p className="eyebrow">{booking.hotelGroup}</p><h1>{booking.hotelName}</h1><p>{booking.city} · {formatCalendarDate(booking.checkIn)} to {formatCalendarDate(booking.checkOut)} · {booking.guests} guest{booking.guests === 1 ? "" : "s"} · {booking.isSuite ? "Suite" : "Standard room"}</p></div>
         <RunPriceCheckButton bookingId={booking.id} />
       </div>
 
@@ -52,7 +52,7 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
         <Link href={`/bookings/${booking.id}/logs`}>Logs</Link>
       </nav>
 
-      {latestRun ? <section className="card flat"><div className="pageHeader"><div><p className="eyebrow">Latest price check</p><strong>{latestRun.summary ?? latestRun.errorMessage ?? "Waiting for Browser Companion evidence."}</strong></div><div><span className={`badge ${latestRun.status}`}>{latestRun.status}</span><p className="muted">{formatDateTime(latestRun.startedAt)}</p></div></div></section> : null}
+      {latestRun ? <section className="card flat"><div className="pageHeader"><div><p className="eyebrow">Latest price check</p><strong>{latestRun.summary ?? latestRun.errorMessage ?? "Waiting for Browser Companion evidence."}</strong></div><div><span className={`badge ${latestRun.status}`}>{latestRun.status}</span><p className="muted">{formatLocalInstant(latestRun.startedAt)}</p></div></div></section> : null}
 
       {latestRecommendation ? (
         <section className="card">
@@ -70,7 +70,7 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
           <table className="table"><thead><tr><th>Observed</th><th>Source</th><th>Price</th><th>Room</th><th>Evidence</th></tr></thead><tbody>
             {booking.observations.map((observation) => (
               <tr key={observation.id}>
-                <td>{formatDateTime(observation.observedAt)}</td>
+                <td>{formatLocalInstant(observation.observedAt)}</td>
                 <td>{observation.sourceName}<br /><span className="muted">{observation.sourceType} · {observation.collectionMethod}</span></td>
                 <td>{formatObservationPrice(observation, booking.currency)}{observation.cashCurrency && observation.cashCurrency !== booking.currency ? <><br /><span className="muted">Observed in {observation.cashCurrency}</span></> : null}</td>
                 <td>{formatRoom(observation.roomTypeRaw)}<br /><span className="muted">{observation.ratePlanName ?? "Rate plan not captured"}</span></td>

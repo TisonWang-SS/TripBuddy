@@ -8,6 +8,7 @@ import type {
   PromotionApplicability,
   RoomMatch
 } from "@prisma/client";
+import { calendarDayOf, localInstantDayOf } from "@/lib/dateSemantics";
 import { sanitizeEvidenceText, toJson } from "@/lib/json";
 
 export type EvidenceAssessmentOverride = {
@@ -172,10 +173,10 @@ function inferCancellationMatch(
     };
   }
 
-  const candidateDay = utcDay(candidateDeadline);
-  const currentDay = localDay(currentDeadline);
-  const candidateLabel = formatUtcDay(candidateDeadline);
-  const currentLabel = formatLocalDay(currentDeadline);
+  const candidateDay = calendarDayOf(candidateDeadline);
+  const currentDay = localInstantDayOf(currentDeadline);
+  const candidateLabel = formatCalendarDay(candidateDeadline);
+  const currentLabel = formatLocalInstantDay(currentDeadline);
   if (candidateDay >= currentDay) {
     return {
       match: "same_or_better",
@@ -207,7 +208,7 @@ function extractCancellationDeadline(policy: string, bookingCheckIn: Date | stri
   if (days === null) {
     return null;
   }
-  return new Date(utcDay(checkIn) - days * 86_400_000);
+  return new Date(calendarDayOf(checkIn) - days * 86_400_000);
 }
 
 function extractExplicitPolicyDate(policy: string) {
@@ -259,20 +260,12 @@ function parsePolicyQuantity(value: string) {
   return words[value.toLowerCase()] ?? Number(value);
 }
 
-function utcDay(value: Date) {
-  return Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate());
+function formatCalendarDay(value: Date) {
+  return new Date(calendarDayOf(value)).toISOString().slice(0, 10);
 }
 
-function localDay(value: Date) {
-  return Date.UTC(value.getFullYear(), value.getMonth(), value.getDate());
-}
-
-function formatUtcDay(value: Date) {
-  return new Date(utcDay(value)).toISOString().slice(0, 10);
-}
-
-function formatLocalDay(value: Date) {
-  return new Date(localDay(value)).toISOString().slice(0, 10);
+function formatLocalInstantDay(value: Date) {
+  return new Date(localInstantDayOf(value)).toISOString().slice(0, 10);
 }
 
 function inclusion(value: boolean | null): InclusionStatus {

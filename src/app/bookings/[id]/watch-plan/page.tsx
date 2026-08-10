@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { updateWatchPlan } from "@/lib/actions";
 import { prisma } from "@/lib/db";
-import { formatDateTime } from "@/lib/format";
+import { formatLocalInstant } from "@/lib/format";
 
 export default async function WatchPlanPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -53,8 +53,8 @@ export default async function WatchPlanPage({ params }: { params: Promise<{ id: 
           </div>
         </div>
         <p className="muted">These values create reminders on the Dashboard. Every check still requires you to click Run price check and keep the visible Hyatt tab open.</p>
-        <p>Last checked: {formatDateTime(booking.watchPlan?.lastCheckedAt)}</p>
-        <p>Last attempted: {formatDateTime(booking.watchPlan?.lastAttemptedAt)}</p>
+        <p>Last checked: {formatLocalInstant(booking.watchPlan?.lastCheckedAt)}</p>
+        <p>Last attempted: {formatLocalInstant(booking.watchPlan?.lastAttemptedAt)}</p>
         <p>Consecutive failures: {booking.watchPlan?.consecutiveFailures ?? 0}</p>
         <button type="submit">Save watch plan</button>
       </form>

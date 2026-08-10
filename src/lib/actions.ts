@@ -12,6 +12,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { DEFAULT_PROFILE_ID, HOTEL_GROUPS } from "@/lib/constants";
 import { inferIsSuite, supportedCurrencyValue } from "@/lib/currency";
+import { parseCalendarDate } from "@/lib/dateSemantics";
 import { prisma } from "@/lib/db";
 import { buildObservationEvidence } from "@/lib/evidence";
 import { toJson } from "@/lib/json";
@@ -49,9 +50,14 @@ function optionalBooleanValue(formData: FormData, key: string) {
   return raw === "yes" ? true : raw === "no" ? false : null;
 }
 
-function dateValue(formData: FormData, key: string) {
+function optionalLocalInstantValue(formData: FormData, key: string) {
   const raw = value(formData, key);
   return raw ? new Date(raw) : null;
+}
+
+function optionalCalendarDateValue(formData: FormData, key: string) {
+  const raw = value(formData, key);
+  return raw ? parseCalendarDate(raw) : null;
 }
 
 function sourceTypeValue(raw: string): SourceType {
@@ -106,9 +112,9 @@ export async function createBooking(formData: FormData) {
       bookingChannel: sourceTypeValue(value(formData, "bookingChannel")),
       bookingUrl: optionalValue(formData, "bookingUrl"),
       breakfastIncluded: boolValue(formData, "breakfastIncluded"),
-      cancellationDeadline: dateValue(formData, "cancellationDeadline"),
-      checkIn: new Date(value(formData, "checkIn")),
-      checkOut: new Date(value(formData, "checkOut")),
+      cancellationDeadline: optionalLocalInstantValue(formData, "cancellationDeadline"),
+      checkIn: parseCalendarDate(value(formData, "checkIn")),
+      checkOut: parseCalendarDate(value(formData, "checkOut")),
       city: value(formData, "city"),
       currency,
       guests: numberValue(formData, "guests", 1),
@@ -176,9 +182,9 @@ export async function updateBooking(formData: FormData) {
       bookingChannel: sourceTypeValue(value(formData, "bookingChannel")),
       bookingUrl: optionalValue(formData, "bookingUrl"),
       breakfastIncluded: boolValue(formData, "breakfastIncluded"),
-      cancellationDeadline: dateValue(formData, "cancellationDeadline"),
-      checkIn: new Date(value(formData, "checkIn")),
-      checkOut: new Date(value(formData, "checkOut")),
+      cancellationDeadline: optionalLocalInstantValue(formData, "cancellationDeadline"),
+      checkIn: parseCalendarDate(value(formData, "checkIn")),
+      checkOut: parseCalendarDate(value(formData, "checkOut")),
       city: value(formData, "city"),
       currency,
       guests: numberValue(formData, "guests", 1),
@@ -379,12 +385,12 @@ export async function createPromotion(formData: FormData) {
       appliesToExistingBookings: boolValue(formData, "appliesToExistingBookings"),
       bonusMultiplier: numberValue(formData, "bonusMultiplier"),
       description: optionalValue(formData, "description"),
-      endDate: dateValue(formData, "endDate"),
+      endDate: optionalCalendarDateValue(formData, "endDate"),
       flatValue: numberValue(formData, "flatValue"),
       hotelGroup: value(formData, "hotelGroup"),
       requiresRegistration: boolValue(formData, "requiresRegistration"),
       sourceUrl: optionalValue(formData, "sourceUrl"),
-      startDate: dateValue(formData, "startDate"),
+      startDate: optionalCalendarDateValue(formData, "startDate"),
       title: value(formData, "title")
     }
   });
