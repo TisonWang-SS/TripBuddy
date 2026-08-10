@@ -1,9 +1,10 @@
 # TripBuddy 代码审查报告
 
 > 首次审查基线:`b7a55ec`(2026-08-08)
-> 最新复查基线:`a825360`(2026-08-10)
-> 门禁状态:`npm test` 24 文件 114 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / `prisma migrate deploy` 在全新库干净应用
-> ✅ 套件已时区稳定:外部 `TZ` 设为 -7 / 0 / +14 分别运行,均 114 全过(`vitest.config.ts` 固定 `TZ: "UTC"`,跨时区用例在测试内显式切换)
+> 最新复查基线:`2890fe1`(2026-08-10)
+> 门禁状态:`npm test` 25 文件 117 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / `prisma migrate deploy` 在全新库干净应用
+> ✅ 套件已时区稳定:外部 `TZ` 设为 -7 / 0 / +14 分别运行全过(`vitest.config.ts` 固定 `TZ: "UTC"`,跨时区用例在测试内显式切换)
+> ✅ PRD、实施计划与代码行为一致
 
 本文是一份**持续更新**的审查记录。已完成项保留条目和结论(压缩成一行并标注落地 commit),便于回溯;未完成项保留完整论证。章节编号保持稳定,方便跨轮次引用。
 
@@ -23,6 +24,8 @@
 - **日期约定成为可执行的规则而不是口头约定。** `dateSemantics.ts` 提供表意 helper,所有 formatter 按约定重命名,schema 逐字段注明归属,测试套件固定时区并带跨时区用例(`67f2a93`)。
 
 - **产品取舍被测试锁定,而不只是写在注释里。** 「成功检查沿用完整 cadence、clamp 仅用于失败重试」现在有专门用例守着,改动会立刻变红(`a825360`)。
+
+- **「较弱取消政策」成为一条贯穿全栈的显式概念。** 从 `worse` 判定 → 非阻断 warning → 界面上的 `notice caution` → 落到 `Recommendation` 行,由一条端到端用例守着,PRD 与实施计划同步描述(`e6d6cd2`、`dcc6710`、`d3ab9c4`、`2890fe1`)。
 
 当前剩余问题分两类:
 
@@ -148,7 +151,15 @@
 
 **验收证据**:集成测试改之前必须伪造一次用户覆盖才能走到 `rebook_direct`;现在一段真实 Hyatt 政策字符串直接产出 `cancellationAssessmentSource: "automated"` + `qualityLevel: "high"` + `verdict: "rebook_direct"`,全程无人介入。
 
-⚠️ **附带的产品决策**:`worse` 从 warning 提升为 **blocker**。一个便宜 200 刀但不可退的候选,现在永远只能是 `needs_review`。安全优先站得住,但这是取舍,不是顺带的修复——需要确认是有意的。
+✅ **`worse` 的定位已决策(`e6d6cd2`)**:回退为 **warning**。理由是让用户自己权衡——一个便宜 200 刀但取消政策更弱的候选,现在可以拿到 `medium` 质量 + `medium` 风险的 `rebook_direct`,而不是被系统单方面否决。`unknown` 仍然是 blocker。
+
+一致性已核对:`classifyQuality` 因 warnings 非空返回 `medium` 而非 `high`,所以 PRD 中「`high` 需要 same-or-better cancellation」仍然成立;PRD 里「unknown ... 阻断自动换订」也仍然准确;产品安全边界(每次基线变更都由用户确认)未受影响。
+
+✅ **文档已同步(`dcc6710`)**
+
+不只是改掉了两句矛盾表述,还补全了语义:PRD 的 `medium` 定义加入「material tradeoff,例如较弱取消政策」;`Cost and Recommendation Behavior` 新增一条明确「已知的较弱取消政策不阻断推荐,但降低质量与风险信心到 medium,并作为显著 caution 呈现」;`unknown ... hard-block` 保持不变。实施计划同步。
+
+一个细节值得记:PRD 现在要求这条 caution「必须在用户确认基线变更**之前**呈现」,而 `bookings/[id]/page.tsx` 里 `EvidenceIssueList` 确实排在「Use candidate as current」按钮之前——文档和界面是对得上的。
 
 ### 3.2 币种是个死胡同 — ⬜ 待办
 
@@ -303,6 +314,39 @@
 
 回归测试渲染的是**真实 Dashboard 组件**而非仅仅调用 formatter,断言完整文案。反证确认:去掉取整后该用例变红,错误信息正是最初报告的 `retry in 8.866666666666667 hours`。
 
+### 3.17 被降级的取消政策警告在界面上是弱化文案 — ✅ 已完成(`d3ab9c4`、`2890fe1`)
+
+原问题:`worse` 从 blocker 降为 warning 后,渲染通道也从醒目的 `notice warning` 变成了 `muted`,导致全系统最有后果的一条提示以弱化样式出现在换订按钮旁边。
+
+修复采用了第三档而非二选一,提示分为三级:
+
+| 级别 | 样式 | 例子 |
+|---|---|---|
+| blocker | `notice warning` | 取消政策等价性未知 |
+| **caution** | **`notice caution`(加粗 `Caution:` 前缀 + 左边框加重 + 琥珀底色)** | **候选取消政策更弱** |
+| warning | `muted` | 房型相似而非完全一致 |
+
+三点做得好:
+
+- 判定词由 `evidenceWarnings.ts` 的 `WEAKER_CANCELLATION_WARNING` 常量统一,生产端(证据构造)与消费端(界面)共用同一份真相,重命名不会让 caution 静默降级。
+- 语义不只靠颜色:`<strong>Caution:</strong>` 文字前缀保证了不依赖色觉也能分辨。
+- 推荐页与日志页收敛到共享的 `EvidenceIssueList`,原先两处各写一遍的渲染逻辑消失了。
+
+✅ **端到端覆盖缺口已补(`2890fe1`)**
+
+新增集成用例走完整链路:Browser Companion 抓到 `FULL PREPAYMENT/NO REFUND/NO CHANGES` → 证据 `cancellationMatch: "worse"` / `blockersJson: "[]"` / `qualityLevel: "medium"` → `Recommendation` 为 `rebook_direct` / `riskLevel: "medium"` 且 warning 落到 `warningsJson`。
+
+反证对比很能说明问题——把 `worse` 改回 blocker:
+
+| 时点 | 变红的用例 |
+|---|---|
+| `e6d6cd2` 当时 | 仅 `evidence.test.ts` |
+| 现在 | `evidence.test.ts` + `priceChecks.integration.test.ts` |
+
+把 `isEvidenceCaution` 改成恒 `false`,则 `EvidenceIssueList.test.tsx` 与 `bookings/[id]/page.test.tsx` 同时变红。两层都有守卫。
+
+⬜ **小观察**:`isEvidenceCaution` 对**持久化的展示字符串**做全等匹配。共享常量让代码级重命名是安全的,但若将来改动这句**文案措辞**,历史 `Recommendation` 行会静默失去 caution 样式。`ObservationEvidence` 上其实已有结构化的 `cancellationMatch` 枚举可用;`Recommendation` 表没有对应列,所以字符串匹配是当前的务实选择——记录在此,便于将来给 `Recommendation` 加结构化字段时一并处理。
+
 ---
 
 ## 4. 接入 LLM 的设计建议
@@ -405,17 +449,21 @@
 | 16 | `retryDelayHours` 渲染格式化(§3.16) | `4c2d4a2` |
 | 17 | `dateSemantics` 补独立测试(§3.14 观察) | `8f0ae88` |
 | 18 | 锁定「成功检查沿用完整 cadence」的产品取舍(§3.10 观察) | `a825360` |
+| 19 | `worse` 定位决策:回退为 warning,允许 medium-risk 换订(§3.1) | `e6d6cd2` |
+| 20 | 同步 PRD 与实施计划的取消政策表述(§3.1 遗留) | `dcc6710` |
+| 21 | 取消政策降级警告升级为 `caution` 层级 + 端到端用例(§3.17) | `d3ab9c4`、`2890fe1` |
 
 ### 后续建议顺序
 
 | 顺序 | 事项 | 理由 |
 |---|---|---|
-| 19 | 确认 `worse` 作为 blocker 是有意的(§3.1) | 产品取舍,不需改代码,只需一次决策 |
-| 20 | 币种录入入口或收缩多币种声明(§3.2) | 当前是用户无法解除的死 blocker |
-| 21 | 处理 write-only 数据(§1.5)与未使用字段(§1.6) | 用户填了系统不用,属于产品失真 |
-| 22 | 超时收敛到 `expiresAt`(§3.6)、CORS 收紧(§3.7)、JSON 列加 codec(§2.4) | 加固项,无用户可见症状 |
-| 23 | 接 LLM 抽取器(§4.2 第 1 项) | 评测集已就位,这是下一个能显著降低 provider 接入成本的动作 |
+| 22 | 币种录入入口或收缩多币种声明(§3.2) | 当前是用户无法解除的死 blocker |
+| 23 | 处理 write-only 数据(§1.5)与未使用字段(§1.6) | 用户填了系统不用,属于产品失真 |
+| 24 | 超时收敛到 `expiresAt`(§3.6)、CORS 收紧(§3.7)、JSON 列加 codec(§2.4) | 加固项,无用户可见症状 |
+| 25 | 接 LLM 抽取器(§4.2 第 1 项) | 评测集已就位,这是下一个能显著降低 provider 接入成本的动作 |
 
 第 13–15 项作为一组一起做是对的:它们是同一条日期约定接缝的三个面,第 9 项(`a5af2de`)就是分开修、只修了一半的例子。
 
-**当前状态**:已无已知的用户可见缺陷,§3 的正确性问题全部关闭。第 19 项只需一句答复。**建议重心从修复转向第 23 项**——评测集(§4.6)、provider 契约(§2.1–§2.3)、安全边界(§1.7)都已就位,接 LLM 抽取器是下一个能带来量级变化的动作,也是目前唯一能显著降低「接入第二个酒店集团」成本的路径。
+**当前状态**:无已知的功能性缺陷,也无文档与代码矛盾。剩余 9 条(§1.5、§1.6、§2.4、§3.2、§3.5–§3.9)都是数据卫生与加固,没有用户可见症状。
+
+**建议重心从修复转向第 25 项**:评测集(§4.6)、provider 契约(§2.1–§2.3)、安全边界(§1.7)三块前置都已就位,接 LLM 抽取器是下一个能带来量级变化的动作,也是目前唯一能显著降低「接入第二个酒店集团」成本的路径。第 22–24 项可以在接入过程中顺带处理,不必阻塞。
