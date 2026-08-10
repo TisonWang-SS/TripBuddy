@@ -2,9 +2,9 @@ export type WatchQueueBooking = {
   cancellationDeadline: Date | null;
   checkIn: Date;
   createdAt: Date;
+  hasActiveRun: boolean;
   id: string;
   hotelName: string;
-  priceCheckRuns: readonly { id: string }[];
   watchPlan: {
     awardEnabled: boolean;
     cashEnabled: boolean;
@@ -42,7 +42,7 @@ export function buildDuePriceCheckQueue(bookings: readonly WatchQueueBooking[], 
 
 function duePriceCheck(booking: WatchQueueBooking, now: Date): DuePriceCheck | null {
   const plan = booking.watchPlan;
-  if (!plan?.enabled || (!plan.cashEnabled && !plan.awardEnabled) || booking.priceCheckRuns.length > 0) {
+  if (!plan?.enabled || (!plan.cashEnabled && !plan.awardEnabled) || booking.hasActiveRun) {
     return null;
   }
 

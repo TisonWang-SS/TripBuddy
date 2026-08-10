@@ -37,7 +37,13 @@ export default async function DashboardPage() {
 
   const actionable = latestRecommendations.filter((item) => item.verdict !== "keep").length;
   const urgent = latestRecommendations.filter((item) => item.verdict === "urgent").length;
-  const dueQueue = buildDuePriceCheckQueue(bookings, now);
+  const dueQueue = buildDuePriceCheckQueue(
+    bookings.map(({ priceCheckRuns, ...booking }) => ({
+      ...booking,
+      hasActiveRun: priceCheckRuns.length > 0
+    })),
+    now
+  );
 
   return (
     <div className="grid">

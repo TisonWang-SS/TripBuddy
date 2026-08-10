@@ -6,9 +6,9 @@ const base: WatchQueueBooking = {
   cancellationDeadline: new Date("2026-08-20T12:00:00.000Z"),
   checkIn: new Date("2026-08-22T00:00:00.000Z"),
   createdAt: new Date("2026-08-01T00:00:00.000Z"),
+  hasActiveRun: false,
   hotelName: "Grand Hyatt Tokyo",
   id: "booking-1",
-  priceCheckRuns: [],
   watchPlan: {
     awardEnabled: true,
     cashEnabled: true,
@@ -95,7 +95,7 @@ describe("foreground price-check queue", () => {
 
   it("hides a due booking while a price check is active", () => {
     const queue = buildDuePriceCheckQueue([
-      { ...base, priceCheckRuns: [{ id: "run-1" }] }
+      { ...base, hasActiveRun: true }
     ], now);
 
     expect(queue).toEqual([]);
