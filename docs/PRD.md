@@ -66,13 +66,13 @@ Every observation owns one structured evidence record. Evidence distinguishes ca
 User-facing quality levels are:
 
 - `high`: verified source, exact room, same-or-better cancellation, known tax/fee inclusion, known loyalty status, and comparable currency.
-- `medium`: no blocker and only soft uncertainty, such as a similar room or anonymous direct price.
+- `medium`: no blocker, but a material tradeoff or soft uncertainty exists, such as weaker cancellation, a similar room, or an anonymous direct price.
 - `low`: important uncertainty exists but does not make the comparison unsafe.
 - `needs_review`: unknown room or cancellation equivalence, incomplete material taxes/fees, unavailable currency conversion, or another hard blocker.
 
 Evidence answers where the rate came from, how it was collected, whether room and policy are comparable, whether taxes and fees are included, whether loyalty and promotions apply, and which facts remain uncertain.
 
-Cancellation equivalence may be assessed automatically only when the current booking has a cancellation deadline and the candidate policy exposes an explicit calendar-date or Hyatt-style days/hours-before-arrival cutoff. A candidate cutoff on or after the current cutoff is `same_or_better`; an earlier cutoff or an explicitly non-refundable candidate is `worse` and hard-blocks automatic rebooking. Missing or ambiguous cutoffs remain `unknown`. A user correction can override the automated assessment and is recorded as user-sourced evidence.
+Cancellation equivalence may be assessed automatically only when the current booking has a cancellation deadline and the candidate policy exposes an explicit calendar-date or Hyatt-style days/hours-before-arrival cutoff. A candidate cutoff on or after the current cutoff is `same_or_better`. An earlier cutoff or an explicitly non-refundable candidate is `worse`; it remains eligible for a medium-risk automatic recommendation but must be shown as a prominent caution before the user confirms a baseline change. Missing or ambiguous cutoffs remain `unknown` and hard-block automatic rebooking. A user correction can override the automated assessment and is recorded as user-sourced evidence.
 
 Booking cancellation deadlines round-trip through `datetime-local` as local wall time. Calendar-day policy comparison uses that local booking date against the explicit hotel-policy date; it must not derive the booking day from its UTC serialization.
 
@@ -86,6 +86,7 @@ Hotel evidence extractors are compared offline against one shared, provider-spec
 - Comparable cost can include cash, points value, cash copay, promotions, credit-card value, elite progress, breakfast, lounge, late checkout, and upgrade value.
 - Missing conversion for an observed currency is a hard blocker. A recorded conversion rate may make the rate comparable without changing the preserved observed currency.
 - Unknown room match, unknown cancellation match, and incomplete final taxes/fees block an automatic rebook recommendation.
+- A known weaker cancellation policy does not block an automatic recommendation; it lowers evidence quality and risk confidence to medium and is surfaced as a prominent caution.
 - OTA candidates, when later supported, remain reference-first unless loyalty eligibility and policy equivalence are verified.
 - A nearby cancellation deadline is surfaced even when savings do not cross the normal threshold.
 - Recommendations are created only when at least one candidate observation exists. Repeated empty refreshes must not create decision-history noise.

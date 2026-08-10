@@ -33,7 +33,7 @@ The application is divided into four boundaries:
 ### 3. Evidence and Recommendation Core
 
 - Add a pure evidence builder with blockers, warnings, quality, user overrides, and assessment provenance.
-- Compare explicit candidate cancellation cutoffs with the current booking deadline using deterministic rules; keep ambiguous policies review-only and hard-block weaker policies.
+- Compare explicit candidate cancellation cutoffs with the current booking deadline using deterministic rules; keep ambiguous policies review-only, while preserving known weaker policies as non-blocking, prominent cautions on medium-risk recommendations.
 - Keep cancellation-deadline form parsing, rendering, and calendar-day comparison on one local wall-time convention so timezone serialization cannot change a blocker.
 - Refactor the cost engine around cash, points, copay, conversion, promotion, card, elite, and benefit components.
 - Add `RecommendationDecider`; use the deterministic implementation by default and validate every result against guardrails.
