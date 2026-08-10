@@ -35,7 +35,7 @@ TripBuddy 是一个 **local-first 的酒店预订优化工作台**。它不是 O
 | 确定性可比成本与推荐 | 已实现 | 支持现金、积分、促销、信用卡、会籍进度和权益估值 |
 | Provider 插件化边界 | 已实现 | 当前 registry 里只有 Hyatt |
 | OTA / 非 Hyatt 采集 | 未实现 | 数据模型预留，UI 不应把未实现 provider 显示为可用 |
-| 定时监控 | 未实现 | `scheduled` trigger 和 cadence 字段已预留，没有 scheduler process |
+| 到期检查 | 前台队列 | Dashboard 打开时按 cadence 计算到期项；用户点击后才启动正常 Chrome，不支持后台调度 |
 | LLM 决策 | 未实现 | `RecommendationDecider` 可替换，当前使用 deterministic v2 |
 | 自动订房、取消、支付 | 明确不做 | 属于产品安全边界，不是遗漏 |
 
@@ -334,7 +334,7 @@ effectiveCost
 ### 7.2 不推荐说法
 
 - 不要说“已经用 LLM 自动订酒店”；当前没有 LLM，也从不自动下单。
-- 不要说“全自动定时监控”；cadence 和 scheduled trigger 已预留，但 scheduler 尚未运行。
+- 不要说“全自动定时监控”；cadence 只生成 Dashboard 前台队列，`due_queue` trigger 记录来源，检查仍由用户点击启动。
 - 不要说“支持所有酒店集团和 OTA”；当前浏览器 provider 只有 Hyatt。
 - 不要只说“我写了个爬虫”；这会丢掉 task orchestration、证据、成本、guardrail 和 human-in-the-loop 的价值。
 
@@ -425,7 +425,7 @@ Agent 不等于“必须调用 LLM”。当前系统已经有：
 ### P2：Agent 与产品成熟度
 
 - 接入真正的 LLM semantic assessor / decider，但继续让 deterministic engine 掌握金额和 guardrail；
-- 增加 scheduler，复用同一个 `PriceCheckRunner`，并实现 cadence、重试、backoff 和 deadline priority；
+- 完善当前前台到期队列的批次体验、重试、backoff 和 deadline priority，但每个检查仍由用户启动；
 - 扩展其他酒店 provider 与 OTA reference collector；
 - 增加任务时间线、失败原因、用户纠正入口和 extension onboarding；
 - 建立离线评测集和线上指标，而不是只看“测试是否通过”；
@@ -438,7 +438,7 @@ Agent 不等于“必须调用 LLM”。当前系统已经有：
 ```mermaid
 flowchart TB
     UI["Web UI / Human approval"] --> ORCH["Task Orchestrator"]
-    SCHED["Scheduler"] --> ORCH
+    DUE["Foreground due reminders"] --> UI
     ORCH --> QUEUE["Durable Queue"]
     QUEUE --> BROWSER["Normal Chrome Companion"]
     BROWSER <--> SITE["Hotel websites"]
@@ -512,7 +512,7 @@ flowchart TB
 3. **架构**：Next.js 本地应用创建 persistent Browser Task，Chrome Companion 采集 snapshot，服务端 provider 做 parse + plan，循环直到 final evidence；
 4. **安全**：Planner/Executor 分离，服务端与扩展双重阻止终态动作，只读取 pre-payment evidence；事实、证据和推荐分层；
 5. **决策**：金额由 deterministic engine 计算，decider 只在结构化候选中选择，guardrail 能覆盖不安全或无效输出；
-6. **结果**：目前核心流程、数据审计和 83 个测试已完成，production build 通过；真实页面回归、scheduler、更多 provider 和 LLM 仍在下一阶段。
+6. **结果**：目前核心流程、数据审计、前台到期队列和全量测试已完成，production build 通过；真实页面回归、更多 provider 和 LLM 仍在下一阶段。
 
 ### 11.3 适合深入追问的三个技术故事
 
@@ -537,7 +537,7 @@ flowchart TB
 - 当前用 Next.js monolith + SQLite，匹配单用户 local-first；
 - Provider contract 隔离第三方网站变化；
 - Browser Task 持久化解决跨 tab 和长流程状态；
-- 暂时不用 queue/microservices，等 scheduler、多用户和并发需求出现再拆。
+- 暂时不用 queue/microservices，等前台到期队列、多用户和并发需求出现再拆。
 
 ---
 

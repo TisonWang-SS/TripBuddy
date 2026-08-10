@@ -38,7 +38,21 @@ export default async function WatchPlanPage({ params }: { params: Promise<{ id: 
           <input id="awardEnabled" name="awardEnabled" type="checkbox" defaultChecked={booking.watchPlan?.awardEnabled ?? true} />
           <label htmlFor="awardEnabled">Check award availability</label>
         </div>
-        <p className="muted">Scheduled execution and OTA collection are not enabled in v0.2. Future schedulers will call the same price-check runner.</p>
+        <div className="grid three">
+          <div className="field">
+            <label htmlFor="normalCadenceHours">Normal reminder cadence (hours)</label>
+            <input id="normalCadenceHours" min="1" max="720" name="normalCadenceHours" type="number" defaultValue={booking.watchPlan?.normalCadenceHours ?? 24} />
+          </div>
+          <div className="field">
+            <label htmlFor="urgentCadenceHours">Urgent reminder cadence (hours)</label>
+            <input id="urgentCadenceHours" min="1" max="720" name="urgentCadenceHours" type="number" defaultValue={booking.watchPlan?.urgentCadenceHours ?? 6} />
+          </div>
+          <div className="field">
+            <label htmlFor="urgentWindowHours">Urgent window before cancellation (hours)</label>
+            <input id="urgentWindowHours" min="1" max="720" name="urgentWindowHours" type="number" defaultValue={booking.watchPlan?.urgentWindowHours ?? 72} />
+          </div>
+        </div>
+        <p className="muted">These values create reminders on the Dashboard. Every check still requires you to click Run price check and keep the visible Hyatt tab open.</p>
         <p>Last checked: {formatDateTime(booking.watchPlan?.lastCheckedAt)}</p>
         <button type="submit">Save watch plan</button>
       </form>

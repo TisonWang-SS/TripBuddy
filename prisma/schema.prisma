@@ -41,7 +41,7 @@ enum PriceCheckStatus {
 
 enum PriceCheckTrigger {
   manual
-  scheduled
+  due_queue
 }
 
 enum CollectionMethod {

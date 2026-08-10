@@ -4,7 +4,9 @@ import { startOfToday } from "@/lib/bookingDates";
 import { formatBookingBaseline } from "@/lib/bookingPrice";
 import { DEFAULT_PROFILE_ID } from "@/lib/constants";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { buildDuePriceCheckQueue } from "@/lib/watchQueue";
 import { ImportHyattBookingsButton } from "./ImportHyattBookingsButton";
+import { RunPriceCheckButton } from "./bookings/[id]/RunPriceCheckButton";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +18,8 @@ export default async function DashboardPage() {
       orderBy: { checkIn: "asc" },
       include: {
         observations: { orderBy: { observedAt: "desc" }, take: 1 },
-        recommendations: { where: { candidateObservationId: { not: null } }, orderBy: { generatedAt: "desc" }, take: 1 }
+        recommendations: { where: { candidateObservationId: { not: null } }, orderBy: { generatedAt: "desc" }, take: 1 },
+        watchPlan: true
       }
     })
   ]);
@@ -28,6 +31,7 @@ export default async function DashboardPage() {
 
   const actionable = latestRecommendations.filter((item) => item.verdict !== "keep").length;
   const urgent = latestRecommendations.filter((item) => item.verdict === "urgent").length;
+  const dueQueue = buildDuePriceCheckQueue(bookings);
 
   return (
     <div className="grid">
@@ -59,6 +63,27 @@ export default async function DashboardPage() {
           <strong>{urgent}</strong>
         </div>
       </section>
+
+      {dueQueue.length > 0 ? (
+        <section className="card">
+          <p className="eyebrow">Foreground queue</p>
+          <h2>Price checks due</h2>
+          <p>These reminders are calculated when TripBuddy is open. Each check starts only after you click the button.</p>
+          <div className="divider" />
+          <div className="list">
+            {dueQueue.map((due) => (
+              <div className="listItem" key={due.bookingId}>
+                <div>
+                  <h3><Link href={`/bookings/${due.bookingId}`}>{due.hotelName}</Link></h3>
+                  <p>{due.urgency === "urgent" ? "Urgent" : "Normal"} cadence · every {due.cadenceHours} hours</p>
+                  <small className="muted">Due since {formatDateTime(due.nextCheckAt)}</small>
+                </div>
+                <RunPriceCheckButton bookingId={due.bookingId} trigger="due_queue" />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid two">
         <div className="card">

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -19,8 +19,13 @@ describe("persistent browser price-check flow", () => {
     workspace = mkdtempSync(join(tmpdir(), "tripbuddy-price-check-"));
     const databasePath = join(workspace, "integration.db");
     const sqlite = new DatabaseSync(databasePath);
-    sqlite.exec(readFileSync("prisma/migrations/20260801000000_v02_baseline/migration.sql", "utf8"));
-    sqlite.exec(readFileSync("prisma/migrations/20260803000000_hotel_search_sessions/migration.sql", "utf8"));
+    for (const migration of readdirSync("prisma/migrations", { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .filter((migration) => existsSync(join("prisma/migrations", migration, "migration.sql")))
+      .sort()) {
+      sqlite.exec(readFileSync(join("prisma/migrations", migration, "migration.sql"), "utf8"));
+    }
     sqlite.close();
     process.env.DATABASE_URL = `file:${databasePath}`;
 
@@ -136,7 +141,7 @@ describe("persistent browser price-check flow", () => {
     expect((await prisma.priceCheckRun.findUnique({ where: { id: failed.runId } }))?.status).toBe("failed");
     expect(await prisma.priceObservation.count({ where: { bookingId: booking.id } })).toBe(2);
 
-    const expiring = await runner.run({ bookingId: booking.id, trigger: "scheduled" });
+    const expiring = await runner.run({ bookingId: booking.id, trigger: "due_queue" });
     const expiredAt = new Date(Date.now() - 1_000);
     await prisma.$transaction([
       prisma.browserTask.update({ where: { id: expiring.taskId }, data: { expiresAt: expiredAt } }),

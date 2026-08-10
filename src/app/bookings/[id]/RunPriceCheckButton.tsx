@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { waitForBrowserTask, type BrowserTaskPayload } from "@/lib/browserTaskClient";
 
-export function RunPriceCheckButton({ bookingId }: { bookingId: string }) {
+export function RunPriceCheckButton({ bookingId, trigger = "manual" }: { bookingId: string; trigger?: "due_queue" | "manual" }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [task, setTask] = useState<BrowserTaskPayload | null>(null);
@@ -19,7 +19,7 @@ export function RunPriceCheckButton({ bookingId }: { bookingId: string }) {
         throw new Error("Chrome blocked the Hyatt tab. Allow pop-ups for TripBuddy and try again.");
       }
       const response = await fetch("/api/price-checks", {
-        body: JSON.stringify({ bookingId, trigger: "manual" }),
+        body: JSON.stringify({ bookingId, trigger }),
         headers: { "Content-Type": "application/json" },
         method: "POST"
       });

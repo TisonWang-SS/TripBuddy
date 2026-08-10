@@ -127,22 +127,42 @@ export async function createBooking(formData: FormData) {
 
 export async function updateWatchPlan(formData: FormData) {
   const bookingId = value(formData, "bookingId");
+  const normalCadenceHours = boundedIntegerValue(formData, "normalCadenceHours", 1, 720);
+  const urgentCadenceHours = boundedIntegerValue(formData, "urgentCadenceHours", 1, 720);
+  const urgentWindowHours = boundedIntegerValue(formData, "urgentWindowHours", 1, 720);
+  if (urgentCadenceHours > normalCadenceHours) {
+    throw new Error("Urgent cadence must be no longer than normal cadence.");
+  }
   await prisma.watchPlan.upsert({
     where: { bookingId },
     update: {
       awardEnabled: boolValue(formData, "awardEnabled"),
       cashEnabled: boolValue(formData, "cashEnabled"),
-      enabled: true
+      enabled: true,
+      normalCadenceHours,
+      urgentCadenceHours,
+      urgentWindowHours
     },
     create: {
       awardEnabled: boolValue(formData, "awardEnabled"),
       bookingId,
       cashEnabled: boolValue(formData, "cashEnabled"),
-      enabled: true
+      enabled: true,
+      normalCadenceHours,
+      urgentCadenceHours,
+      urgentWindowHours
     }
   });
   revalidatePath(`/bookings/${bookingId}`);
   redirect(`/bookings/${bookingId}`);
+}
+
+function boundedIntegerValue(formData: FormData, key: string, minimum: number, maximum: number) {
+  const parsed = Number(value(formData, key));
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`${key} must be an integer between ${minimum} and ${maximum}.`);
+  }
+  return parsed;
 }
 
 export async function updateBooking(formData: FormData) {

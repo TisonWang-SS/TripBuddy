@@ -36,7 +36,7 @@ The application is divided into four boundaries:
 - Compare explicit candidate cancellation cutoffs with the current booking deadline using deterministic rules; keep ambiguous policies review-only and hard-block weaker policies.
 - Refactor the cost engine around cash, points, copay, conversion, promotion, card, elite, and benefit components.
 - Add `RecommendationDecider`; use the deterministic implementation by default and validate every result against guardrails.
-- Add `PriceCheckRunner` with `manual` and `scheduled` triggers. Only manual invocation is wired in v0.2.
+- Add a foreground-only `PriceCheckRunner` with `manual` and `due_queue` provenance. Use cadence only to surface work while the Dashboard is open; never start Chrome unattended.
 
 ### 4. UI and Extension Integration
 
@@ -87,7 +87,7 @@ interface AccountBookingImporter {
 }
 
 interface PriceCheckRunner {
-  run(input: { bookingId: string; trigger: "manual" | "scheduled" }): Promise<BrowserTaskLaunch>;
+  run(input: { bookingId: string; trigger: "manual" | "due_queue" }): Promise<BrowserTaskLaunch>;
 }
 
 interface RecommendationDecider {
@@ -103,7 +103,7 @@ Provider results contain facts only. Evidence builders assess comparability. Cos
 
 - No automatic booking, cancellation, payment, or final form submission.
 - No Playwright, CDP, copied Chrome profile, or automated-profile fallback.
-- No scheduler process or LLM call in v0.2.
+- No scheduler process or unattended price-check contract. The due queue is derived when the Dashboard opens and remains user-initiated as recorded in ADR 0001.
 - No full page-text retention.
 - No compatibility migration for the prototype database; reset and seed are intentional.
 - The user's normal Chrome profiles outside this repository are outside reset and cleanup scope. Repo-local copied or CDP profiles under `data/` are prohibited legacy artifacts and must not be created or preserved.

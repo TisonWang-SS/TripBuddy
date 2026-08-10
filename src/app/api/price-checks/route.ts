@@ -6,14 +6,14 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const payload = (await request.json()) as { bookingId?: string; trigger?: "manual" | "scheduled" };
+    const payload = (await request.json()) as { bookingId?: string; trigger?: "due_queue" | "manual" };
     const bookingId = String(payload.bookingId ?? "").trim();
     if (!bookingId) {
       return browserJson({ error: "bookingId is required." }, 400);
     }
     const task = await createBookingPriceTask({
       bookingId,
-      trigger: payload.trigger === "scheduled" ? "scheduled" : "manual"
+      trigger: payload.trigger === "due_queue" ? "due_queue" : "manual"
     });
     return browserJson(task, 201);
   } catch (error) {

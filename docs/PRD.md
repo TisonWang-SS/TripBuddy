@@ -14,6 +14,7 @@ The v0.2 release includes:
 - Manual booking creation, editing, and price observations.
 - Hyatt account booking import from the user's normal Chrome session.
 - Booking-driven Hyatt cash and award checks through the TripBuddy Browser Companion.
+- A foreground due-check queue calculated when the Dashboard opens; every queued check still requires a user click.
 - Structured observations, evidence quality, deterministic cost calculations, and recommendation history.
 - An auxiliary official hotel city search. Hyatt is the first provider; other hotel groups plug into the same provider contract later.
 - User correction of uncertain room and cancellation assessments.
@@ -22,7 +23,7 @@ The v0.2 release does not include:
 
 - Automatic booking, cancellation, payment, or credential handling.
 - Headless browsers, copied Chrome profiles, CDP automation, or a browser fallback outside normal Chrome plus Browser Companion.
-- A running scheduler. Scheduled checks must eventually call the same price-check runner as manual checks.
+- Background or unattended price checks. Every check requires explicit user initiation and a visible normal-Chrome tab.
 - An LLM decision implementation. The deterministic decider implements the initial provider contract.
 - OTA collection or non-Hyatt collection. Unsupported providers are not shown as available.
 
@@ -34,7 +35,8 @@ The v0.2 release does not include:
 - Browser task status is queryable by the initiating page and ends as `succeeded`, `partial`, `failed`, or expired. A task must not leave a linked run permanently `running`.
 - Browser task creation and capture dispatch through one registry keyed by task kind. Booking price checks, city searches, and account imports each own their context, capture handling, and result persistence behind the same definition contract.
 - A failed check preserves all earlier observations and recommendations.
-- The watch plan controls cash and award inventory. Cadence data is reserved for a future scheduler but is not presented as an active scheduling feature.
+- The watch plan controls cash and award inventory, normal and urgent reminder cadence, the urgent cancellation window, and the last completed check.
+- When the Dashboard opens, TripBuddy derives a due queue from those facts. The queue never starts work itself; the user must explicitly start each visible Browser Companion check. See `docs/decisions/0001-foreground-price-checks.md`.
 
 ### Browser Companion Safety
 
