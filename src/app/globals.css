@@ -238,6 +238,13 @@ button {
   border-color: color-mix(in srgb, var(--amber) 45%, var(--line));
 }
 
+.notice.caution {
+  border-color: color-mix(in srgb, var(--amber) 75%, var(--line));
+  border-left-width: 4px;
+  background: color-mix(in srgb, var(--amber) 10%, var(--panel));
+  color: var(--ink);
+}
+
 .subnav {
   display: flex;
   flex-wrap: wrap;

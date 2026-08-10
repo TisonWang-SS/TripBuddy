@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import BookingDetailPage from "@/app/bookings/[id]/page";
+import { WEAKER_CANCELLATION_WARNING } from "@/lib/evidenceWarnings";
 
 vi.mock("next/navigation", () => ({
   notFound: vi.fn(),
@@ -78,7 +79,10 @@ vi.mock("@/lib/db", () => ({
             qualityLevel: "needs_review",
             riskLevel: "high",
             verdict: "needs_review",
-            warningsJson: JSON.stringify(["Review the captured cancellation policy."])
+            warningsJson: JSON.stringify([
+              "The candidate has a weaker cancellation policy.",
+              "Review the captured cancellation policy."
+            ])
           }
         ],
         watchPlan: { awardEnabled: true, cashEnabled: true, enabled: true }
@@ -95,6 +99,8 @@ describe("booking detail page", () => {
     expect(screen.getByText("Final Hyatt price evidence was imported.")).toBeInTheDocument();
     expect(screen.getAllByText("needs_review").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Cancellation-policy equivalence is unknown.").length).toBeGreaterThan(0);
+    expect(screen.getByText((_, element) => element?.textContent === `Caution: ${WEAKER_CANCELLATION_WARNING}`))
+      .toHaveClass("notice", "caution");
     expect(screen.getByText("Review the captured cancellation policy.")).toBeInTheDocument();
     expect(screen.getByText("Observed in MYR")).toBeInTheDocument();
   });

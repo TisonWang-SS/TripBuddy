@@ -9,6 +9,7 @@ import type {
   RoomMatch
 } from "@prisma/client";
 import { calendarDayOf, localInstantDayOf } from "@/lib/dateSemantics";
+import { WEAKER_CANCELLATION_WARNING } from "@/lib/evidenceWarnings";
 import { sanitizeEvidenceText, toJson } from "@/lib/json";
 
 export type EvidenceAssessmentOverride = {
@@ -89,7 +90,7 @@ export function buildObservationEvidence(input: EvidenceInput): BuiltEvidence {
     blockers.push("Cancellation-policy equivalence is unknown.");
   }
   if (cancellationMatch === "worse") {
-    warnings.push("The candidate has a weaker cancellation policy.");
+    warnings.push(WEAKER_CANCELLATION_WARNING);
   }
   if (input.inventoryType === "cash" && taxesIncluded !== "yes") {
     blockers.push("Final tax inclusion is not verified.");

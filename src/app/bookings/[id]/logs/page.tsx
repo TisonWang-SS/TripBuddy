@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { EvidenceIssueList } from "@/app/components/EvidenceIssueList";
 import { deleteObservation, promoteObservationToBooking } from "@/lib/actions";
 import { prisma } from "@/lib/db";
 import { formatLocalInstant, formatMoney } from "@/lib/format";
@@ -36,8 +37,7 @@ export default async function BookingLogsPage({ params }: { params: Promise<{ id
                 <p>{observation.sourceName} · {observation.sourceType} · {observation.collectionMethod}</p>
                 <p>Room: {observation.roomTypeRaw ?? "Not captured"} · Policy: {observation.cancellationPolicyRaw ?? "Not captured"}</p>
                 <p className="muted">{observation.evidence?.roomMatch ?? "unknown"} room · {observation.evidence?.cancellationMatch ?? "unknown"} cancellation · taxes {observation.evidence?.taxesIncluded ?? "unknown"} · fees {observation.evidence?.feesIncluded ?? "unknown"}</p>
-                {blockers.map((item) => <p className="notice warning" key={item}>{item}</p>)}
-                {warnings.map((item) => <p className="muted" key={item}>{item}</p>)}
+                <EvidenceIssueList blockers={blockers} warnings={warnings} />
                 {snapshot.textSample ? <details><summary>Sanitized evidence sample</summary><p className="muted">{snapshot.textSample}</p></details> : null}
               </div>
               <div><span className={`badge ${observation.evidence?.qualityLevel ?? "needs_review"}`}>{observation.evidence?.qualityLevel ?? "needs_review"}</span><p>{formatLocalInstant(observation.observedAt)}</p><div className="buttonRow"><Link className="button secondary" href={`/bookings/${id}/observations/${observation.id}/edit`}>Review</Link><form action={promoteObservationToBooking}><input type="hidden" name="bookingId" value={id} /><input type="hidden" name="observationId" value={observation.id} /><button type="submit">Use as current</button></form><form action={deleteObservation}><input type="hidden" name="bookingId" value={id} /><input type="hidden" name="observationId" value={observation.id} /><button className="danger" type="submit">Delete</button></form></div></div>

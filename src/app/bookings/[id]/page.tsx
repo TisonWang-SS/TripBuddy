@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { EvidenceIssueList } from "@/app/components/EvidenceIssueList";
 import { RunPriceCheckButton } from "@/app/components/RunPriceCheckButton";
 import { promoteObservationToBooking } from "@/lib/actions";
 import { formatBookingBaseline } from "@/lib/bookingPrice";
@@ -59,7 +60,7 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
           <div className="pageHeader"><div><p className="eyebrow">Recommendation</p><h2><span className={`badge ${latestRecommendation.verdict}`}>{latestRecommendation.verdict}</span></h2></div><div><p className="muted">Estimated savings</p><h2>{formatMoney(latestRecommendation.estimatedSavings, latestRecommendation.currency)}</h2></div></div>
           <p>{latestRecommendation.explanation}</p>
           <p className="muted">Evidence: {latestRecommendation.qualityLevel} · Risk: {latestRecommendation.riskLevel} · {latestRecommendation.decisionProvider} v{latestRecommendation.decisionVersion}</p>
-          <IssueList blockers={stringList(latestRecommendation.blockersJson)} warnings={stringList(latestRecommendation.warningsJson)} />
+          <EvidenceIssueList className="section" blockers={stringList(latestRecommendation.blockersJson)} warnings={stringList(latestRecommendation.warningsJson)} />
           {candidateObservation ? <form action={promoteObservationToBooking} className="section"><input type="hidden" name="bookingId" value={booking.id} /><input type="hidden" name="observationId" value={candidateObservation.id} /><button type="submit">Use candidate as current</button></form> : null}
         </section>
       ) : <section className="empty"><h2>No recommendation yet</h2><p>Run a price check or add a final manual observation.</p></section>}
@@ -86,10 +87,6 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
 
 function Metric({ label, value }: { label: string; value: string }) {
   return <div className="card flat metric"><span className="muted">{label}</span><strong>{value}</strong></div>;
-}
-
-function IssueList({ blockers, warnings }: { blockers: string[]; warnings: string[] }) {
-  return blockers.length || warnings.length ? <div className="section">{blockers.map((item) => <p className="notice warning" key={item}>{item}</p>)}{warnings.map((item) => <p className="muted" key={item}>{item}</p>)}</div> : null;
 }
 
 function formatObservationPrice(observation: { cashCopay: number | null; cashCopayCurrency: string | null; cashCurrency: string | null; cashTotal: number | null; inventoryType: string; points: number | null } | null | undefined, fallbackCurrency: string) {
