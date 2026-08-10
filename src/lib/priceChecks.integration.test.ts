@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { WEAKER_CANCELLATION_WARNING } from "@/lib/evidenceWarnings";
 
 let workspace = "";
 let prisma: typeof import("@/lib/db")["prisma"];
@@ -165,6 +166,72 @@ describe("persistent browser price-check flow", () => {
     await expect(prisma.watchPlan.findUniqueOrThrow({ where: { bookingId: booking.id } })).resolves.toMatchObject({
       consecutiveFailures: 2
     });
+  });
+
+  it("persists a weaker-policy warning on an automatic direct rebook recommendation", async () => {
+    const booking = await prisma.hotelBooking.create({
+      data: {
+        baselineCashTotal: 1200,
+        baselineType: "cash",
+        bookingChannel: "direct",
+        cancellationDeadline: new Date("2031-09-08T20:00:00.000Z"),
+        checkIn: new Date("2031-09-10T00:00:00.000Z"),
+        checkOut: new Date("2031-09-13T00:00:00.000Z"),
+        city: "Tokyo",
+        currency: "USD",
+        guests: 2,
+        hotelGroup: "Hyatt",
+        hotelName: "Park Hyatt Tokyo",
+        loyaltyEligible: true,
+        roomType: "1 King Bed",
+        watchPlan: { create: { awardEnabled: true, cashEnabled: true, enabled: true } }
+      }
+    });
+    const runner = new BrowserCompanionPriceCheckRunner();
+    const started = await runner.run({ bookingId: booking.id, trigger: "manual" });
+
+    await captureBookingPriceTask(started.taskId, {
+      snapshot: {
+        capturedAt: new Date().toISOString(),
+        controls: [],
+        pageText: "1 King Bed Member Rate USD 350 Avg/Night Select & Book",
+        pageTitle: "Hyatt rooms",
+        sourceUrl: "https://www.hyatt.com/shop/rooms/tyoph?checkinDate=2031-09-10&checkoutDate=2031-09-13"
+      }
+    });
+    const completed = await captureBookingPriceTask(started.taskId, {
+      snapshot: {
+        capturedAt: new Date().toISOString(),
+        controls: [],
+        pageText:
+          "Price Summary Total Cash USD 900.00 Taxes & Fees USD 90.00 1 King Bed Cancellation Policy FULL PREPAYMENT/NO REFUND/NO CHANGES",
+        pageTitle: "Hyatt price summary",
+        sourceUrl: "https://www.hyatt.com/booking/summary?checkinDate=2031-09-10&checkoutDate=2031-09-13"
+      }
+    });
+
+    expect(completed?.status).toBe("succeeded");
+    const observation = await prisma.priceObservation.findFirstOrThrow({
+      where: { bookingId: booking.id, inventoryType: "cash" },
+      include: { evidence: true }
+    });
+    expect(observation.evidence).toMatchObject({
+      blockersJson: "[]",
+      cancellationAssessmentSource: "automated",
+      cancellationMatch: "worse",
+      qualityLevel: "medium"
+    });
+    expect(JSON.parse(observation.evidence!.warningsJson)).toContain(WEAKER_CANCELLATION_WARNING);
+
+    const recommendation = await prisma.recommendation.findFirstOrThrow({ where: { bookingId: booking.id } });
+    expect(recommendation).toMatchObject({
+      blockersJson: "[]",
+      candidateObservationId: observation.id,
+      qualityLevel: "medium",
+      riskLevel: "medium",
+      verdict: "rebook_direct"
+    });
+    expect(JSON.parse(recommendation.warningsJson)).toContain(WEAKER_CANCELLATION_WARNING);
   });
 
   it("imports active Hyatt cash, points, and certificate baselines but skips an already-started stay", async () => {
