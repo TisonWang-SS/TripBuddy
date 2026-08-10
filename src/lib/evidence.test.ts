@@ -89,6 +89,27 @@ describe("observation evidence", () => {
     expect(evidence.cancellationMatch).toBe("unknown");
   });
 
+  it("compares the current cutoff by its local calendar day", () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    try {
+      const evidence = buildObservationEvidence({
+        ...base,
+        bookingCancellationDeadline: new Date("2026-09-09T03:00:00.000Z"),
+        cancellationPolicyRaw: "Free cancellation before Sep 8, 2026"
+      });
+
+      expect(evidence.cancellationMatch).toBe("same_or_better");
+      expect(evidence.cancellationMatchReason).toContain("current booking cutoff (2026-09-08)");
+    } finally {
+      if (previousTimezone === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = previousTimezone;
+      }
+    }
+  });
+
   it("records user overrides and produces high quality evidence", () => {
     const evidence = buildObservationEvidence({ ...base, overrides: { cancellationMatch: "same_or_better", roomMatch: "exact" } });
     expect(evidence.qualityLevel).toBe("high");

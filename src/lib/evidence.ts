@@ -173,9 +173,9 @@ function inferCancellationMatch(
   }
 
   const candidateDay = utcDay(candidateDeadline);
-  const currentDay = utcDay(currentDeadline);
+  const currentDay = localDay(currentDeadline);
   const candidateLabel = formatUtcDay(candidateDeadline);
-  const currentLabel = formatUtcDay(currentDeadline);
+  const currentLabel = formatLocalDay(currentDeadline);
   if (candidateDay >= currentDay) {
     return {
       match: "same_or_better",
@@ -263,8 +263,16 @@ function utcDay(value: Date) {
   return Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate());
 }
 
+function localDay(value: Date) {
+  return Date.UTC(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
 function formatUtcDay(value: Date) {
   return new Date(utcDay(value)).toISOString().slice(0, 10);
+}
+
+function formatLocalDay(value: Date) {
+  return new Date(localDay(value)).toISOString().slice(0, 10);
 }
 
 function inclusion(value: boolean | null): InclusionStatus {

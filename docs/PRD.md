@@ -72,6 +72,8 @@ Evidence answers where the rate came from, how it was collected, whether room an
 
 Cancellation equivalence may be assessed automatically only when the current booking has a cancellation deadline and the candidate policy exposes an explicit calendar-date or Hyatt-style days/hours-before-arrival cutoff. A candidate cutoff on or after the current cutoff is `same_or_better`; an earlier cutoff or an explicitly non-refundable candidate is `worse` and hard-blocks automatic rebooking. Missing or ambiguous cutoffs remain `unknown`. A user correction can override the automated assessment and is recorded as user-sourced evidence.
 
+Booking cancellation deadlines round-trip through `datetime-local` as local wall time. Calendar-day policy comparison uses that local booking date against the explicit hotel-policy date; it must not derive the booking day from its UTC serialization.
+
 Raw browser storage is deliberately bounded: persist structured stage data and short sanitized text samples, not full visible pages. Confirmation numbers and similar account identifiers must be removed from diagnostic samples.
 
 Hotel evidence extractors are compared offline against one shared, provider-specific fixture set. The evaluation reports field-level assertion coverage, fixture pass counts, and one normalized score so deterministic and future model extractors can be compared without changing the acceptance criteria.

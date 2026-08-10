@@ -333,7 +333,8 @@ function extractCancellationDeadline(segment: string) {
   if (!policyMatch) {
     return null;
   }
-  return parseDateLabel(policyMatch[1]) ?? null;
+  const date = parseDateLabel(policyMatch[1]);
+  return date ? new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) : null;
 }
 
 function parseAmount(value: string) {
