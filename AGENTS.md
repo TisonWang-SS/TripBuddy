@@ -3,6 +3,7 @@
 ## Browser Testing
 
 - Hyatt browser work must use normal Chrome with the TripBuddy Browser Companion extension. Do not add an automated or copied-profile fallback.
+- Browser validation must select the connected Chrome instance whose profile name is `TripBuddy`; never use the user's personal active Chrome profile.
 - Browser-backed Hyatt tasks are initiated by TripBuddy, carried in URL fragments and tab session storage, and completed by posting visible evidence back to the local app.
 - When validating Hyatt city search pricing, do not trust the `currency` URL parameter by itself. Hyatt can still render `Hotel Currency`; switch the page currency selector to the requested currency before scraping `Avg/Night` text or following a selected `View Rates` path. A tax-inclusive result requires a visible final total plus `Taxes & Fees` evidence.
 - Product validation should go through the app API/page whenever possible, not only standalone scripts. For this repo, verify browser-backed Hyatt search through `/api/hotel-search` and `/hotel-search`.

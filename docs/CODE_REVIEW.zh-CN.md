@@ -2,7 +2,7 @@
 
 > 首次审查基线:`b7a55ec`(2026-08-08)
 > 最新复查基线:`2890fe1`(2026-08-10)
-> 门禁状态:`npm test` 25 文件 117 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / `prisma migrate deploy` 在全新库干净应用
+> 门禁状态:`npm test` 29 文件 136 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / DeepSeek V4 Flash 实测 13 fixtures、63/63 断言通过 / TripBuddy Chrome profile + Logs 页真实 replay 成功 / migration 与 Prisma schema 零差异且在全新库干净应用
 > ✅ 套件已时区稳定:外部 `TZ` 设为 -7 / 0 / +14 分别运行全过(`vitest.config.ts` 固定 `TZ: "UTC"`,跨时区用例在测试内显式切换)
 > ✅ PRD、实施计划与代码行为一致
 
@@ -460,10 +460,10 @@
 | 22 | 币种录入入口或收缩多币种声明(§3.2) | 当前是用户无法解除的死 blocker |
 | 23 | 处理 write-only 数据(§1.5)与未使用字段(§1.6) | 用户填了系统不用,属于产品失真 |
 | 24 | 超时收敛到 `expiresAt`(§3.6)、CORS 收紧(§3.7)、JSON 列加 codec(§2.4) | 加固项,无用户可见症状 |
-| 25 | 接 LLM 抽取器(§4.2 第 1 项) | 评测集已就位,这是下一个能显著降低 provider 接入成本的动作 |
+| 25 | 接 LLM 抽取器(§4.2 第 1 项) | ✅ 已完成:独立快照回放、严格 schema、页面数字/币种/算术校验、抽取来源与版本审计、已落库的确定性 baseline + 共享 fixture 异步评测入口 |
 
 第 13–15 项作为一组一起做是对的:它们是同一条日期约定接缝的三个面,第 9 项(`a5af2de`)就是分开修、只修了一半的例子。
 
 **当前状态**:无已知的功能性缺陷,也无文档与代码矛盾。剩余 9 条(§1.5、§1.6、§2.4、§3.2、§3.5–§3.9)都是数据卫生与加固,没有用户可见症状。
 
-**建议重心从修复转向第 25 项**:评测集(§4.6)、provider 契约(§2.1–§2.3)、安全边界(§1.7)三块前置都已就位,接 LLM 抽取器是下一个能带来量级变化的动作,也是目前唯一能显著降低「接入第二个酒店集团」成本的路径。第 22–24 项可以在接入过程中顺带处理,不必阻塞。
+**第 25 项已落地**:确定性 provider 抽取继续作为同步快路径;LLM 在日志页对最长 12k 的脱敏快照做独立回放,不占 Browser Companion 交互预算。当前适配 DeepSeek V4 Flash 的 Chat Completions JSON Output 协议(`/chat/completions` + `response_format=json_object`,关闭 thinking);API key、Base URL 和模型名只从服务端环境读取。模型提议必须依次通过本地严格 schema、逐数字页面落点、币种一致性和金额算术校验,失败声明只进审计记录、不写 observation。`ExtractionSource`、抽取器名称/版本、模型名和每次 replay 结果均可追溯。接入中同时消费了原 write-only 的 `snapshotsJson`,为相关 JSON 增加 codec,并把前端轮询超时收敛到服务端 `expiresAt`;第 22–24 项其余部分仍按原顺序推进。

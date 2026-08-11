@@ -1,7 +1,8 @@
 import type { BrowserTaskKind, BrowserTaskStatus } from "@prisma/client";
 import taskProtocol from "@extension/taskProtocol.js";
+import { parseSanitizedBrowserSnapshots } from "@/lib/browserTaskCodecs";
 import { prisma } from "@/lib/db";
-import { parseJson, sanitizeEvidenceText, toJson } from "@/lib/json";
+import { parseJson, sanitizeEvidenceText, selectEvidenceTextSample, toJson } from "@/lib/json";
 import type { BrowserPageSnapshot, SanitizedBrowserSnapshot } from "@/lib/providers/types";
 
 export const BROWSER_TASK_TTL_MS = 3 * 60 * 1000;
@@ -75,13 +76,16 @@ export async function appendBrowserSnapshot(taskId: string, snapshot: BrowserPag
   if (!task) {
     return null;
   }
-  const snapshots = parseJson<SanitizedBrowserSnapshot[]>(task.snapshotsJson, []);
+  const snapshots = parseSanitizedBrowserSnapshots(task.snapshotsJson);
+  const sanitizedText = sanitizeEvidenceText(snapshot.pageText, Number.MAX_SAFE_INTEGER);
+  const textSample = selectEvidenceTextSample(sanitizedText);
   snapshots.push({
     capturedAt: snapshot.capturedAt,
     pageTitle: snapshot.pageTitle.slice(0, 200),
     phase: inferSnapshotPhase(snapshot.pageText),
     sourceUrl: stripBrowserTaskHash(snapshot.sourceUrl),
-    textSample: sanitizeEvidenceText(snapshot.pageText)
+    textSample,
+    truncated: sanitizedText.length > textSample.length
   });
   return prisma.browserTask.update({
     where: { id: taskId },

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WEAKER_CANCELLATION_WARNING } from "@/lib/evidenceWarnings";
+import type { LlmEvidenceCandidate } from "@/lib/providers/llmEvidence";
 
 let workspace = "";
 let prisma: typeof import("@/lib/db")["prisma"];
@@ -15,6 +16,8 @@ let createAccountImportTask: typeof import("@/lib/browserTaskHandlers")["createA
 let createHotelSearchTask: typeof import("@/lib/browserTaskHandlers")["createHotelSearchTask"];
 let getHotelSearchSession: typeof import("@/lib/hotelSearchSessions")["getHotelSearchSession"];
 let importAccountBookings: typeof import("@/lib/accountBookings")["importAccountBookings"];
+let appendBrowserSnapshot: typeof import("@/lib/browserTasks")["appendBrowserSnapshot"];
+let runLlmExtractionForPriceCheck: typeof import("@/lib/llmExtraction")["runLlmExtractionForPriceCheck"];
 
 describe("persistent browser price-check flow", () => {
   beforeAll(async () => {
@@ -33,10 +36,11 @@ describe("persistent browser price-check flow", () => {
 
     ({ prisma } = await import("@/lib/db"));
     ({ BrowserCompanionPriceCheckRunner, captureBookingPriceTask } = await import("@/lib/priceChecks"));
-    ({ getBrowserTask } = await import("@/lib/browserTasks"));
+    ({ appendBrowserSnapshot, getBrowserTask } = await import("@/lib/browserTasks"));
     ({ captureBrowserTask, createAccountImportTask, createHotelSearchTask } = await import("@/lib/browserTaskHandlers"));
     ({ getHotelSearchSession } = await import("@/lib/hotelSearchSessions"));
     ({ importAccountBookings } = await import("@/lib/accountBookings"));
+    ({ runLlmExtractionForPriceCheck } = await import("@/lib/llmExtraction"));
 
     await prisma.systemSetting.create({ data: { id: "primary", displayCurrency: "USD" } });
     await prisma.userProfile.create({
@@ -91,7 +95,9 @@ describe("persistent browser price-check flow", () => {
     const first = await runner.run({ bookingId: booking.id, trigger: "manual" });
     const duplicateStart = await runner.run({ bookingId: booking.id, trigger: "manual" });
 
-    expect(duplicateStart).toMatchObject({ runId: first.runId, taskId: first.taskId });
+    expect(first.expiresAt).toEqual(expect.any(String));
+    expect(Number.isFinite(Date.parse(first.expiresAt))).toBe(true);
+    expect(duplicateStart).toMatchObject({ expiresAt: first.expiresAt, runId: first.runId, taskId: first.taskId });
     expect(await prisma.priceCheckRun.count({ where: { bookingId: booking.id } })).toBe(1);
 
     await captureBookingPriceTask(first.taskId, {
@@ -232,6 +238,97 @@ describe("persistent browser price-check flow", () => {
       verdict: "rebook_direct"
     });
     expect(JSON.parse(recommendation.warningsJson)).toContain(WEAKER_CANCELLATION_WARNING);
+  });
+
+  it("replays stored snapshots through the LLM extractor without duplicating corroborated facts", async () => {
+    const booking = await prisma.hotelBooking.create({
+      data: {
+        baselineCashTotal: 1200,
+        baselineType: "cash",
+        bookingChannel: "direct",
+        cancellationDeadline: new Date("2032-09-08T00:00:00.000Z"),
+        checkIn: new Date("2032-09-10T00:00:00.000Z"),
+        checkOut: new Date("2032-09-13T00:00:00.000Z"),
+        city: "Tokyo",
+        currency: "USD",
+        guests: 2,
+        hotelGroup: "Hyatt",
+        hotelName: "Grand Hyatt Tokyo",
+        loyaltyEligible: true,
+        roomType: "1 King Bed",
+        watchPlan: { create: { awardEnabled: false, cashEnabled: true, enabled: true } }
+      }
+    });
+    const task = await new BrowserCompanionPriceCheckRunner().run({ bookingId: booking.id, trigger: "manual" });
+    const pageText =
+      "Payment summary Member Rate Stay subtotal USD 800.00 Taxes & Fees USD 100.00 Final amount payable USD 900.00 1 King Bed Cancellation Policy 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE";
+    await appendBrowserSnapshot(task.taskId, {
+      capturedAt: "2032-08-11T10:00:00.000Z",
+      controls: [],
+      pageText,
+      pageTitle: "Hyatt final payment summary",
+      sourceUrl: "https://www.hyatt.com/booking/review?checkinDate=2032-09-10&checkoutDate=2032-09-13"
+    });
+    await prisma.$transaction([
+      prisma.browserTask.update({
+        where: { id: task.taskId },
+        data: { errorCode: "deterministic_parse_failed", finishedAt: new Date(), status: "failed" }
+      }),
+      prisma.priceCheckRun.update({
+        where: { id: task.runId },
+        data: { errorCode: "deterministic_parse_failed", finishedAt: new Date(), status: "failed" }
+      })
+    ]);
+    const candidate = {
+      averageNightlyRate: null,
+      breakfastIncluded: false,
+      cancellationPolicyRaw: "2 DAYS BFR ARRV OR PAY 1 NIGHT FEE",
+      cashCopay: null,
+      cashFees: { amount: 100, currency: "USD" },
+      cashTaxes: null,
+      cashTotal: { amount: 900, currency: "USD" },
+      evidenceText: pageText,
+      feesIncluded: true,
+      inventoryType: "cash",
+      loyaltyEligible: true,
+      points: null,
+      ratePlanName: "Member Rate",
+      rawRateName: "Member Rate",
+      roomTypeRaw: "1 King Bed",
+      staySubtotal: { amount: 800, currency: "USD" },
+      taxesIncluded: true
+    } satisfies LlmEvidenceCandidate;
+    const extractor = {
+      extract: async () => [candidate],
+      model: "fixture-model",
+      name: "fixture-llm-extractor",
+      version: "test-1"
+    };
+
+    const first = await runLlmExtractionForPriceCheck(task.runId, { extractor });
+
+    expect(first).toMatchObject({
+      acceptedCandidates: 1,
+      corroboratedCandidates: 0,
+      observationsCreated: 1,
+      status: "succeeded"
+    });
+    await expect(prisma.priceObservation.findFirstOrThrow({
+      where: { bookingId: booking.id, extractionSource: "model" },
+      include: { evidence: true, extractionRun: true }
+    })).resolves.toMatchObject({
+      cashTotal: 900,
+      extractionRun: { modelName: "fixture-model", status: "succeeded" },
+      extractorName: "fixture-llm-extractor",
+      extractorVersion: "test-1",
+      evidence: { qualityLevel: "high" }
+    });
+
+    const replay = await runLlmExtractionForPriceCheck(task.runId, { extractor });
+
+    expect(replay).toMatchObject({ corroboratedCandidates: 1, observationsCreated: 0 });
+    expect(await prisma.priceObservation.count({ where: { bookingId: booking.id } })).toBe(1);
+    expect(await prisma.evidenceExtractionRun.count({ where: { priceCheckRunId: task.runId } })).toBe(2);
   });
 
   it("imports active Hyatt cash, points, and certificate baselines but skips an already-started stay", async () => {

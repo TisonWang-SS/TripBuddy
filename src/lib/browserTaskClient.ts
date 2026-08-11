@@ -14,11 +14,14 @@ export type BrowserTaskPayload<TResult = unknown> = {
 
 export async function waitForBrowserTask<TResult>(
   taskId: string,
-  timeoutMs = 190000,
+  expiresAt: string,
   onUpdate?: (task: BrowserTaskPayload<TResult>) => void
 ) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
+  const deadline = Date.parse(expiresAt);
+  if (!Number.isFinite(deadline)) {
+    throw new Error("Browser task did not provide a valid expiration time.");
+  }
+  while (Date.now() <= deadline + 5_000) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const response = await fetch(`/api/browser-tasks/${encodeURIComponent(taskId)}`, { cache: "no-store" });
     const task = (await response.json()) as BrowserTaskPayload<TResult> & { error?: string };

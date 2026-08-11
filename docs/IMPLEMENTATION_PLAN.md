@@ -7,7 +7,7 @@ TripBuddy remains a local Next.js App Router application backed by Prisma and SQ
 The application is divided into four boundaries:
 
 1. **Hotel providers** build source URLs, plan safe navigation, and parse source-specific snapshots.
-2. **Price-check services** own browser-task/run lifecycle, observation persistence, evidence construction, and expiration.
+2. **Price-check services** own browser-task/run lifecycle, observation persistence, evidence construction, expiration, and independent snapshot replay.
 3. **Pricing and decision services** calculate deterministic comparable costs, enforce guardrails, and call a replaceable recommendation decider.
 4. **UI/API adapters** translate forms, browser captures, and provider results without duplicating domain logic.
 
@@ -28,11 +28,13 @@ The application is divided into four boundaries:
 - Persist browser tasks with an expiry and one linked price-check run for booking checks.
 - Expose one task status/capture protocol for booking checks, city search, and account import.
 - Register each task kind behind a `BrowserTaskDefinition`; keep the capture router branch-free and isolate search, account-import, and booking-price lifecycle services.
-- Store only sanitized structured evidence; inventory nightly cash estimates do not create observations.
+- Store bounded, PII-sanitized snapshots (up to 12k characters each) for diagnostics and independent extraction replay; inventory nightly cash estimates do not create observations.
 
 ### 3. Evidence and Recommendation Core
 
 - Add a pure evidence builder with blockers, warnings, quality, user overrides, and assessment provenance.
+- Add a schema-constrained LLM evidence extractor as an opt-in replay stage over stored snapshots. Keep provider parsing as the synchronous fast path; model output never controls navigation and must pass page-grounding, currency, and arithmetic checks before persistence.
+- Record extraction source, extractor name/version, model, accepted proposals, and rejected-proposal issues so prompt versions remain auditable.
 - Compare explicit candidate cancellation cutoffs with the current booking deadline using deterministic rules; keep ambiguous policies review-only, while preserving known weaker policies as non-blocking, prominent cautions on medium-risk recommendations.
 - Keep cancellation-deadline form parsing, rendering, and calendar-day comparison on one local wall-time convention so timezone serialization cannot change a blocker.
 - Refactor the cost engine around cash, points, copay, conversion, promotion, card, elite, and benefit components.
@@ -45,6 +47,7 @@ The application is divided into four boundaries:
 - Replace booking-page Chrome links and unused server actions with a single task-driven Run price check client.
 - Keep client actions shared by multiple routes under `app/components`, not inside a dynamic route segment.
 - Show evidence quality, blockers, warnings, source facts, and sanitized details; remove numeric confidence.
+- Let users inspect stored sanitized snapshots and explicitly replay a price-check run with the configured LLM extractor.
 - Reuse booking and observation form components.
 - Generalize `/hotel-search` around the provider registry while exposing Hyatt only.
 - Keep city search in the profile's single calculation currency. Offer an on-demand Hyatt `View Rates` flow that returns a tax-inclusive total only after visible final-total and tax/fee evidence is captured.
@@ -56,6 +59,7 @@ The application is divided into four boundaries:
 
 - Unit-test providers, parsers, evidence, pricing, decider validation, expiry, and click guardrails.
 - Score every hotel evidence extractor against the same provider fixture set before it can replace or supplement a deterministic parser.
+- Keep the LLM fixture evaluation opt-in because it requires an API key and incurs provider usage; fail it when the model score is below the deterministic baseline.
 - Integration-test task/run identity, stage completion, observation readiness, failure preservation, manual correction, city dispatch, and account baselines.
 - Smoke-test booking/check UI, evidence rendering, forms, and search provider selection.
 - Run test, lint, typecheck, production build, and clean reset/seed.
@@ -108,6 +112,6 @@ Provider results contain facts only. Evidence builders assess comparability. Cos
 - No automatic booking, cancellation, payment, or final form submission.
 - No Playwright, CDP, copied Chrome profile, or automated-profile fallback.
 - No scheduler process or unattended price-check contract. The due queue is derived when the Dashboard opens and remains user-initiated as recorded in ADR 0001.
-- No full page-text retention.
+- No full page-text retention. Snapshot replay uses only bounded, PII-sanitized text.
 - No compatibility migration for the prototype database; reset and seed are intentional.
 - The user's normal Chrome profiles outside this repository are outside reset and cleanup scope. Repo-local copied or CDP profiles under `data/` are prohibited legacy artifacts and must not be created or preserved.

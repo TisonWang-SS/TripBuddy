@@ -1,0 +1,13 @@
+{
+  "extractorName": "hyatt-browser-companion",
+  "extractorVersion": "baseline-2026-08-11",
+  "assertions": {
+    "passed": 63,
+    "total": 63
+  },
+  "fixtures": {
+    "passed": 13,
+    "total": 13
+  },
+  "score": 1
+}

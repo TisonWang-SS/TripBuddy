@@ -29,7 +29,7 @@ export function RunPriceCheckButton({ bookingId, trigger = "manual" }: { booking
       }
       browserTab.location.href = created.launchUrl;
       setTask(created);
-      const completed = await waitForBrowserTask(created.taskId, 190000, setTask);
+      const completed = await waitForBrowserTask(created.taskId, created.expiresAt, setTask);
       setTask(completed);
       router.refresh();
     } catch (runError) {

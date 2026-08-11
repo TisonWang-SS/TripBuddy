@@ -106,7 +106,20 @@ enum EvidenceQuality {
 
 enum AssessmentSource {
   automated
+  model
   user
+}
+
+enum ExtractionSource {
+  deterministic
+  model
+  manual
+}
+
+enum EvidenceExtractionStatus {
+  succeeded
+  partial
+  failed
 }
 
 enum RiskLevel {
@@ -300,6 +313,7 @@ model PriceCheckRun {
   watchPlan             WatchPlan?         @relation(fields: [watchPlanId], references: [id], onDelete: SetNull)
   browserTask           BrowserTask        @relation(fields: [browserTaskId], references: [id], onDelete: Cascade)
   observations          PriceObservation[]
+  extractionRuns        EvidenceExtractionRun[]
 
   @@index([bookingId, startedAt])
   @@index([status, expiresAt])
@@ -332,14 +346,38 @@ model PriceObservation {
   loyaltyEligible       Boolean?
   sourceUrl             String?
   notes                 String?
+  extractionSource      ExtractionSource   @default(manual)
+  extractorName         String             @default("manual-form")
+  extractorVersion      String             @default("1")
+  extractionRunId       String?
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   booking               HotelBooking         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   priceCheckRun         PriceCheckRun?       @relation(fields: [priceCheckRunId], references: [id], onDelete: SetNull)
+  extractionRun         EvidenceExtractionRun? @relation(fields: [extractionRunId], references: [id], onDelete: SetNull)
   evidence              ObservationEvidence?
   recommendations       Recommendation[]     @relation("RecommendationCandidate")
 
   @@index([bookingId, observedAt])
+  @@index([extractionRunId])
+}
+
+model EvidenceExtractionRun {
+  id                     String                   @id @default(cuid())
+  priceCheckRunId        String
+  extractorName          String
+  extractorVersion       String
+  modelName               String
+  status                  EvidenceExtractionStatus
+  snapshotCount           Int
+  proposedCandidatesJson String                   @default("[]")
+  acceptedCandidatesJson String                   @default("[]")
+  issuesJson              String                   @default("[]")
+  createdAt               DateTime                 @default(now())
+  priceCheckRun           PriceCheckRun            @relation(fields: [priceCheckRunId], references: [id], onDelete: Cascade)
+  observations            PriceObservation[]
+
+  @@index([priceCheckRunId, createdAt])
 }
 
 model ObservationEvidence {

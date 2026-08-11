@@ -94,7 +94,7 @@ export function HotelSearchClient({
       }
       setSearchSessionId(task.searchSessionId);
       browserTab.location.href = task.launchUrl;
-      const taskState = await waitForBrowserTask<CitySearchPayload>(task.taskId);
+      const taskState = await waitForBrowserTask<CitySearchPayload>(task.taskId, task.expiresAt);
       if (!taskState.result) {
         throw new Error(taskState.errorMessage || "Hotel search returned no result.");
       }
@@ -138,7 +138,7 @@ export function HotelSearchClient({
         throw new Error(task.error || `Tax-inclusive price check failed with ${response.status}.`);
       }
       browserTab.location.href = task.launchUrl;
-      const taskState = await waitForBrowserTask<TaxInclusiveTotalPayload>(task.taskId);
+      const taskState = await waitForBrowserTask<TaxInclusiveTotalPayload>(task.taskId, task.expiresAt);
       if (!taskState.result) {
         throw new Error(taskState.errorMessage || "Hyatt did not expose a tax-inclusive total.");
       }

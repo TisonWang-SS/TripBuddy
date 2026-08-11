@@ -20,6 +20,24 @@ export type ExtractionEvaluationReport = {
 };
 
 export type TextEvidenceExtractor<TCandidate extends object> = (pageText: string, sourceUrl: string) => TCandidate[];
+export type AsyncTextEvidenceExtractor<TCandidate extends object> = (
+  pageText: string,
+  sourceUrl: string
+) => Promise<TCandidate[]>;
+
+export async function evaluateTextEvidenceExtractorAsync<TCandidate extends object>(
+  fixtures: readonly ExtractionFixture<TCandidate>[],
+  extractor: AsyncTextEvidenceExtractor<TCandidate>
+) {
+  const results = new Map<string, TCandidate[]>();
+  for (const fixture of fixtures) {
+    results.set(fixtureKey(fixture.pageText, fixture.sourceUrl), await extractor(fixture.pageText, fixture.sourceUrl));
+  }
+  return evaluateTextEvidenceExtractor(
+    fixtures,
+    (pageText, sourceUrl) => results.get(fixtureKey(pageText, sourceUrl)) ?? []
+  );
+}
 
 export function evaluateTextEvidenceExtractor<TCandidate extends object>(
   fixtures: readonly ExtractionFixture<TCandidate>[],
@@ -137,4 +155,8 @@ function valuesEqual(actual: unknown, expected: unknown) {
 
 function formatValue(value: unknown) {
   return value === undefined ? "<missing>" : JSON.stringify(value);
+}
+
+function fixtureKey(pageText: string, sourceUrl: string) {
+  return `${sourceUrl}\u0000${pageText}`;
 }

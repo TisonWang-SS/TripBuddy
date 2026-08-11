@@ -16,6 +16,7 @@ The v0.2 release includes:
 - Booking-driven Hyatt cash and award checks through the TripBuddy Browser Companion.
 - A foreground due-check queue calculated when the Dashboard opens; every queued check still requires a user click.
 - Structured observations, evidence quality, deterministic cost calculations, and recommendation history.
+- Opt-in LLM evidence replay over bounded, sanitized Browser Companion snapshots.
 - An auxiliary official hotel city search. Hyatt is the first provider; other hotel groups plug into the same provider contract later.
 - User correction of uncertain room and cancellation assessments.
 
@@ -76,9 +77,11 @@ Cancellation equivalence may be assessed automatically only when the current boo
 
 Booking cancellation deadlines round-trip through `datetime-local` as local wall time. Calendar-day policy comparison uses that local booking date against the explicit hotel-policy date; it must not derive the booking day from its UTC serialization.
 
-Raw browser storage is deliberately bounded: persist structured stage data and short sanitized text samples, not full visible pages. Confirmation numbers and similar account identifiers must be removed from diagnostic samples.
+Raw browser storage is deliberately bounded: persist structured stage data and PII-sanitized text samples of at most 12k characters per snapshot, not full visible pages. Confirmation numbers and similar account identifiers must be removed from diagnostic samples.
 
-Hotel evidence extractors are compared offline against one shared, provider-specific fixture set. The evaluation reports field-level assertion coverage, fixture pass counts, and one normalized score so deterministic and future model extractors can be compared without changing the acceptance criteria.
+LLM extraction is a separate, user-triggered replay stage over those stored sanitized snapshots; it is not part of the browser capture timeout. Provider-specific deterministic parsing remains the synchronous fast path. Model output can propose facts only and never controls browser navigation, booking, payment, or baseline changes. Every proposal must pass strict schema validation, prove that its quoted text and numbers occur in the stored snapshot, use one consistent currency, and satisfy available subtotal/fee/total and nightly-rate arithmetic before becoming an observation. Rejected proposals and extractor/model versions remain auditable.
+
+Hotel evidence extractors are compared offline against one shared, provider-specific fixture set. The evaluation reports field-level assertion coverage, fixture pass counts, and one normalized score so deterministic and model extractors can be compared without changing the acceptance criteria. The model extractor must not score below the deterministic baseline before it can supplement production parsing.
 
 ## Cost and Recommendation Behavior
 

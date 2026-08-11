@@ -41,7 +41,7 @@ export function ImportHyattBookingsButton() {
         throw new Error(task.error || `Import failed with status ${response.status}.`);
       }
       browserTab.location.href = task.launchUrl;
-      const completed = await waitForBrowserTask<ImportPayload>(task.taskId, 310000);
+      const completed = await waitForBrowserTask<ImportPayload>(task.taskId, task.expiresAt);
       setPayload(completed.result ?? { error: completed.errorMessage ?? "Hyatt import returned no result." });
       router.refresh();
     } catch (error) {

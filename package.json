@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "eval:llm-extractor": "node --env-file=.env --import tsx scripts/evaluateLlmEvidenceExtractor.ts",
+    "eval:llm-extractor:smoke": "node --env-file=.env --import tsx scripts/evaluateLlmEvidenceExtractor.ts --fixture=final-total-and-taxes",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset --force",
     "db:seed": "tsx prisma/seed.ts"

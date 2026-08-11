@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   evaluateTextEvidenceExtractor,
+  evaluateTextEvidenceExtractorAsync,
   type ExtractionFixture
 } from "@/lib/providers/extractionEvaluation";
 
@@ -24,5 +25,19 @@ describe("text evidence extractor evaluation", () => {
     expect(report.failures).toEqual([
       "sample candidate 1: expected totalPrice=100, received 90."
     ]);
+  });
+
+  it("scores asynchronous model extractors against the same fixtures", async () => {
+    const fixtures = [{
+      expectedCandidates: [{ fields: { currency: "USD" } }],
+      id: "async-sample",
+      pageText: "sample page",
+      sourceUrl: "https://example.com"
+    }] satisfies readonly ExtractionFixture<{ currency: string }>[];
+
+    const report = await evaluateTextEvidenceExtractorAsync(fixtures, async () => [{ currency: "USD" }]);
+
+    expect(report.score).toBe(1);
+    expect(report.failures).toEqual([]);
   });
 });

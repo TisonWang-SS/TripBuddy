@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { PriceCheckTrigger } from "@prisma/client";
 import {
+  parseBookingPriceContext,
+  parseObservationDrafts,
+  serializeBookingPriceContext
+} from "@/lib/browserTaskCodecs";
+import {
   addBrowserTaskHash,
   appendBrowserSnapshot,
   BROWSER_TASK_TTL_MS,
@@ -13,13 +18,14 @@ import {
 import { inferIsSuite } from "@/lib/currency";
 import { prisma } from "@/lib/db";
 import { buildObservationEvidence } from "@/lib/evidence";
-import { parseJson, toJson } from "@/lib/json";
+import { toJson } from "@/lib/json";
 import { getBookingPriceProvider } from "@/lib/providers/registry";
 import type { BookingPriceInput, ParsedObservationDraft } from "@/lib/providers/types";
 import { createRecommendationForBooking } from "@/lib/recommendations";
 import { getCurrencyConversion } from "@/lib/systemSettings";
 
 export type BrowserTaskLaunch = {
+  expiresAt: string;
   launchUrl: string;
   runId: string;
   status: "pending" | "running";
@@ -56,6 +62,7 @@ export class BrowserCompanionPriceCheckRunner implements PriceCheckRunner {
     });
     if (active) {
       return {
+        expiresAt: active.browserTask.expiresAt.toISOString(),
         launchUrl: active.browserTask.launchUrl,
         runId: active.id,
         status: active.browserTask.status === "pending" ? "pending" : "running",
@@ -95,7 +102,7 @@ export class BrowserCompanionPriceCheckRunner implements PriceCheckRunner {
     await prisma.$transaction([
       prisma.browserTask.create({
         data: {
-          contextJson: toJson(serializeBookingContext(context)),
+          contextJson: toJson(serializeBookingPriceContext(context)),
           expiresAt,
           hotelGroup: booking.hotelGroup,
           id: taskId,
@@ -121,7 +128,7 @@ export class BrowserCompanionPriceCheckRunner implements PriceCheckRunner {
       })
     ]);
 
-    return { launchUrl, runId, status: "pending", taskId };
+    return { expiresAt: expiresAt.toISOString(), launchUrl, runId, status: "pending", taskId };
   }
 }
 
@@ -134,8 +141,8 @@ export async function captureBookingPriceTask(taskId: string, capture: BrowserTa
     return serializeTaskState(task);
   }
   if (capture.errorMessage) {
-    const context = parseBookingContext(task.contextJson);
-    const inventory = parseJson<ParsedObservationDraft[]>(task.priceCheckRun.inventoryEvidenceJson, []);
+    const context = parseBookingPriceContext(task.contextJson);
+    const inventory = parseObservationDrafts(task.priceCheckRun.inventoryEvidenceJson);
     const awards = inventory.filter((candidate) => candidate.inventoryType === "award" && candidate.points);
     if (context && awards.length > 0) {
       const observationIds = await completePriceCheckTask({
@@ -168,7 +175,7 @@ export async function captureBookingPriceTask(taskId: string, capture: BrowserTa
   if (!snapshot) {
     throw new BrowserTaskError("invalid_snapshot", "A source URL and visible page snapshot are required.", 400);
   }
-  const context = parseBookingContext(task.contextJson);
+  const context = parseBookingPriceContext(task.contextJson);
   const provider = getBookingPriceProvider(task.hotelGroup);
   if (!context || !provider) {
     await failPriceCheckTask(taskId, "provider_unavailable", `No booking-price provider is available for ${task.hotelGroup}.`);
@@ -177,7 +184,7 @@ export async function captureBookingPriceTask(taskId: string, capture: BrowserTa
 
   await appendBrowserSnapshot(taskId, snapshot);
   const parsed = provider.parseSnapshot(snapshot, context);
-  const existingInventory = parseJson<ParsedObservationDraft[]>(task.priceCheckRun.inventoryEvidenceJson, []);
+  const existingInventory = parseObservationDrafts(task.priceCheckRun.inventoryEvidenceJson);
   const inventory = mergeCandidates(existingInventory, parsed.inventory.map((candidate) => ({ ...candidate, sourceUrl: snapshot.sourceUrl })));
   await prisma.priceCheckRun.update({
     where: { id: task.priceCheckRun.id },
@@ -300,6 +307,9 @@ async function completePriceCheckTask(input: {
               warningsJson: toJson(evidence.warnings)
             }
           },
+          extractionSource: "deterministic",
+          extractorName: task.priceCheckRun!.providerName,
+          extractorVersion: "1",
           id: observationIds[index],
           inventoryType: candidate.inventoryType,
           isSuite: candidate.roomTypeRaw ? inferIsSuite(candidate.roomTypeRaw) : null,
@@ -379,45 +389,4 @@ function mergeCandidates(current: ParsedObservationDraft[], incoming: ParsedObse
     result.set(key, candidate);
   }
   return [...result.values()].slice(0, 24);
-}
-
-function serializeBookingContext(input: BookingPriceInput) {
-  return {
-    ...input,
-    cancellationDeadline: input.cancellationDeadline?.toISOString() ?? null,
-    checkIn: input.checkIn.toISOString(),
-    checkOut: input.checkOut.toISOString()
-  };
-}
-
-function parseBookingContext(value: string): BookingPriceInput | null {
-  const context = parseJson<Record<string, unknown> | null>(value, null);
-  if (!context || typeof context.bookingId !== "string" || typeof context.hotelGroup !== "string") {
-    return null;
-  }
-  const checkIn = new Date(String(context.checkIn ?? ""));
-  const checkOut = new Date(String(context.checkOut ?? ""));
-  const cancellationDeadline = context.cancellationDeadline ? new Date(String(context.cancellationDeadline)) : null;
-  if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) {
-    return null;
-  }
-  if (cancellationDeadline && Number.isNaN(cancellationDeadline.getTime())) {
-    return null;
-  }
-  return {
-    bookingId: context.bookingId,
-    bookingUrl: typeof context.bookingUrl === "string" ? context.bookingUrl : null,
-    cancellationDeadline,
-    checkIn,
-    checkOut,
-    city: String(context.city ?? ""),
-    currency: String(context.currency ?? "USD"),
-    guests: Number(context.guests ?? 1),
-    hotelGroup: context.hotelGroup,
-    hotelName: String(context.hotelName ?? ""),
-    inventoryTypes: Array.isArray(context.inventoryTypes)
-      ? context.inventoryTypes.filter((item): item is "cash" | "award" => item === "cash" || item === "award")
-      : ["cash", "award"],
-    roomType: String(context.roomType ?? "")
-  };
 }

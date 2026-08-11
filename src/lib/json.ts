@@ -24,6 +24,16 @@ export function sanitizeEvidenceText(value: string, limit = 1200) {
     .slice(0, limit);
 }
 
+export function selectEvidenceTextSample(value: string, limit = 12_000) {
+  if (value.length <= limit) {
+    return value;
+  }
+  const separator = " … [middle omitted] … ";
+  const available = Math.max(0, limit - separator.length);
+  const headLength = Math.floor(available / 2);
+  return `${value.slice(0, headLength)}${separator}${value.slice(-(available - headLength))}`;
+}
+
 export function stringList(value: string | null | undefined) {
   const parsed = parseJson<unknown>(value, []);
   return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];

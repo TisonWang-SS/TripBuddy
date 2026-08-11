@@ -31,6 +31,7 @@ export type SanitizedBrowserSnapshot = {
   phase: "inventory" | "detail" | "other";
   sourceUrl: string;
   textSample: string;
+  truncated: boolean;
 };
 
 export type AccountPageSnapshot = {
