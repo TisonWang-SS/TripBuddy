@@ -1,0 +1,190 @@
+/*
+ * The audit trail. Everything here is a record of something that already
+ * happened, so the page reads as a filed stack: each entry is a torn-off strip
+ * with its own stamp on the right.
+ */
+
+.entries {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 13rem;
+  gap: var(--space-4);
+  align-items: start;
+  padding: var(--space-4);
+  border: var(--desk-rule-hair) solid var(--desk-rule);
+  background: var(--desk-paper-2);
+}
+
+.entryBody {
+  min-width: 0;
+}
+
+.entryHead {
+  color: var(--desk-ink);
+  font-family: var(--desk-font-display);
+  font-size: var(--desk-text-md);
+  font-weight: 400;
+  line-height: var(--desk-leading-display);
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.line {
+  margin: var(--space-1) 0 0;
+  color: var(--desk-ink-2);
+  font-size: var(--desk-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  margin: var(--space-1) 0 0;
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.entrySide {
+  display: grid;
+  justify-items: end;
+  gap: var(--space-2);
+  padding-left: var(--space-4);
+  border-left: var(--desk-rule-hair) dashed var(--desk-rule);
+  text-align: right;
+}
+
+.when {
+  margin: 0;
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  white-space: nowrap;
+}
+
+.sideActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* ------------------------------------------------------------- disclosure -- */
+
+.disclosure {
+  margin-top: var(--space-3);
+}
+
+.disclosure > summary {
+  color: var(--desk-muted);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.disclosure > summary:hover {
+  color: var(--desk-accent);
+}
+
+.disclosure > summary:focus-visible {
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.nested {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.snapshot {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-left: var(--desk-rule-slab) solid var(--desk-rule);
+  background: var(--desk-paper-3);
+}
+
+.snapshotBody {
+  min-width: 0;
+}
+
+.snapshotTitle {
+  color: var(--desk-ink);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-sm);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Captured page text, shown as evidence. Preserving the newlines is the point —
+ * it is what the extractor actually read.
+ */
+.sample {
+  margin: var(--space-2) 0 0;
+  max-height: 12rem;
+  overflow-y: auto;
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.issues {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+  color: var(--desk-warn);
+  font-size: var(--desk-text-sm);
+}
+
+.sourceLink {
+  display: inline-block;
+  margin-top: var(--space-2);
+  color: var(--desk-accent);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.sourceLink:focus-visible {
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.explanation {
+  min-width: 18rem;
+}
+
+@media (max-width: 60rem) {
+  .entry {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .entrySide {
+    justify-items: start;
+    padding-left: 0;
+    padding-top: var(--space-3);
+    border-left: 0;
+    border-top: var(--desk-rule-hair) dashed var(--desk-rule);
+    text-align: left;
+  }
+
+  .sideActions {
+    justify-content: flex-start;
+  }
+}

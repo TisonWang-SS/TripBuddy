@@ -1,11 +1,9 @@
 /*
  * Ticket-desk design layer.
  *
- * A second, additive token set that sits beside the ones in tokens.css rather
- * than replacing them. Every name is prefixed --desk-* so the two systems can
- * coexist while pages migrate one at a time: the shell and the dashboard read
- * from here, every other page still reads the teal set in tokens.css and is
- * untouched.
+ * The token set the whole interface reads. Every name is prefixed --desk-* and
+ * lives beside the older set in tokens.css, which is now down to one consumer:
+ * Badge still reads --tone-*. When Badge moves, tokens.css can go.
  *
  * Spacing is deliberately NOT redefined — this layer reuses --space-* from
  * tokens.css, because two spacing scales in one codebase is how rhythm drifts.
@@ -95,49 +93,26 @@
 }
 
 /*
- * Adapter for un-migrated markup. Components shared with pages that are still
- * on the teal set — EvidenceIssueList is the live case — render the legacy
- * .notice class rather than the Notice primitive. A page opts in with
- * .deskPage and its notices pick up the desk voice, while the same component
- * keeps its old look on the pages that have not moved.
+ * The page root for a stacked desk page — a header, then sections, evenly
+ * ruled apart. Pages with their own composition — the dashboard's two columns,
+ * the booking sheet — bring their own grid instead of this one.
  *
- * This block disappears when the last .notice call site becomes <Notice>.
+ * minmax(0, 1fr) rather than a bare implicit column: grid items default to
+ * min-width auto, so one nowrap child sizes the whole column to its min-content
+ * and every section overflows the phone viewport together.
  */
-.deskPage :is(p, div).notice {
-  max-width: 100%;
-  margin: var(--space-3) 0 0;
-  padding: var(--space-3);
-  border: var(--desk-rule-slab) solid var(--desk-rule);
-  border-left-width: var(--desk-rule-slab);
-  border-radius: 0;
-  background: var(--desk-paper-3);
-  color: var(--desk-ink-2);
+.deskStack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6);
   font-family: var(--desk-font-body);
-  font-size: var(--desk-text-sm);
-  line-height: 1.5;
+  font-size: var(--desk-text-base);
+  line-height: var(--desk-leading-body);
+  color: var(--desk-ink);
 }
 
-.deskPage :is(p, div).notice.warning {
-  border-color: var(--desk-warn);
-  color: var(--desk-warn);
-}
-
-.deskPage :is(p, div).notice.caution {
-  border-color: var(--desk-warn);
-  border-left-color: var(--desk-warn);
-  color: var(--desk-warn);
-}
-
-.deskPage :is(p, div).notice.success {
-  border-color: var(--desk-ok);
-  color: var(--desk-ok);
-}
-
-.deskPage :is(p, div).notice a,
-.deskPage :is(p, div).notice small {
-  color: var(--desk-accent);
-  font-family: var(--desk-font-mono);
-  font-size: var(--desk-text-xs);
+.deskStack > * {
+  min-width: 0;
 }
 
 /*

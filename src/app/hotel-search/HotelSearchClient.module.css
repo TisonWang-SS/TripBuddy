@@ -1,0 +1,41 @@
+.summary {
+  margin: 0 0 var(--space-3);
+  color: var(--desk-muted);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-sm);
+}
+
+.results {
+  margin-top: var(--space-3);
+}
+
+.hotelName {
+  display: block;
+  color: var(--desk-ink);
+  font-family: var(--desk-font-body);
+  font-weight: 600;
+  font-size: var(--desk-text-md);
+  overflow-wrap: anywhere;
+}
+
+.total {
+  display: block;
+  color: var(--desk-ink);
+  font-family: var(--desk-font-display);
+  font-size: var(--desk-text-md);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.stacked {
+  display: block;
+  margin-top: 2px;
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  line-height: 1.45;
+}
+
+.money {
+  font-variant-numeric: tabular-nums;
+}

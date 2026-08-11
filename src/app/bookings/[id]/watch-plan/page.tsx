@@ -3,6 +3,19 @@ import Link from "next/link";
 import { updateWatchPlan } from "@/lib/actions";
 import { prisma } from "@/lib/db";
 import { formatLocalInstant } from "@/lib/format";
+import {
+  Button,
+  buttonClassName,
+  CheckField,
+  Field,
+  FieldGrid,
+  Figure,
+  Figures,
+  Form,
+  FormActions,
+  Notice,
+  PageHeader
+} from "@/ui";
 
 export default async function WatchPlanPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -16,48 +29,84 @@ export default async function WatchPlanPage({ params }: { params: Promise<{ id: 
   }
 
   return (
-    <div className="grid">
-      <div className="pageHeader">
-        <div>
-          <p className="eyebrow">Watch plan</p>
-          <h1>{booking.hotelName}</h1>
-          <p>Choose which inventory the next Browser Companion check should collect.</p>
-        </div>
-        <Link className="button secondary" href={`/bookings/${booking.id}`}>
-          Back
-        </Link>
-      </div>
+    <div className="deskStack">
+      <PageHeader
+        actions={
+          <Link className={buttonClassName({ size: "sm", variant: "secondary" })} href={`/bookings/${booking.id}`}>
+            Back
+          </Link>
+        }
+        description="Choose which inventory the next Browser Companion check should collect."
+        eyebrow="Watch plan"
+        title={booking.hotelName}
+      />
 
-      <form action={updateWatchPlan} className="card form">
-        <input type="hidden" name="bookingId" value={booking.id} />
-        <div className="check">
-          <input id="cashEnabled" name="cashEnabled" type="checkbox" defaultChecked={booking.watchPlan?.cashEnabled ?? true} />
-          <label htmlFor="cashEnabled">Check cash rates</label>
-        </div>
-        <div className="check">
-          <input id="awardEnabled" name="awardEnabled" type="checkbox" defaultChecked={booking.watchPlan?.awardEnabled ?? true} />
-          <label htmlFor="awardEnabled">Check award availability</label>
-        </div>
-        <div className="grid three">
-          <div className="field">
-            <label htmlFor="normalCadenceHours">Normal reminder cadence (hours)</label>
-            <input id="normalCadenceHours" min="1" max="720" name="normalCadenceHours" type="number" defaultValue={booking.watchPlan?.normalCadenceHours ?? 24} />
-          </div>
-          <div className="field">
-            <label htmlFor="urgentCadenceHours">Urgent reminder cadence (hours)</label>
-            <input id="urgentCadenceHours" min="1" max="720" name="urgentCadenceHours" type="number" defaultValue={booking.watchPlan?.urgentCadenceHours ?? 6} />
-          </div>
-          <div className="field">
-            <label htmlFor="urgentWindowHours">Urgent window before cancellation (hours)</label>
-            <input id="urgentWindowHours" min="1" max="720" name="urgentWindowHours" type="number" defaultValue={booking.watchPlan?.urgentWindowHours ?? 72} />
-          </div>
-        </div>
-        <p className="muted">These values create reminders on the Dashboard. Every check still requires you to click Run price check and keep the visible Hyatt tab open.</p>
-        <p>Last checked: {formatLocalInstant(booking.watchPlan?.lastCheckedAt)}</p>
-        <p>Last attempted: {formatLocalInstant(booking.watchPlan?.lastAttemptedAt)}</p>
-        <p>Consecutive failures: {booking.watchPlan?.consecutiveFailures ?? 0}</p>
-        <button type="submit">Save watch plan</button>
-      </form>
+      <Figures>
+        <Figure label="Last checked" value={formatLocalInstant(booking.watchPlan?.lastCheckedAt)} />
+        <Figure label="Last attempted" value={formatLocalInstant(booking.watchPlan?.lastAttemptedAt)} />
+        <Figure label="Consecutive failures" value={booking.watchPlan?.consecutiveFailures ?? 0} />
+      </Figures>
+
+      <Form action={updateWatchPlan}>
+        <input name="bookingId" type="hidden" value={booking.id} />
+
+        <FieldGrid>
+          <CheckField
+            defaultChecked={booking.watchPlan?.cashEnabled ?? true}
+            id="cashEnabled"
+            label="Check cash rates"
+            name="cashEnabled"
+          />
+          <CheckField
+            defaultChecked={booking.watchPlan?.awardEnabled ?? true}
+            id="awardEnabled"
+            label="Check award availability"
+            name="awardEnabled"
+          />
+        </FieldGrid>
+
+        <FieldGrid>
+          <Field htmlFor="normalCadenceHours" label="Normal reminder cadence (hours)">
+            <input
+              defaultValue={booking.watchPlan?.normalCadenceHours ?? 24}
+              id="normalCadenceHours"
+              max="720"
+              min="1"
+              name="normalCadenceHours"
+              type="number"
+            />
+          </Field>
+          <Field htmlFor="urgentCadenceHours" label="Urgent reminder cadence (hours)">
+            <input
+              defaultValue={booking.watchPlan?.urgentCadenceHours ?? 6}
+              id="urgentCadenceHours"
+              max="720"
+              min="1"
+              name="urgentCadenceHours"
+              type="number"
+            />
+          </Field>
+          <Field htmlFor="urgentWindowHours" label="Urgent window before cancellation (hours)">
+            <input
+              defaultValue={booking.watchPlan?.urgentWindowHours ?? 72}
+              id="urgentWindowHours"
+              max="720"
+              min="1"
+              name="urgentWindowHours"
+              type="number"
+            />
+          </Field>
+        </FieldGrid>
+
+        <Notice>
+          These values create reminders on the desk. Every check still needs you to press Run price check and keep the
+          visible Hyatt tab open.
+        </Notice>
+
+        <FormActions>
+          <Button type="submit">Save watch plan</Button>
+        </FormActions>
+      </Form>
     </div>
   );
 }

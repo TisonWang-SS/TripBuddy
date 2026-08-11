@@ -1,0 +1,57 @@
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
+  border-top: var(--desk-rule-slab) solid var(--desk-ink);
+  border-bottom: var(--desk-rule-slab) solid var(--desk-ink);
+}
+
+.figure {
+  padding: var(--space-3) var(--space-4);
+  border-left: var(--desk-rule-hair) dashed var(--desk-rule);
+  min-width: 0;
+}
+
+.figure:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.label {
+  display: block;
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.value {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--desk-ink);
+  font-family: var(--desk-font-display);
+  font-size: var(--desk-text-lg);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Below the wrap point the row becomes a stack, so the vertical dashes turn
+ * into horizontal ones and the first cell regains its left padding.
+ */
+@media (max-width: 40rem) {
+  .figures {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .figure {
+    padding: var(--space-3) 0;
+    border-left: 0;
+    border-top: var(--desk-rule-hair) dashed var(--desk-rule);
+  }
+
+  .figure:first-child {
+    border-top: 0;
+  }
+}

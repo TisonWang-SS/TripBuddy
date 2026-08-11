@@ -2,6 +2,18 @@ import { createPromotion } from "@/lib/actions";
 import { HOTEL_GROUPS } from "@/lib/constants";
 import { prisma } from "@/lib/db";
 import { formatCalendarDate } from "@/lib/format";
+import {
+  Button,
+  Card,
+  CheckField,
+  EmptyState,
+  Field,
+  FieldGrid,
+  Form,
+  FormActions,
+  PageHeader,
+  Table
+} from "@/ui";
 
 export default async function PromotionsPage() {
   const promotions = await prisma.promotion.findMany({
@@ -9,20 +21,18 @@ export default async function PromotionsPage() {
   });
 
   return (
-    <div className="grid">
-      <div className="pageHeader">
-        <div>
-          <p className="eyebrow">Promotions</p>
-          <h1>Capture offers before they disappear.</h1>
-          <p>Add hotel promotions manually from official pages, emails, screenshots, or copied terms.</p>
-        </div>
-      </div>
+    <div className="deskStack">
+      <PageHeader
+        description="Add hotel promotions by hand from official pages, emails, screenshots, or copied terms."
+        eyebrow="Promotions"
+        title="Capture offers before they go"
+      />
 
-      <form action={createPromotion} className="card form">
-        <p className="eyebrow">Add Promotion</p>
-        <div className="grid two">
-          <div className="field">
-            <label htmlFor="hotelGroup">Hotel group</label>
+      <Form action={createPromotion}>
+        <PageHeader eyebrow="Add promotion" level={2} title="New offer" />
+
+        <FieldGrid>
+          <Field htmlFor="hotelGroup" label="Hotel group">
             <select id="hotelGroup" name="hotelGroup" required>
               {HOTEL_GROUPS.map((group) => (
                 <option key={group} value={group}>
@@ -30,65 +40,56 @@ export default async function PromotionsPage() {
                 </option>
               ))}
             </select>
-          </div>
-          <div className="field">
-            <label htmlFor="title">Title</label>
-            <input id="title" name="title" required placeholder="Double points on eligible stays" />
-          </div>
-          <div className="field">
-            <label htmlFor="startDate">Start date</label>
+          </Field>
+          <Field htmlFor="title" label="Title">
+            <input id="title" name="title" placeholder="Double points on eligible stays" required />
+          </Field>
+          <Field htmlFor="startDate" label="Start date">
             <input id="startDate" name="startDate" type="date" />
-          </div>
-          <div className="field">
-            <label htmlFor="endDate">End date</label>
+          </Field>
+          <Field htmlFor="endDate" label="End date">
             <input id="endDate" name="endDate" type="date" />
-          </div>
-          <div className="field">
-            <label htmlFor="bonusMultiplier">Bonus multiplier</label>
-            <input id="bonusMultiplier" name="bonusMultiplier" type="number" step="0.1" defaultValue="0" />
-          </div>
-          <div className="field">
-            <label htmlFor="flatValue">Flat value</label>
-            <input id="flatValue" name="flatValue" type="number" step="0.01" defaultValue="0" />
-          </div>
-          <div className="field">
-            <label htmlFor="sourceUrl">Source URL</label>
-            <input id="sourceUrl" name="sourceUrl" type="url" placeholder="https://..." />
-          </div>
-        </div>
-        <div className="field">
-          <label htmlFor="description">Terms or notes</label>
-          <textarea id="description" name="description" placeholder="Paste the important promotion terms here." />
-        </div>
-        <div className="check">
-          <input id="requiresRegistration" name="requiresRegistration" type="checkbox" />
-          <label htmlFor="requiresRegistration">Registration is required</label>
-        </div>
-        <div className="check">
-          <input id="appliesToExistingBookings" name="appliesToExistingBookings" type="checkbox" />
-          <label htmlFor="appliesToExistingBookings">Applies to existing bookings</label>
-        </div>
-        <button type="submit">Save promotion</button>
-      </form>
+          </Field>
+          <Field htmlFor="bonusMultiplier" label="Bonus multiplier">
+            <input defaultValue="0" id="bonusMultiplier" name="bonusMultiplier" step="0.1" type="number" />
+          </Field>
+          <Field htmlFor="flatValue" label="Flat value">
+            <input defaultValue="0" id="flatValue" name="flatValue" step="0.01" type="number" />
+          </Field>
+          <Field htmlFor="sourceUrl" label="Source URL">
+            <input id="sourceUrl" name="sourceUrl" placeholder="https://..." type="url" />
+          </Field>
+        </FieldGrid>
 
-      <section className="card">
-        <p className="eyebrow">Saved Offers</p>
-        <h2>Promotion library</h2>
-        <div className="divider" />
+        <Field htmlFor="description" label="Terms or notes">
+          <textarea id="description" name="description" placeholder="Paste the important promotion terms here." />
+        </Field>
+
+        <FieldGrid>
+          <CheckField id="requiresRegistration" label="Registration is required" name="requiresRegistration" />
+          <CheckField id="appliesToExistingBookings" label="Applies to existing bookings" name="appliesToExistingBookings" />
+        </FieldGrid>
+
+        <FormActions>
+          <Button type="submit">Save promotion</Button>
+        </FormActions>
+      </Form>
+
+      <Card eyebrow="Saved offers" title="Promotion library">
         {promotions.length === 0 ? (
-          <div className="empty">
-            <h3>No promotions yet</h3>
-            <p>Add a promotion to include it in future effective cost calculations.</p>
-          </div>
+          <EmptyState
+            description="Add a promotion to include it in future effective-cost calculations."
+            title="No promotions yet"
+          />
         ) : (
-          <table className="table">
+          <Table>
             <thead>
               <tr>
-                <th>Group</th>
-                <th>Title</th>
-                <th>Dates</th>
-                <th>Value</th>
-                <th>Rules</th>
+                <th scope="col">Group</th>
+                <th scope="col">Title</th>
+                <th scope="col">Dates</th>
+                <th scope="col">Value</th>
+                <th scope="col">Rules</th>
               </tr>
             </thead>
             <tbody>
@@ -110,9 +111,9 @@ export default async function PromotionsPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </Table>
         )}
-      </section>
+      </Card>
     </div>
   );
 }

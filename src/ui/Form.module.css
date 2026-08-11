@@ -1,0 +1,70 @@
+.form {
+  display: grid;
+  /* Grid items default to min-width auto; a nowrap control would otherwise size
+     the whole column past the viewport and get clipped on a phone. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+  border: var(--desk-rule-slab) solid var(--desk-ink);
+  background: var(--desk-paper-2);
+  padding: var(--space-5);
+  color: var(--desk-ink);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-base);
+  line-height: var(--desk-leading-body);
+}
+
+.form > * {
+  min-width: 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+  gap: var(--space-4) var(--space-5);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: var(--desk-rule-hair) dashed var(--desk-rule);
+}
+
+/* ------------------------------------------------------------------ check -- */
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.checkbox {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  margin-top: 0.2rem;
+  accent-color: var(--desk-accent);
+}
+
+.checkbox:focus-visible {
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.checkLabel {
+  color: var(--desk-ink-2);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-sm);
+  cursor: pointer;
+}
+
+.checkHint {
+  display: block;
+  margin-top: 2px;
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+}

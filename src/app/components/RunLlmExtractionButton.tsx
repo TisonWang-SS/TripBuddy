@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ActionPanel, Button, Notice } from "@/ui";
 
 type ExtractionResult = {
   corroboratedCandidates: number;
@@ -43,17 +44,17 @@ export function RunLlmExtractionButton({ configured, runId }: { configured: bool
   }
 
   return (
-    <div className="importPanel">
-      <button disabled={!configured || loading} onClick={run} type="button">
-        {loading ? "Extracting stored evidence..." : "Replay with LLM"}
-      </button>
-      {!configured ? <small className="muted">Set TRIPBUDDY_LLM_API_KEY to enable.</small> : null}
+    <ActionPanel>
+      <Button disabled={!configured} loading={loading} onClick={run} size="sm" type="button" variant="secondary">
+        {loading ? "Extracting stored evidence…" : "Replay with LLM"}
+      </Button>
+      {!configured ? <Notice>Set TRIPBUDDY_LLM_API_KEY to enable.</Notice> : null}
       {result ? (
-        <div className={`notice ${result.error ? "warning" : "success"}`}>
+        <Notice tone={result.error ? "caution" : "positive"}>
           {result.error ??
             `LLM proposed ${result.proposedCandidates}, corroborated ${result.corroboratedCandidates}, and created ${result.observationsCreated} observation(s).`}
-        </div>
+        </Notice>
       ) : null}
-    </div>
+    </ActionPanel>
   );
 }

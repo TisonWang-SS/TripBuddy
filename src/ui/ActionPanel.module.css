@@ -1,0 +1,9 @@
+.panel {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  /* Keeps the notice from stretching the row it sits in. */
+  align-self: start;
+  min-width: 0;
+  max-width: 28rem;
+}

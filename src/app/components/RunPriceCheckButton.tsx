@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { waitForBrowserTask, type BrowserTaskPayload } from "@/lib/browserTaskClient";
-import { Notice } from "@/ui";
+import { ActionPanel, Notice } from "@/ui";
 
 export function RunPriceCheckButton({
   bookingId,
@@ -51,7 +51,7 @@ export function RunPriceCheckButton({
   }
 
   return (
-    <div className="importPanel">
+    <ActionPanel>
       <button className={className} disabled={loading} onClick={run} type="button">
         {loading ? "Checking Hyatt..." : "Run price check"}
       </button>
@@ -63,6 +63,6 @@ export function RunPriceCheckButton({
             : "Keep the Hyatt tab open until capture finishes."}
         </Notice>
       ) : null}
-    </div>
+    </ActionPanel>
   );
 }

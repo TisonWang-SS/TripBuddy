@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ObservationForm } from "@/app/components/ObservationForm";
 import { prisma } from "@/lib/db";
+import { buttonClassName, PageHeader } from "@/ui";
 
 export default async function NewObservationPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -10,8 +11,17 @@ export default async function NewObservationPage({ params }: { params: Promise<{
     notFound();
   }
   return (
-    <div className="grid">
-      <div className="pageHeader"><div><p className="eyebrow">Manual entry</p><h1>{booking.hotelName}</h1><p>Fallback input for a final price that the Browser Companion could not capture.</p></div><Link className="button secondary" href={`/bookings/${id}`}>Back</Link></div>
+    <div className="deskStack">
+      <PageHeader
+        actions={
+          <Link className={buttonClassName({ size: "sm", variant: "secondary" })} href={`/bookings/${id}`}>
+            Back
+          </Link>
+        }
+        description="Fallback input for a final price the Browser Companion could not capture."
+        eyebrow="Manual entry"
+        title={booking.hotelName}
+      />
       <ObservationForm booking={booking} />
     </div>
   );

@@ -1,9 +1,14 @@
 import { BookingForm } from "@/app/components/BookingForm";
+import { PageHeader } from "@/ui";
 
 export default function NewBookingPage() {
   return (
-    <div className="grid">
-      <div className="pageHeader"><div><p className="eyebrow">Add booking</p><h1>Start tracking a hotel stay.</h1><p>Enter the current cash, points, or free-night certificate baseline.</p></div></div>
+    <div className="deskStack">
+      <PageHeader
+        description="Enter the current cash, points, or free-night certificate baseline."
+        eyebrow="Add booking"
+        title="Start tracking a stay"
+      />
       <BookingForm />
     </div>
   );

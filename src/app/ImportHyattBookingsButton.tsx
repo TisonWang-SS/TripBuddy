@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { waitForBrowserTask, type BrowserTaskPayload } from "@/lib/browserTaskClient";
-import { Notice } from "@/ui";
+import { ActionPanel, Notice } from "@/ui";
 
 type ImportPayload = {
   created?: number;
@@ -54,7 +54,7 @@ export function ImportHyattBookingsButton({ className }: { className?: string } 
   }
 
   return (
-    <div className="importPanel">
+    <ActionPanel>
       <button className={className} disabled={loading} onClick={importBookings} type="button">
         {loading ? "Importing Hyatt..." : "Import Hyatt bookings"}
       </button>
@@ -77,6 +77,6 @@ export function ImportHyattBookingsButton({ className }: { className?: string } 
           ) : null}
         </Notice>
       ) : null}
-    </div>
+    </ActionPanel>
   );
 }

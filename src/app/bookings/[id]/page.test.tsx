@@ -123,8 +123,9 @@ describe("booking detail page", () => {
     expect(screen.getAllByText("Needs review").length).toBeGreaterThan(0);
     expect(screen.queryByText("needs_review")).not.toBeInTheDocument();
     expect(screen.getAllByText("Cancellation-policy equivalence is unknown.").length).toBeGreaterThan(0);
+    // data-tone rather than a class name: the classes are CSS-module hashes now.
     expect(screen.getByText((_, element) => element?.textContent === `Caution: ${WEAKER_CANCELLATION_WARNING}`))
-      .toHaveClass("notice", "caution");
+      .toHaveAttribute("data-tone", "caution");
     expect(screen.getByText("Review the captured cancellation policy.")).toBeInTheDocument();
     expect(screen.getByText("Observed in MYR")).toBeInTheDocument();
     expect(screen.getByText("Cost breakdown")).toBeInTheDocument();

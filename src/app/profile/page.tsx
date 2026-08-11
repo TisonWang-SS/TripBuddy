@@ -1,6 +1,8 @@
 import { createCreditCardBenefit, updateProfile } from "@/lib/actions";
 import { DEFAULT_PROFILE_ID, HOTEL_GROUPS, HOTEL_GROUP_TIERS, SUPPORTED_CURRENCIES } from "@/lib/constants";
 import { prisma } from "@/lib/db";
+import { Button, Card, EmptyState, Field, FieldGrid, Form, FormActions, PageHeader, Table } from "@/ui";
+import styles from "./page.module.css";
 
 export default async function ProfilePage() {
   const profile = await prisma.userProfile.upsert({
@@ -26,132 +28,110 @@ export default async function ProfilePage() {
 
   const accountByGroup = new Map(profile.loyaltyAccounts.map((account) => [account.hotelGroup, account]));
   return (
-    <div className="grid">
-      <div className="pageHeader">
-        <div>
-          <p className="eyebrow">Profile & Loyalty</p>
-          <h1>Model your personal travel math.</h1>
-          <p>Store stable assumptions once, then let recommendations use them on every booking.</p>
-        </div>
-      </div>
+    <div className="deskStack">
+      <PageHeader
+        description="Store stable assumptions once, then let recommendations use them on every booking."
+        eyebrow="Profile & loyalty"
+        title="Your travel math"
+      />
 
-      <form action={updateProfile} className="card form">
-        <p className="eyebrow">Traveler Profile</p>
-        <h2>Default values</h2>
-        <div className="grid three">
-          <div className="field">
-            <label htmlFor="name">Profile name</label>
-            <input id="name" name="name" defaultValue={profile.name} />
-          </div>
-          <div className="field">
-            <label htmlFor="defaultCurrency">Primary calculation currency</label>
-            <select id="defaultCurrency" name="defaultCurrency" defaultValue={profile.defaultCurrency}>
+      <Form action={updateProfile}>
+        <PageHeader eyebrow="Traveler profile" level={2} title="Default values" />
+
+        <FieldGrid>
+          <Field htmlFor="name" label="Profile name">
+            <input defaultValue={profile.name} id="name" name="name" />
+          </Field>
+          <Field
+            hint="City search captures and displays one official price in this currency."
+            htmlFor="defaultCurrency"
+            label="Primary calculation currency"
+          >
+            <select defaultValue={profile.defaultCurrency} id="defaultCurrency" name="defaultCurrency">
               {SUPPORTED_CURRENCIES.map((currency) => (
                 <option key={currency} value={currency}>
                   {currency}
                 </option>
               ))}
             </select>
-            <small className="muted">City search captures and displays one official price in this currency.</small>
-          </div>
-          <div className="field">
-            <label htmlFor="savingsThreshold">Savings threshold</label>
-            <input
-              id="savingsThreshold"
-              name="savingsThreshold"
-              type="number"
-              step="0.01"
-              defaultValue={profile.savingsThreshold}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="urgentWindowHours">Urgent window hours</label>
-            <input id="urgentWindowHours" name="urgentWindowHours" type="number" defaultValue={profile.urgentWindowHours} />
-          </div>
-          <div className="field">
-            <label htmlFor="breakfastValue">Breakfast value per night</label>
-            <input id="breakfastValue" name="breakfastValue" type="number" step="0.01" defaultValue={profile.breakfastValue} />
-          </div>
-          <div className="field">
-            <label htmlFor="loungeValue">Lounge value per night</label>
-            <input id="loungeValue" name="loungeValue" type="number" step="0.01" defaultValue={profile.loungeValue} />
-          </div>
-          <div className="field">
-            <label htmlFor="lateCheckoutValue">Late checkout value</label>
-            <input
-              id="lateCheckoutValue"
-              name="lateCheckoutValue"
-              type="number"
-              step="0.01"
-              defaultValue={profile.lateCheckoutValue}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="upgradeValue">Upgrade value per night</label>
-            <input id="upgradeValue" name="upgradeValue" type="number" step="0.01" defaultValue={profile.upgradeValue} />
-          </div>
-          <div className="field">
-            <label htmlFor="eliteNightValue">Elite night value</label>
-            <input id="eliteNightValue" name="eliteNightValue" type="number" step="0.01" defaultValue={profile.eliteNightValue} />
-          </div>
-        </div>
+          </Field>
+          <Field htmlFor="savingsThreshold" label="Savings threshold">
+            <input defaultValue={profile.savingsThreshold} id="savingsThreshold" name="savingsThreshold" step="0.01" type="number" />
+          </Field>
+          <Field htmlFor="urgentWindowHours" label="Urgent window hours">
+            <input defaultValue={profile.urgentWindowHours} id="urgentWindowHours" name="urgentWindowHours" type="number" />
+          </Field>
+          <Field htmlFor="breakfastValue" label="Breakfast value per night">
+            <input defaultValue={profile.breakfastValue} id="breakfastValue" name="breakfastValue" step="0.01" type="number" />
+          </Field>
+          <Field htmlFor="loungeValue" label="Lounge value per night">
+            <input defaultValue={profile.loungeValue} id="loungeValue" name="loungeValue" step="0.01" type="number" />
+          </Field>
+          <Field htmlFor="lateCheckoutValue" label="Late checkout value">
+            <input defaultValue={profile.lateCheckoutValue} id="lateCheckoutValue" name="lateCheckoutValue" step="0.01" type="number" />
+          </Field>
+          <Field htmlFor="upgradeValue" label="Upgrade value per night">
+            <input defaultValue={profile.upgradeValue} id="upgradeValue" name="upgradeValue" step="0.01" type="number" />
+          </Field>
+          <Field htmlFor="eliteNightValue" label="Elite night value">
+            <input defaultValue={profile.eliteNightValue} id="eliteNightValue" name="eliteNightValue" step="0.01" type="number" />
+          </Field>
+        </FieldGrid>
 
-        <div className="section">
-          <p className="eyebrow">Loyalty Accounts</p>
-          <h2>Hotel program status</h2>
-          <div className="grid">
+        <section>
+          <PageHeader eyebrow="Loyalty accounts" level={2} title="Hotel program status" />
+          <div className={styles.programs}>
             {HOTEL_GROUPS.map((group) => {
               const account = accountByGroup.get(group);
               return (
-                <div className="programRow" key={group}>
-                  <h3>{group}</h3>
-                  <div className="grid three">
-                    <div className="field">
-                      <label htmlFor={`${group}_tier`}>Tier</label>
-                      <select id={`${group}_tier`} name={`${group}_tier`} defaultValue={account?.tier ?? HOTEL_GROUP_TIERS[group][0]}>
+                <div className={styles.program} key={group}>
+                  <h3 className={styles.programName}>{group}</h3>
+                  <FieldGrid>
+                    <Field htmlFor={`${group}_tier`} label="Tier">
+                      <select
+                        defaultValue={account?.tier ?? HOTEL_GROUP_TIERS[group][0]}
+                        id={`${group}_tier`}
+                        name={`${group}_tier`}
+                      >
                         {HOTEL_GROUP_TIERS[group].map((tier) => (
                           <option key={tier} value={tier}>
                             {tier}
                           </option>
                         ))}
                       </select>
-                    </div>
-                    <div className="field">
-                      <label htmlFor={`${group}_pointValue`}>Point value</label>
+                    </Field>
+                    <Field htmlFor={`${group}_pointValue`} label="Point value">
                       <input
+                        defaultValue={account?.pointValue ?? 0.005}
                         id={`${group}_pointValue`}
                         name={`${group}_pointValue`}
-                        type="number"
                         step="0.0001"
-                        defaultValue={account?.pointValue ?? 0.005}
+                        type="number"
                       />
-                    </div>
-                  </div>
+                    </Field>
+                  </FieldGrid>
                 </div>
               );
             })}
           </div>
-        </div>
-        <button type="submit">Save profile</button>
-      </form>
+        </section>
 
-      <section className="card">
-        <p className="eyebrow">Credit Cards</p>
-        <h2>Benefit cards</h2>
-        <div className="divider" />
+        <FormActions>
+          <Button type="submit">Save profile</Button>
+        </FormActions>
+      </Form>
+
+      <Card eyebrow="Credit cards" title="Benefit cards">
         {profile.creditCardBenefits.length === 0 ? (
-          <div className="empty">
-            <h3>No credit card benefits</h3>
-            <p>Add cards that provide hotel cash back or extra points.</p>
-          </div>
+          <EmptyState description="Add cards that provide hotel cash back or extra points." title="No credit card benefits" />
         ) : (
-          <table className="table">
+          <Table>
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Group</th>
-                <th>Cash back</th>
-                <th>Point multiplier</th>
+                <th scope="col">Name</th>
+                <th scope="col">Group</th>
+                <th scope="col">Cash back</th>
+                <th scope="col">Point multiplier</th>
               </tr>
             </thead>
             <tbody>
@@ -164,19 +144,17 @@ export default async function ProfilePage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </Table>
         )}
-      </section>
+      </Card>
 
-      <form action={createCreditCardBenefit} className="card form">
-        <p className="eyebrow">Add Card Benefit</p>
-        <div className="grid three">
-          <div className="field">
-            <label htmlFor="cardName">Card name</label>
-            <input id="cardName" name="name" required placeholder="Hotel card" />
-          </div>
-          <div className="field">
-            <label htmlFor="cardHotelGroup">Hotel group</label>
+      <Form action={createCreditCardBenefit}>
+        <PageHeader eyebrow="Add card benefit" level={2} title="New card" />
+        <FieldGrid>
+          <Field htmlFor="cardName" label="Card name">
+            <input id="cardName" name="name" placeholder="Hotel card" required />
+          </Field>
+          <Field htmlFor="cardHotelGroup" label="Hotel group">
             <select id="cardHotelGroup" name="hotelGroup">
               <option value="">Any group</option>
               {HOTEL_GROUPS.map((group) => (
@@ -185,22 +163,21 @@ export default async function ProfilePage() {
                 </option>
               ))}
             </select>
-          </div>
-          <div className="field">
-            <label htmlFor="cashBackRate">Cash back rate</label>
-            <input id="cashBackRate" name="cashBackRate" type="number" step="0.001" defaultValue="0" />
-          </div>
-          <div className="field">
-            <label htmlFor="pointMultiplier">Point multiplier</label>
-            <input id="pointMultiplier" name="pointMultiplier" type="number" step="0.1" defaultValue="0" />
-          </div>
-        </div>
-        <div className="field">
-          <label htmlFor="cardNotes">Notes</label>
+          </Field>
+          <Field htmlFor="cashBackRate" label="Cash back rate">
+            <input defaultValue="0" id="cashBackRate" name="cashBackRate" step="0.001" type="number" />
+          </Field>
+          <Field htmlFor="pointMultiplier" label="Point multiplier">
+            <input defaultValue="0" id="pointMultiplier" name="pointMultiplier" step="0.1" type="number" />
+          </Field>
+        </FieldGrid>
+        <Field htmlFor="cardNotes" label="Notes">
           <textarea id="cardNotes" name="notes" />
-        </div>
-        <button type="submit">Add card benefit</button>
-      </form>
+        </Field>
+        <FormActions>
+          <Button type="submit">Add card benefit</Button>
+        </FormActions>
+      </Form>
     </div>
   );
 }

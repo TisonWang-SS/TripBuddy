@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { waitForBrowserTask, type BrowserTaskPayload } from "@/lib/browserTaskClient";
 import { formatMoney } from "@/lib/format";
+import { Button, buttonClassName, Card, EmptyState, Field, FieldGrid, Form, FormActions, Notice, Table } from "@/ui";
+import styles from "./HotelSearchClient.module.css";
 import type {
   HotelSearchHotelResult,
   HotelSearchOffer,
@@ -162,76 +164,128 @@ export function HotelSearchClient({
   }
 
   return (
-    <div className="grid">
-      <form className="card form" onSubmit={submitSearch}>
-        <div className="grid three">
-          <div className="field">
-            <label htmlFor="hotelGroup">Hotel group</label>
+    <div className="deskStack">
+      <Form onSubmit={submitSearch}>
+        <FieldGrid>
+          <Field htmlFor="hotelGroup" label="Hotel group">
             <select id="hotelGroup" onChange={(event) => setHotelGroup(event.target.value)} value={hotelGroup}>
               {hotelGroups.map((group) => <option key={group}>{group}</option>)}
             </select>
-          </div>
-          <div className="field">
-            <label htmlFor="city">City or destination</label>
+          </Field>
+          <Field htmlFor="city" label="City or destination">
             <input id="city" onChange={(event) => setCity(event.target.value)} placeholder="Tokyo" required value={city} />
-          </div>
-          <div className="field">
-            <label htmlFor="adults">Adults</label>
+          </Field>
+          <Field htmlFor="adults" label="Adults">
             <input id="adults" min="1" onChange={(event) => setAdults(event.target.value)} required type="number" value={adults} />
-          </div>
-          <div className="field">
-            <label htmlFor="checkIn">Check-in</label>
+          </Field>
+          <Field htmlFor="checkIn" label="Check-in">
             <input id="checkIn" onChange={(event) => setCheckIn(event.target.value)} required type="date" value={checkIn} />
-          </div>
-          <div className="field">
-            <label htmlFor="checkOut">Check-out</label>
+          </Field>
+          <Field htmlFor="checkOut" label="Check-out">
             <input id="checkOut" onChange={(event) => setCheckOut(event.target.value)} required type="date" value={checkOut} />
-          </div>
-        </div>
-        <p className="muted">Official city prices are captured and displayed in your profile currency: {currency}.</p>
-        <button disabled={loading} type="submit">
-          {loading ? `Searching ${hotelGroup}...` : `Search official prices in ${currency}`}
-        </button>
-      </form>
+          </Field>
+        </FieldGrid>
 
-      {error ? <section className="card"><p className="eyebrow">Search failed</p><h2>Official search could not be completed</h2><p>{error}</p></section> : null}
+        <Notice>Official city prices are captured and displayed in your profile currency: {currency}.</Notice>
+
+        <FormActions>
+          <Button loading={loading} type="submit">
+            {loading ? `Searching ${hotelGroup}…` : `Search official prices in ${currency}`}
+          </Button>
+        </FormActions>
+      </Form>
+
+      {error ? (
+        <Card eyebrow="Search failed" title="Official search could not be completed">
+          <Notice tone="caution">{error}</Notice>
+        </Card>
+      ) : null}
+
       {session ? (
-        <section className="card" data-search-session-id={searchSessionId ?? undefined}>
-          <div className="pageHeader">
-            <div><p className="eyebrow">{hotelGroup} official results</p><h2>{session.results.hotels.length} hotels found</h2><p>{session.results.summary}</p>{session.results.warning ? <p>{session.results.warning}</p> : null}</div>
-            <div className="inlineActions">
-              {session.results.hotels[0]?.offers[0]?.sourceUrl ? <a className="button secondary" href={session.results.hotels[0].offers[0].sourceUrl} rel="noreferrer" target="_blank">Open official source</a> : null}
-            </div>
-          </div>
+        <Card
+          actions={
+            session.results.hotels[0]?.offers[0]?.sourceUrl ? (
+              <a
+                className={buttonClassName({ size: "sm", variant: "secondary" })}
+                href={session.results.hotels[0].offers[0].sourceUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Open official source
+              </a>
+            ) : null
+          }
+          eyebrow={`${hotelGroup} official results`}
+          title={`${session.results.hotels.length} hotels found`}
+        >
+          <p className={styles.summary}>{session.results.summary}</p>
+          {session.results.warning ? <Notice tone="caution">{session.results.warning}</Notice> : null}
+
           {session.results.hotels.length > 0 ? (
-            <table className="table"><thead><tr><th>Hotel</th><th>Starting price</th><th>Verified official stay price</th></tr></thead><tbody>
-              {session.results.hotels.map((hotel) => {
-                const startingOffer = findStartingOffer(hotel.offers);
-                const finalOffer = hotel.offers.find((offer) => offer.evidenceLevel === "final_total");
-                const totalRequest = totalRequests[hotel.hotelKey];
-                return (
-                  <tr key={hotel.hotelKey}>
-                    <td><strong>{hotel.hotelName}</strong>{hotel.locationLabel ? <p>{hotel.locationLabel}</p> : null}<small className="muted">{hotel.availabilityLabel}</small></td>
-                    <td>{startingOffer ? formatMoney(startingOffer.startingAvgNightlyRate ?? startingOffer.displayedAmount, startingOffer.currency) : "Not captured"} <small className="muted">Avg/night; taxes and fees not included</small></td>
-                    <td>
-                      {finalOffer?.stayTotal !== null && finalOffer?.stayTotal !== undefined ? (
-                        <>
-                          <strong>Total {formatMoney(finalOffer.stayTotal, finalOffer.currency)}</strong>
-                          <p className="muted">Before taxes & fees {finalOffer.staySubtotal === null ? "not captured" : formatMoney(finalOffer.staySubtotal, finalOffer.currency)}</p>
-                          <p className="muted">{finalOffer.nights}-night stay · taxes & fees {finalOffer.taxesAndFeesAmount === null ? "included, breakdown not captured" : formatMoney(finalOffer.taxesAndFeesAmount, finalOffer.currency)}</p>
-                        </>
-                      ) : totalRequest?.status === "loading" ? (
-                        <span className="muted">Reading final Hyatt total…</span>
-                      ) : (
-                        <><button className="secondary" onClick={() => getTaxInclusiveTotal(hotel)} type="button">Get tax-inclusive total</button>{totalRequest?.status === "failed" ? <p className="notice warning">{totalRequest.error}</p> : null}</>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody></table>
-          ) : <div className="empty"><h3>No visible official prices</h3><p>Try another date range or inspect the opened source page.</p></div>}
-        </section>
+            <Table className={styles.results}>
+              <thead>
+                <tr>
+                  <th scope="col">Hotel</th>
+                  <th scope="col">Starting price</th>
+                  <th scope="col">Verified official stay price</th>
+                </tr>
+              </thead>
+              <tbody>
+                {session.results.hotels.map((hotel) => {
+                  const startingOffer = findStartingOffer(hotel.offers);
+                  const finalOffer = hotel.offers.find((offer) => offer.evidenceLevel === "final_total");
+                  const totalRequest = totalRequests[hotel.hotelKey];
+                  return (
+                    <tr key={hotel.hotelKey}>
+                      <td>
+                        <span className={styles.hotelName}>{hotel.hotelName}</span>
+                        {hotel.locationLabel ? <span className={styles.stacked}>{hotel.locationLabel}</span> : null}
+                        <span className={styles.stacked}>{hotel.availabilityLabel}</span>
+                      </td>
+                      <td className={styles.money}>
+                        {startingOffer
+                          ? formatMoney(startingOffer.startingAvgNightlyRate ?? startingOffer.displayedAmount, startingOffer.currency)
+                          : "Not captured"}
+                        <span className={styles.stacked}>Avg/night; taxes and fees not included</span>
+                      </td>
+                      <td className={styles.money}>
+                        {finalOffer?.stayTotal !== null && finalOffer?.stayTotal !== undefined ? (
+                          <>
+                            <span className={styles.total}>Total {formatMoney(finalOffer.stayTotal, finalOffer.currency)}</span>
+                            <span className={styles.stacked}>
+                              Before taxes &amp; fees{" "}
+                              {finalOffer.staySubtotal === null ? "not captured" : formatMoney(finalOffer.staySubtotal, finalOffer.currency)}
+                            </span>
+                            <span className={styles.stacked}>
+                              {finalOffer.nights}-night stay · taxes &amp; fees{" "}
+                              {finalOffer.taxesAndFeesAmount === null
+                                ? "included, breakdown not captured"
+                                : formatMoney(finalOffer.taxesAndFeesAmount, finalOffer.currency)}
+                            </span>
+                          </>
+                        ) : totalRequest?.status === "loading" ? (
+                          <span className={styles.stacked}>Reading final Hyatt total…</span>
+                        ) : (
+                          <>
+                            <Button onClick={() => getTaxInclusiveTotal(hotel)} size="sm" type="button" variant="secondary">
+                              Get tax-inclusive total
+                            </Button>
+                            {totalRequest?.status === "failed" ? <Notice tone="caution">{totalRequest.error}</Notice> : null}
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+          ) : (
+            <EmptyState
+              description="Try another date range or inspect the opened source page."
+              title="No visible official prices"
+            />
+          )}
+        </Card>
       ) : null}
     </div>
   );

@@ -1,9 +1,13 @@
+export { ActionPanel } from "./ActionPanel";
 export { Badge, LabelBadge } from "./Badge";
 export { Button, buttonClassName } from "./Button";
 export type { ButtonSize, ButtonVariant } from "./Button";
 export { Card } from "./Card";
 export { EmptyState } from "./EmptyState";
 export { Field } from "./Field";
+export { Figure, Figures } from "./Figures";
+export { CheckField, FieldGrid, Form, FormActions } from "./Form";
 export { Notice } from "./Notice";
+export { PageHeader } from "./PageHeader";
 export { LabelStamp, Stamp } from "./Stamp";
 export { Table } from "./Table";

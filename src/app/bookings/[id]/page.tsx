@@ -19,7 +19,7 @@ import {
   verdictLabel
 } from "@/lib/labels";
 import { parseRecommendationCostBreakdown } from "@/lib/recommendationCodecs";
-import { Button, buttonClassName, Card, EmptyState, LabelStamp, Table } from "@/ui";
+import { Button, buttonClassName, Card, EmptyState, Figure, Figures, LabelStamp, Table } from "@/ui";
 import styles from "./page.module.css";
 
 export default async function BookingDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -48,7 +48,7 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
   const latestRun = booking.priceCheckRuns[0];
 
   return (
-    <div className={`${styles.sheet} deskPage`}>
+    <div className={styles.sheet}>
       <header className={styles.head}>
         <div className={styles.headText}>
           <p className={styles.eyebrow}>
@@ -63,11 +63,11 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
         <RunPriceCheckButton bookingId={booking.id} className={buttonClassName()} />
       </header>
 
-      <section className={styles.figures}>
+      <Figures>
         <Figure label="Current baseline" value={formatBookingBaseline(booking)} />
         <Figure label="Latest direct" value={formatObservationPrice(latestDirect, booking.currency)} />
         <Figure label="Latest OTA" value={formatObservationPrice(latestOta, booking.currency)} />
-      </section>
+      </Figures>
 
       <nav aria-label="Booking tools" className={styles.tools}>
         <Link href={`/bookings/${booking.id}/edit`}>Edit booking</Link>
@@ -193,15 +193,6 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
           </Table>
         )}
       </Card>
-    </div>
-  );
-}
-
-function Figure({ label, value }: { label: string; value: string }) {
-  return (
-    <div className={styles.figure}>
-      <span className={styles.figureLabel}>{label}</span>
-      <span className={styles.figureValue}>{value}</span>
     </div>
   );
 }

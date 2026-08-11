@@ -2,6 +2,19 @@ import { saveCurrencyConversionRate } from "@/lib/actions";
 import { DEFAULT_PROFILE_ID } from "@/lib/constants";
 import { prisma } from "@/lib/db";
 import { formatCalendarDate } from "@/lib/format";
+import {
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  FieldGrid,
+  Figure,
+  Figures,
+  Form,
+  FormActions,
+  PageHeader,
+  Table
+} from "@/ui";
 
 export default async function SettingsPage() {
   const [profile, settings] = await Promise.all([
@@ -17,83 +30,77 @@ export default async function SettingsPage() {
   ) ?? [];
 
   return (
-    <div className="grid">
-      <div className="pageHeader">
-        <div>
-          <p className="eyebrow">Settings</p>
-          <h1>Local controls</h1>
-          <p>Configure browser automation and recommendation defaults.</p>
-        </div>
-      </div>
+    <div className="deskStack">
+      <PageHeader
+        description="Configure browser automation and recommendation defaults."
+        eyebrow="Settings"
+        title="Local controls"
+      />
 
-      <section className="grid three">
-        <div className="card flat metric">
-          <span className="muted">Primary calculation currency</span>
-          <strong>{calculationCurrency}</strong>
-        </div>
-        <div className="card flat metric">
-          <span className="muted">Hotel search currency</span>
-          <strong>{profile?.defaultCurrency ?? "USD"}</strong>
-        </div>
-        <div className="card flat metric">
-          <span className="muted">Savings threshold</span>
-          <strong>{profile?.savingsThreshold ?? 50}</strong>
-        </div>
-        <div className="card flat metric">
-          <span className="muted">Browser access</span>
-          <strong>Companion extension</strong>
-        </div>
-      </section>
+      <Figures>
+        <Figure label="Calculation currency" value={calculationCurrency} />
+        <Figure label="Hotel search currency" value={profile?.defaultCurrency ?? "USD"} />
+        <Figure label="Savings threshold" value={profile?.savingsThreshold ?? 50} />
+        <Figure label="Browser access" value="Companion" />
+      </Figures>
 
-      <section className="card">
-        <p className="eyebrow">Browser access</p>
-        <h2>Normal Chrome</h2>
+      <Card eyebrow="Browser access" title="Normal Chrome">
         <p>Hyatt searches and imports open in Chrome and use the TripBuddy Browser Companion.</p>
-      </section>
+      </Card>
 
-      <section className="card">
-        <p className="eyebrow">Currency conversion</p>
-        <h2>Observed currencies to {calculationCurrency}</h2>
-        <p>Rates make foreign-currency observations comparable. Existing observations should be reviewed or re-run after adding a rate.</p>
+      <Card eyebrow="Currency conversion" title={`Observed currencies to ${calculationCurrency}`}>
+        <p>
+          Rates make foreign-currency observations comparable. Existing observations should be reviewed or re-run after
+          adding a rate.
+        </p>
         {conversionRates.length ? (
-          <table className="table">
-            <thead><tr><th>From</th><th>To</th><th>Rate</th><th>As of</th><th>Source</th></tr></thead>
-            <tbody>{conversionRates.map((rate) => (
-              <tr key={rate.id}>
-                <td>{rate.sourceCurrency}</td>
-                <td>{rate.targetCurrency}</td>
-                <td>{rate.rate}</td>
-                <td>{formatCalendarDate(rate.asOf)}</td>
-                <td>{rate.sourceName ?? "Manual"}</td>
+          <Table>
+            <thead>
+              <tr>
+                <th scope="col">From</th>
+                <th scope="col">To</th>
+                <th scope="col">Rate</th>
+                <th scope="col">As of</th>
+                <th scope="col">Source</th>
               </tr>
-            ))}</tbody>
-          </table>
-        ) : <div className="empty"><h3>No conversion rates</h3><p>Same-currency observations use an implicit rate of 1.</p></div>}
-      </section>
+            </thead>
+            <tbody>
+              {conversionRates.map((rate) => (
+                <tr key={rate.id}>
+                  <td>{rate.sourceCurrency}</td>
+                  <td>{rate.targetCurrency}</td>
+                  <td>{rate.rate}</td>
+                  <td>{formatCalendarDate(rate.asOf)}</td>
+                  <td>{rate.sourceName ?? "Manual"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        ) : (
+          <EmptyState description="Same-currency observations use an implicit rate of 1." title="No conversion rates" />
+        )}
+      </Card>
 
-      <form action={saveCurrencyConversionRate} className="card form">
-        <p className="eyebrow">Add or update rate</p>
-        <div className="grid three">
-          <div className="field">
-            <label htmlFor="sourceCurrency">Observed currency</label>
+      <Form action={saveCurrencyConversionRate}>
+        <PageHeader eyebrow="Add or update rate" level={2} title="Conversion rate" />
+        <FieldGrid>
+          <Field htmlFor="sourceCurrency" label="Observed currency">
             <input id="sourceCurrency" maxLength={3} name="sourceCurrency" pattern="[A-Za-z]{3}" placeholder="JPY" required />
-          </div>
-          <div className="field">
-            <label htmlFor="rate">1 observed unit equals</label>
+          </Field>
+          <Field hint={`Amount in ${calculationCurrency}`} htmlFor="rate" label="1 observed unit equals">
             <input id="rate" min="0.00000001" name="rate" placeholder="0.0067" required step="any" type="number" />
-            <small className="muted">Amount in {calculationCurrency}</small>
-          </div>
-          <div className="field">
-            <label htmlFor="asOf">Rate date</label>
-            <input id="asOf" name="asOf" required type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
-          </div>
-          <div className="field">
-            <label htmlFor="sourceName">Source</label>
+          </Field>
+          <Field htmlFor="asOf" label="Rate date">
+            <input defaultValue={new Date().toISOString().slice(0, 10)} id="asOf" name="asOf" required type="date" />
+          </Field>
+          <Field htmlFor="sourceName" label="Source">
             <input id="sourceName" name="sourceName" placeholder="Manual / bank statement" />
-          </div>
-        </div>
-        <button type="submit">Save conversion rate</button>
-      </form>
+          </Field>
+        </FieldGrid>
+        <FormActions>
+          <Button type="submit">Save conversion rate</Button>
+        </FormActions>
+      </Form>
     </div>
   );
 }

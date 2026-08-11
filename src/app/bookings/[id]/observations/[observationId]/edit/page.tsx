@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ObservationForm } from "@/app/components/ObservationForm";
 import { prisma } from "@/lib/db";
 import { formatLocalInstant } from "@/lib/format";
+import { buttonClassName, PageHeader } from "@/ui";
 
 export default async function EditObservationPage({ params }: { params: Promise<{ id: string; observationId: string }> }) {
   const { id, observationId } = await params;
@@ -11,8 +12,17 @@ export default async function EditObservationPage({ params }: { params: Promise<
     notFound();
   }
   return (
-    <div className="grid">
-      <div className="pageHeader"><div><p className="eyebrow">Review observation</p><h1>{observation.booking.hotelName}</h1><p>{observation.sourceName} · {formatLocalInstant(observation.observedAt)}</p></div><Link className="button secondary" href={`/bookings/${id}`}>Back</Link></div>
+    <div className="deskStack">
+      <PageHeader
+        actions={
+          <Link className={buttonClassName({ size: "sm", variant: "secondary" })} href={`/bookings/${id}`}>
+            Back
+          </Link>
+        }
+        description={`${observation.sourceName} · ${formatLocalInstant(observation.observedAt)}`}
+        eyebrow="Review observation"
+        title={observation.booking.hotelName}
+      />
       <ObservationForm booking={observation.booking} observation={observation} />
     </div>
   );

@@ -70,29 +70,9 @@
   font-size: var(--desk-text-sm);
 }
 
-/* ---------------------------------------------------------------- figures -- */
+/* ---------------------------------------------------------- savings cap -- */
 
-/*
- * Three readings off one ticket, not three cards. The dashed verticals are the
- * same rule language as the stub's perforation.
- */
-.figures {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-top: var(--desk-rule-slab) solid var(--desk-ink);
-  border-bottom: var(--desk-rule-slab) solid var(--desk-ink);
-}
-
-.figure {
-  padding: var(--space-3) var(--space-4);
-  border-left: var(--desk-rule-hair) dashed var(--desk-rule);
-}
-
-.figure:first-child {
-  border-left: 0;
-  padding-left: 0;
-}
-
+/* Matches the caption on a Figure, so the savings reading sits in the same voice. */
 .figureLabel {
   display: block;
   color: var(--desk-neutral);
@@ -100,17 +80,6 @@
   font-size: var(--desk-text-xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-.figureValue {
-  display: block;
-  margin-top: var(--space-1);
-  color: var(--desk-ink);
-  font-family: var(--desk-font-display);
-  font-size: var(--desk-text-lg);
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
 }
 
 /* ------------------------------------------------------------------ tools -- */
@@ -295,21 +264,6 @@
 }
 
 @media (max-width: 40rem) {
-  .figures {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .figure {
-    padding: var(--space-3) 0;
-    border-left: 0;
-    border-top: var(--desk-rule-hair) dashed var(--desk-rule);
-  }
-
-  .figure:first-child {
-    border-top: 0;
-    padding-top: var(--space-3);
-  }
-
   .head h1 {
     font-size: var(--desk-text-xl);
   }
