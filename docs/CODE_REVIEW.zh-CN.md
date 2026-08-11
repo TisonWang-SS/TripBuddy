@@ -1,7 +1,7 @@
 # TripBuddy 代码审查报告
 
 > 首次审查基线:`b7a55ec`(2026-08-08)
-> 最新复查基线:`b6d093a`(2026-08-11)
+> 最新复查基线:`a800687`(2026-08-11)
 > 门禁状态:`npm test` 37 文件 165 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / DeepSeek V4 Flash 实测 13 fixtures、63/63 断言通过 / TripBuddy Chrome profile + Logs 页真实 replay 成功 / migration 与 Prisma schema 零差异且在全新库干净应用
 > ✅ 套件已时区稳定:外部 `TZ` 设为 -7 / 0 / +14 分别运行全过(`vitest.config.ts` 固定 `TZ: "UTC"`,跨时区用例在测试内显式切换)
 > ✅ PRD、实施计划与代码行为一致
@@ -246,6 +246,25 @@ POST /api/hotel-search  Origin: https://evil.example  Content-Type: text/plain
 同为应用 UI 专用 mutation 的 `/api/price-checks/[id]/llm-extraction` 也复用该门禁,避免跨源页面在猜中/泄露 run ID 时触发模型费用和审计写入;负向测试断言 extractor 零调用。最终生产服务 curl 覆盖四条 mutation 路由,全部返回同一 403,隔离数据库仍未创建。
 
 ✅ **环回 host 别名已统一。** 同协议、同端口时 `localhost` 与 `127.0.0.1` 视为同一应用 origin;不同端口仍为 403。该判定同时用于应用 POST 门禁与 browser-task same-origin 分支,测试覆盖别名放行和端口不匹配拒绝。
+
+**复查侧独立起服务实测**(全新迁移 + seed 的隔离库,`next start` + curl):
+
+| 请求 | 结果 |
+|---|---|
+| `POST /api/hotel-search` ← `evil.example`(text/plain) | **403** |
+| `POST /api/price-checks` ← `evil.example` | **403** |
+| `POST /api/account-imports` ← `evil.example` | **403** |
+| `POST /api/price-checks/{id}/llm-extraction` ← `evil.example` | **403** |
+| `POST /api/hotel-search` ← `www.hyatt.com` | **403** |
+| `Origin: http://localhost:<同端口>` | 201 |
+| `Origin: http://127.0.0.1:<同端口>` | 201 |
+| `Origin: http://localhost:9999`(异端口) | **403** |
+| `Origin: https://localhost:<同端口>`(异协议) | **403** |
+| 无 Origin | 201 |
+
+上一轮实测出的 `HTTP 201 + 落库两行`已复现不出。库内计数与放行次数一致(3 次放行 → `BrowserTask` 3 行、`HotelSearchSession` 3 行),5 次拒绝**零写入**,确认门禁在 Prisma 写路径之前生效。
+
+反证:把 `sameOriginRequestError` 改为恒放行 → 6 条用例变红,其中两条断言的是「create handler 零调用」「watch plan 未被更新」——守的是**副作用没发生**,而不只是返回码。把 loopback 等价放宽到忽略端口 → 1 条用例变红。
 
 ### 3.8 静默截断 — ✅ 已完成(`0563e84`)
 
