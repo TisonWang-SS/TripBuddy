@@ -1,12 +1,7 @@
 import type { Label, Tone } from "@/lib/labels";
 import styles from "./Stamp.module.css";
 
-/*
- * The desk's verdict mark: a rubber-stamped overprint rather than a pill.
- *
- * Badge stays as it is for the pages still on the teal token set — this is an
- * addition, not a replacement, so nothing that already renders a Badge moves.
- */
+/* The desk's verdict mark: a rubber-stamped overprint rather than a pill. */
 const TONE_CLASS: Record<Tone, string> = {
   neutral: styles.neutral,
   positive: styles.positive,

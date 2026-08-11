@@ -1,5 +1,4 @@
 export { ActionPanel } from "./ActionPanel";
-export { Badge, LabelBadge } from "./Badge";
 export { Button, buttonClassName } from "./Button";
 export type { ButtonSize, ButtonVariant } from "./Button";
 export { Card } from "./Card";

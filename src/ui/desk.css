@@ -1,20 +1,36 @@
 /*
  * Ticket-desk design layer.
  *
- * The token set the whole interface reads. Every name is prefixed --desk-* and
- * lives beside the older set in tokens.css, which is now down to one consumer:
- * Badge still reads --tone-*. When Badge moves, tokens.css can go.
+ * The only token set in the codebase. Colour names are prefixed --desk-*; the
+ * unprefixed --space-* scale is shared by every stylesheet, so it keeps its
+ * original names rather than being renamed for the sake of symmetry.
  *
- * Spacing is deliberately NOT redefined — this layer reuses --space-* from
- * tokens.css, because two spacing scales in one codebase is how rhythm drifts.
- *
- * Colour follows the same light-dark() discipline as tokens.css: one
- * declaration carries both schemes so they cannot fall out of step. The dark
- * scheme is a designed variant, not an inversion — the slab flips from black
- * to paper (an inverse overprint), which falls out of ink/paper for free.
+ * Colour uses light-dark(): one declaration carries both schemes so they cannot
+ * fall out of step. The dark scheme is a designed variant, not an inversion —
+ * the slab flips from black to paper (an inverse overprint), which falls out of
+ * ink/paper for free.
  */
 
 :root {
+  /*
+   * Both schemes are supported; [data-theme] at the bottom of this file pins
+   * one. This declaration is load-bearing — light-dark() resolves against
+   * color-scheme, so without it every colour below collapses to its light arm.
+   */
+  color-scheme: light dark;
+
+  /* ---- space (4 pt) --------------------------------------------------- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
   /* ---- paper and ink ------------------------------------------------ */
   --desk-paper: light-dark(oklch(89% 0.028 82), oklch(16% 0.020 78));
   --desk-paper-2: light-dark(oklch(93% 0.022 82), oklch(20% 0.022 78));
@@ -53,9 +69,8 @@
   --desk-font-mono: "Space Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /*
-   * A 15px base, one step up from the 13px legacy scale. The desk trades some
-   * density for the ticket metaphor; it is scoped to this layer so the legacy
-   * pages keep the density their tables were built for.
+   * A 15px base. One step up from the 13px this product used to run at — the
+   * desk trades a little density for the ticket metaphor.
    */
   --desk-text-xs: 0.75rem;
   --desk-text-sm: 0.8125rem;
@@ -83,6 +98,15 @@
   /* ---- layers ------------------------------------------------------------ */
   --desk-z-slab: 40;
   --desk-z-palette: 60;
+}
+
+/* The theme toggle writes [data-theme]; these pin the scheme in both directions. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,5 +1,4 @@
 @import "../ui/fonts.css";
-@import "../ui/tokens.css";
 @import "../ui/desk.css";
 
 /*
@@ -7,14 +6,11 @@
  * are gone: every page composes the src/ui primitives now, so nothing is left
  * reaching for .card / .grid / .field / .notice and friends.
  *
- * These defaults read the desk layer, not the teal set. That matters more than
- * it looks: while the two overlapped, a bare <p> and a bare <ul> carried
- * --text-secondary, and desk components that did not restate their colour
+ * These defaults read the desk layer, which is now the only token set. While
+ * the old teal set overlapped with it, a bare <p> and a bare <ul> carried
+ * --text-secondary, and any desk component that did not restate its colour
  * silently inherited the wrong palette. Inheriting nothing is safer than
  * inheriting a palette the page is not using.
- *
- * tokens.css stays imported because Badge — the one primitive still on the teal
- * set — reads --tone-*.
  */
 
 *,
