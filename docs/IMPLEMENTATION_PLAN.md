@@ -46,6 +46,10 @@ The application is divided into four boundaries:
 
 - Replace booking-page Chrome links and unused server actions with a single task-driven Run price check client.
 - Keep client actions shared by multiple routes under `app/components`, not inside a dynamic route segment.
+- Define design tokens in `src/ui/tokens.css` as a fixed palette plus semantic aliases built on `light-dark()`; components reference aliases only. Pin the theme with `[data-theme]` on the root and apply it before first paint.
+- Keep shared primitives in `src/ui` (Button, Badge, Card, Notice, EmptyState, Table, Field) as CSS Modules, so no unscoped element selector styles the whole application.
+- Resolve every user-facing enum through `src/lib/labels.ts` into a label and tone; never interpolate a storage value into copy or a class name.
+- Retire the legacy global classes in `app/globals.css` call site by call site as pages move onto the primitives.
 - Show evidence quality, blockers, warnings, source facts, and sanitized details; remove numeric confidence.
 - Let users inspect stored sanitized snapshots and explicitly replay a price-check run with the configured LLM extractor.
 - Reuse booking and observation form components.

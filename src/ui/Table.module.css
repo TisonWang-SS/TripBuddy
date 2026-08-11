@@ -1,0 +1,47 @@
+/*
+ * The scroll container is the point of this component: dense tables overflow on
+ * narrow viewports, and without it the page body scrolls sideways instead.
+ */
+.scroll {
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-base);
+}
+
+.table th,
+.table td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-raised);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table tbody tr {
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.table tbody tr:hover {
+  background: var(--surface-hover);
+}

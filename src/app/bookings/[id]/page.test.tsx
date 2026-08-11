@@ -119,7 +119,9 @@ describe("booking detail page", () => {
 
     expect(screen.getByRole("button", { name: "Run price check" })).toBeInTheDocument();
     expect(screen.getByText("Final Hyatt price evidence was imported.")).toBeInTheDocument();
-    expect(screen.getAllByText("needs_review").length).toBeGreaterThan(0);
+    // Storage enums must not reach the page; labels.ts resolves them to copy.
+    expect(screen.getAllByText("Needs review").length).toBeGreaterThan(0);
+    expect(screen.queryByText("needs_review")).not.toBeInTheDocument();
     expect(screen.getAllByText("Cancellation-policy equivalence is unknown.").length).toBeGreaterThan(0);
     expect(screen.getByText((_, element) => element?.textContent === `Caution: ${WEAKER_CANCELLATION_WARNING}`))
       .toHaveClass("notice", "caution");

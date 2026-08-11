@@ -1,32 +1,49 @@
-:root {
-  --bg: #f7f8fa;
-  --panel: #ffffff;
-  --panel-soft: #f1f4f8;
-  --ink: #151922;
-  --muted: #667085;
-  --line: #d8dee8;
-  --accent: #256f68;
-  --amber: #9a6700;
-  --red: #b42318;
-  --green: #237547;
+@import "../ui/tokens.css";
+
+/*
+ * Global element styles plus the legacy layout classes the pages still use.
+ * Everything below the "legacy" marker is replaced call site by call site in
+ * P5, when pages move onto the src/ui primitives. New code should import from
+ * @/ui rather than reach for these class names.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
-* {
-  box-sizing: border-box;
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 html,
 body {
   margin: 0;
   min-height: 100%;
-  background: var(--bg);
-  color: var(--ink);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 a {
   color: inherit;
   text-decoration: none;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: none;
+  border-radius: var(--radius-xs);
+  box-shadow: var(--focus-ring);
 }
 
 button,
@@ -36,115 +53,165 @@ textarea {
   font: inherit;
 }
 
+h1,
+h2,
+h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+}
+
+h1 {
+  font-size: var(--text-3xl);
+}
+
+h2 {
+  font-size: var(--text-xl);
+}
+
+h3 {
+  font-size: var(--text-lg);
+}
+
+p {
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+}
+
+small {
+  font-size: var(--text-sm);
+}
+
+ul {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+  color: var(--text-secondary);
+}
+
+details > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+}
+
+/* ---------------------------------------------------------------- shell -- */
+
 .shell {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 236px minmax(0, 1fr);
   min-height: 100vh;
 }
 
 .sidebar {
   position: sticky;
   top: 0;
+  display: flex;
+  flex-direction: column;
   height: 100vh;
-  padding: 20px 16px;
-  border-right: 1px solid var(--line);
-  background: var(--panel);
+  padding: var(--space-5) var(--space-3);
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 28px;
+  gap: var(--space-3);
+  padding: 0 var(--space-2);
+  margin-bottom: var(--space-6);
 }
 
 .brandMark {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--radius-md);
   background: var(--accent);
-  color: white;
-  font-weight: 700;
-  font-size: 0.78rem;
+  color: var(--text-on-accent);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+  box-shadow: var(--shadow-xs);
+}
+
+.brand strong {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
 }
 
 .brand small {
   display: block;
-  margin-top: 2px;
-  color: var(--muted);
+  margin-top: 1px;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
 }
 
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .nav a {
-  padding: 9px 10px;
-  border-radius: 6px;
-  color: var(--muted);
-  font-size: 0.94rem;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 .nav a:hover {
-  background: var(--panel-soft);
-  color: var(--ink);
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.nav a[aria-current="page"] {
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  font-weight: var(--weight-semibold);
+}
+
+.sidebarFooter {
+  margin-top: auto;
+  padding-top: var(--space-4);
 }
 
 .main {
-  width: min(1280px, 100%);
-  padding: 28px 32px;
+  width: min(1320px, 100%);
+  padding: var(--space-8);
 }
+
+/* --------------------------------------------------------------- legacy -- */
 
 .pageHeader {
   display: flex;
   justify-content: space-between;
-  gap: 18px;
+  gap: var(--space-5);
   align-items: flex-start;
-  margin-bottom: 18px;
+  margin-bottom: var(--space-5);
 }
 
 .eyebrow {
-  margin: 0 0 6px;
-  color: var(--muted);
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  margin: 0 0 var(--space-1);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
-  font-size: 0.72rem;
-}
-
-h1,
-h2,
-h3 {
-  margin: 0;
-  letter-spacing: 0;
-}
-
-h1 {
-  font-size: 1.8rem;
-  line-height: 1.15;
-}
-
-h2 {
-  font-size: 1.12rem;
-}
-
-h3 {
-  font-size: 0.98rem;
-}
-
-p {
-  margin: 8px 0 0;
-  color: var(--muted);
-  line-height: 1.5;
 }
 
 .grid {
   display: grid;
-  gap: 14px;
+  gap: var(--space-4);
 }
 
 .grid.two {
@@ -156,204 +223,240 @@ p {
 }
 
 .card {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  padding: 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
 }
 
 .card.flat {
   background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .metric {
   display: grid;
-  gap: 6px;
+  gap: var(--space-1);
+}
+
+/*
+ * Metric tiles are marked up as "card flat metric", and .card.flat outranks
+ * .metric, so the surface has to be restored at equal specificity or the
+ * numbers float unanchored on the page background.
+ */
+.card.flat.metric {
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-sm);
+}
+
+.metric > span {
+  color: var(--text-tertiary);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
 }
 
 .metric strong {
-  font-size: 1.45rem;
-  letter-spacing: 0;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
 }
 
+/*
+ * Base styling for unclassed <button> elements in server-rendered forms. The
+ * src/ui Button module has higher specificity and wins where it is used; this
+ * rule retires in P5 once every call site uses the primitive.
+ */
 .button,
 button {
-  border: 0;
-  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   background: var(--accent);
-  color: white;
-  padding: 9px 12px;
-  font-weight: 700;
+  color: var(--text-on-accent);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
-  line-height: 1.2;
+  box-shadow: var(--shadow-xs);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.button:hover,
+button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.button.secondary,
+button.secondary {
+  background: var(--surface-raised);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
+.button.secondary:hover,
+button.secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+button.danger {
+  background: var(--tone-critical-bg);
+  border-color: var(--tone-critical-border);
+  color: var(--tone-critical-text);
+}
+
+button.danger:hover:not(:disabled) {
+  background: var(--tone-critical-border);
 }
 
 .buttonRow {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--space-2);
   justify-content: flex-end;
 }
 
 .inlineActions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--space-2);
 }
 
 .importPanel {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
   justify-items: end;
 }
 
 .notice {
-  max-width: 320px;
-  padding: 10px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  background: var(--panel);
+  max-width: 340px;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  font-size: var(--text-base);
+  line-height: var(--leading-snug);
   text-align: left;
 }
 
 .notice p {
   margin: 0;
-  color: var(--ink);
-  font-size: 0.9rem;
+  color: inherit;
 }
 
 .notice a,
 .notice small {
   display: block;
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 0.82rem;
+  margin-top: var(--space-1);
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
 }
 
 .notice.success {
-  border-color: color-mix(in srgb, var(--green) 35%, var(--line));
+  background: var(--tone-positive-bg);
+  border-color: var(--tone-positive-border);
+  color: var(--tone-positive-text);
 }
 
 .notice.warning {
-  border-color: color-mix(in srgb, var(--amber) 45%, var(--line));
+  background: var(--tone-caution-bg);
+  border-color: var(--tone-caution-border);
+  color: var(--tone-caution-text);
 }
 
 .notice.caution {
-  border-color: color-mix(in srgb, var(--amber) 75%, var(--line));
-  border-left-width: 4px;
-  background: color-mix(in srgb, var(--amber) 10%, var(--panel));
-  color: var(--ink);
+  background: var(--tone-caution-bg);
+  border-color: var(--tone-caution-border);
+  border-left-color: var(--amber-400);
+  color: var(--tone-caution-text);
 }
 
 .subnav {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  padding-bottom: 4px;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
 }
 
 .subnav a {
-  color: var(--muted);
-  font-weight: 700;
-  font-size: 0.9rem;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 .subnav a:hover {
-  color: var(--ink);
-}
-
-.button.secondary,
-button.secondary {
-  background: var(--panel-soft);
-  color: var(--ink);
-}
-
-button.danger {
-  background: #fef3f2;
-  color: var(--red);
+  background: var(--surface-hover);
+  color: var(--text-primary);
 }
 
 .list {
   display: grid;
-  gap: 12px;
+  gap: var(--space-2);
 }
 
 .listItem {
   display: flex;
   justify-content: space-between;
-  gap: 14px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel);
+  gap: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+a.listItem:hover {
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-sm);
+}
+
+.listItem h3 {
+  font-size: var(--text-md);
+}
+
+.listItem p {
+  margin-top: var(--space-1);
+  font-size: var(--text-base);
 }
 
 .programRow {
   display: grid;
-  gap: 12px;
-  padding: 14px 0;
-  border-top: 1px solid var(--line);
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .programRow:first-child {
   border-top: 0;
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 4px;
-  padding: 4px 7px;
-  font-size: 0.78rem;
-  font-weight: 700;
-  background: var(--panel-soft);
-  color: var(--accent);
-  text-transform: capitalize;
-}
-
-.badge.keep {
-  background: #e8efe8;
-  color: var(--green);
-}
-
-.badge.rebook_direct {
-  background: #dff2ef;
-  color: var(--accent);
-}
-
-.badge.consider_ota,
-.badge.needs_review {
-  background: #fbecd1;
-  color: var(--amber);
-}
-
-.badge.urgent {
-  background: #f8d9d6;
-  color: var(--red);
-}
-
-.badge.high,
-.badge.succeeded {
-  background: #dff2ef;
-  color: var(--green);
-}
-
-.badge.medium,
-.badge.running,
-.badge.pending {
-  background: #e8eefb;
-  color: var(--accent);
-}
-
-.badge.low,
-.badge.partial {
-  background: #fbecd1;
-  color: var(--amber);
-}
-
-.badge.failed {
-  background: #f8d9d6;
-  color: var(--red);
 }
 
 .evidenceItem > div:first-child {
@@ -363,30 +466,42 @@ button.danger {
 
 .form {
   display: grid;
-  gap: 14px;
+  gap: var(--space-4);
 }
 
 .field {
   display: grid;
-  gap: 6px;
+  gap: var(--space-2);
+  align-content: start;
 }
 
 .field label,
 .check label {
-  color: var(--muted);
-  font-size: 0.84rem;
-  font-weight: 700;
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
 }
 
 .field input,
 .field select,
 .field textarea {
   width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 9px 10px;
-  background: white;
-  color: var(--ink);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  box-shadow: var(--shadow-xs);
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.field input:hover,
+.field select:hover,
+.field textarea:hover {
+  border-color: var(--border-strong);
 }
 
 .field textarea {
@@ -401,67 +516,114 @@ button.danger {
 .check {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
+}
+
+.check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
 }
 
 .section {
-  margin-top: 18px;
+  margin-top: var(--space-5);
 }
 
 .muted {
-  color: var(--muted);
+  color: var(--text-tertiary);
 }
 
 .divider {
   height: 1px;
-  background: var(--line);
-  margin: 14px 0;
+  background: var(--border-subtle);
+  margin: var(--space-4) 0;
 }
 
+/*
+ * display:block turns the table into its own scroll container so dense tables
+ * never make the page body scroll sideways. Replaced by the <Table> primitive,
+ * which does this with a proper wrapper element, in P5.
+ */
 .table {
+  display: block;
   width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
+  font-size: var(--text-base);
 }
 
 .table th,
 .table td {
-  padding: 12px;
-  border-bottom: 1px solid var(--line);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
   text-align: left;
   vertical-align: top;
 }
 
 .table th {
-  color: var(--muted);
-  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 .empty {
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  padding: 20px;
+  display: grid;
+  gap: var(--space-2);
+  justify-items: center;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-8) var(--space-5);
+  background: var(--surface-sunken);
   text-align: center;
-  background: var(--panel);
 }
+
+.empty p {
+  max-width: 44ch;
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+/* ----------------------------------------------------------- responsive -- */
 
 @media (max-width: 920px) {
   .shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .sidebar {
     position: relative;
     height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-subtle);
   }
 
+  .brand {
+    margin-bottom: var(--space-4);
+  }
+
+  /*
+   * The previous rule set grid-template-columns on a flex container, so it
+   * never applied and the nav stayed a full-height column above the content.
+   */
   .nav {
+    display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-1);
+  }
+
+  .sidebarFooter {
+    margin-top: var(--space-4);
   }
 
   .main {
-    padding: 24px;
+    padding: var(--space-5);
   }
 
   .pageHeader,
@@ -469,8 +631,30 @@ button.danger {
     flex-direction: column;
   }
 
+  .buttonRow {
+    justify-content: flex-start;
+  }
+
   .grid.two,
   .grid.three {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .notice {
+    max-width: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .main {
+    padding: var(--space-4);
+  }
+
+  .nav {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  h1 {
+    font-size: var(--text-2xl);
   }
 }

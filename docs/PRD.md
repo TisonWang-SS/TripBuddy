@@ -109,6 +109,16 @@ The decision boundary is a replaceable `RecommendationDecider`. It receives only
 - An unreadable account DOM must stop the import rather than write partial or empty booking data.
 - Account-import booking creates and updates are atomic: conversion and validation finish before one transaction applies the complete active-booking set.
 
+## Presentation
+
+Enum values in this document are storage identifiers, not interface copy. Every user-facing enum resolves through one label layer into a human label and a badge tone, and an unmapped value resolves to a humanized form rather than passing through. A storage identifier such as `rebook_direct` or `needs_review` must never appear in the interface.
+
+Colour, spacing, type, radius, shadow, and motion come only from design tokens. Components consume semantic aliases rather than palette values, so a theme is one declaration and cannot drift between light and dark. The theme follows the operating system by default and the user can pin it; the pinned value is applied before first paint so the interface never flashes the wrong theme.
+
+Shared interface primitives live in `src/ui` and carry the states the product actually needs: hover, focus-visible, disabled, and busy. Dense tables scroll within their own container so a page never scrolls sideways.
+
+Evidence ordering is a contract, not a layout preference: blockers and warnings render before any control that changes a baseline. Composition stays deterministic and server-owned so this ordering cannot be renegotiated per render.
+
 ## Documentation and Validation Rule
 
 Every behavior, data-model, architecture, or assumption change updates this PRD and `docs/IMPLEMENTATION_PLAN.md` in the same change.

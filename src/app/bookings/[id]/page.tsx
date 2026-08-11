@@ -8,7 +8,18 @@ import { prisma } from "@/lib/db";
 import type { CostBreakdown } from "@/lib/decision";
 import { formatCalendarDate, formatLocalInstant, formatMoney } from "@/lib/format";
 import { stringList } from "@/lib/json";
+import {
+  cancellationMatchLabel,
+  collectionMethodLabel,
+  evidenceQualityLabel,
+  riskLevelLabel,
+  roomMatchLabel,
+  runStatusLabel,
+  sourceTypeLabel,
+  verdictLabel
+} from "@/lib/labels";
 import { parseRecommendationCostBreakdown } from "@/lib/recommendationCodecs";
+import { LabelBadge } from "@/ui";
 
 export default async function BookingDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -55,13 +66,13 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
         <Link href={`/bookings/${booking.id}/logs`}>Logs</Link>
       </nav>
 
-      {latestRun ? <section className="card flat"><div className="pageHeader"><div><p className="eyebrow">Latest price check</p><strong>{latestRun.summary ?? latestRun.errorMessage ?? "Waiting for Browser Companion evidence."}</strong></div><div><span className={`badge ${latestRun.status}`}>{latestRun.status}</span><p className="muted">{formatLocalInstant(latestRun.startedAt)}</p></div></div></section> : null}
+      {latestRun ? <section className="card flat"><div className="pageHeader"><div><p className="eyebrow">Latest price check</p><strong>{latestRun.summary ?? latestRun.errorMessage ?? "Waiting for Browser Companion evidence."}</strong></div><div><LabelBadge dot value={runStatusLabel(latestRun.status)} /><p className="muted">{formatLocalInstant(latestRun.startedAt)}</p></div></div></section> : null}
 
       {latestRecommendation ? (
         <section className="card">
-          <div className="pageHeader"><div><p className="eyebrow">Recommendation</p><h2><span className={`badge ${latestRecommendation.verdict}`}>{latestRecommendation.verdict}</span></h2></div><div><p className="muted">Estimated savings</p><h2>{formatMoney(latestRecommendation.estimatedSavings, latestRecommendation.currency)}</h2></div></div>
+          <div className="pageHeader"><div><p className="eyebrow">Recommendation</p><h2><LabelBadge value={verdictLabel(latestRecommendation.verdict)} /></h2></div><div><p className="muted">Estimated savings</p><h2>{formatMoney(latestRecommendation.estimatedSavings, latestRecommendation.currency)}</h2></div></div>
           <p>{latestRecommendation.explanation}</p>
-          <p className="muted">Evidence: {latestRecommendation.qualityLevel} · Risk: {latestRecommendation.riskLevel} · {latestRecommendation.decisionProvider} v{latestRecommendation.decisionVersion}</p>
+          <p className="muted">Evidence: {evidenceQualityLabel(latestRecommendation.qualityLevel).label} · Risk: {riskLevelLabel(latestRecommendation.riskLevel).label} · {latestRecommendation.decisionProvider} v{latestRecommendation.decisionVersion}</p>
           <EvidenceIssueList className="section" blockers={stringList(latestRecommendation.blockersJson)} warnings={stringList(latestRecommendation.warningsJson)} />
           <RecommendationCostBreakdown
             currency={latestRecommendation.currency}
@@ -78,10 +89,10 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
             {booking.observations.map((observation) => (
               <tr key={observation.id}>
                 <td>{formatLocalInstant(observation.observedAt)}</td>
-                <td>{observation.sourceName}<br /><span className="muted">{observation.sourceType} · {observation.collectionMethod}</span></td>
+                <td>{observation.sourceName}<br /><span className="muted">{sourceTypeLabel(observation.sourceType).label} · {collectionMethodLabel(observation.collectionMethod).label}</span></td>
                 <td>{formatObservationPrice(observation, booking.currency)}{observation.cashCurrency && observation.cashCurrency !== booking.currency ? <><br /><span className="muted">Observed in {observation.cashCurrency}</span></> : null}</td>
                 <td>{formatRoom(observation.roomTypeRaw)}<br /><span className="muted">{observation.ratePlanName ?? "Rate plan not captured"}</span></td>
-                <td><span className={`badge ${observation.evidence?.qualityLevel ?? "needs_review"}`}>{observation.evidence?.qualityLevel ?? "needs_review"}</span><br /><span className="muted">{observation.evidence?.roomMatch ?? "unknown"} room · {observation.evidence?.cancellationMatch ?? "unknown"} policy</span></td>
+                <td><LabelBadge value={evidenceQualityLabel(observation.evidence?.qualityLevel)} /><br /><span className="muted">{roomMatchLabel(observation.evidence?.roomMatch).label} room · {cancellationMatchLabel(observation.evidence?.cancellationMatch).label} policy</span></td>
               </tr>
             ))}
           </tbody></table>

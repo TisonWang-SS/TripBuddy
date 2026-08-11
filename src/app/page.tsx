@@ -5,7 +5,9 @@ import { formatBookingBaseline } from "@/lib/bookingPrice";
 import { DEFAULT_PROFILE_ID } from "@/lib/constants";
 import { prisma } from "@/lib/db";
 import { formatCalendarDate, formatLocalInstant, formatMoney, formatRetryDelay } from "@/lib/format";
+import { verdictLabel } from "@/lib/labels";
 import { buildDuePriceCheckQueue } from "@/lib/watchQueue";
+import { LabelBadge } from "@/ui";
 import { ImportHyattBookingsButton } from "./ImportHyattBookingsButton";
 
 export const dynamic = "force-dynamic";
@@ -126,7 +128,7 @@ export default async function DashboardPage() {
                       </p>
                     </div>
                     <div>
-                      <span className={`badge ${latest?.verdict ?? ""}`}>{latest?.verdict ?? "No verdict"}</span>
+                      <LabelBadge value={verdictLabel(latest?.verdict)} />
                       <p>{formatBookingBaseline(booking)}</p>
                     </div>
                   </Link>
@@ -158,7 +160,7 @@ export default async function DashboardPage() {
                     <small className="muted">{formatLocalInstant(recommendation.generatedAt)}</small>
                   </div>
                   <div>
-                    <span className={`badge ${recommendation.verdict}`}>{recommendation.verdict}</span>
+                    <LabelBadge value={verdictLabel(recommendation.verdict)} />
                     <p>{formatMoney(recommendation.estimatedSavings, recommendation.booking.currency)}</p>
                   </div>
                 </Link>
