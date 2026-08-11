@@ -31,7 +31,7 @@
 
 当前剩余问题分两类:
 
-1. **写了没人读的数据**——§1.5、§1.6。
+1. **Schema 中未进入产品计算的字段**——§1.6。
 2. **尚未动工的加固项**——§2.4、§3.2、§3.5、§3.7–§3.9。
 
 **已无已知的用户可见缺陷。** §3.10–§3.18 全部关闭,关键安全修复均有负向复现或端到端用例守卫,不是只靠读 diff 判断。
@@ -62,7 +62,7 @@
 
 `externalCurrencyCode` / `displayCurrencyCode`(两个 `return currency`)已内联删除。这类空抽象的代价不只是几行代码,而是会让后来的人以为存在一个币种映射机制,从而在错误的地方加逻辑。
 
-### 1.5 写入但无人读取(write-only)— ⬜ 待办
+### 1.5 写入但无人读取(write-only)— ✅ 已完成(本次提交)
 
 代码在运行、在往数据库写,但**没有任何消费方**。要么补上读取方,要么删掉写入路径,不要让它们继续以"看起来在工作"的状态存在。
 
@@ -81,6 +81,8 @@
 **(c) `Recommendation.costBreakdownJson`**
 
 `recommendations.ts:115` 写入,`readCostBreakdown` 已随 §1.3 删除,现在**完全没有读取方**。推荐详情页只显示聚合后的 `estimatedSavings`,没有展开成本构成。
+
+✅ **三个写入路径均已有真实消费方。** `HotelSearchClient` 在 city search 和 final-total capture 完成后都通过 session API 重新读取 `HotelSearchSession.results`,页面展示的 evidence level、税费口径与最终总价不再来自临时 task result。`snapshotsJson` 已同时被 Logs 页的 phase/evidence 展示和 LLM replay 消费。booking 推荐卡新增可展开的成本构成表,逐项展示 baseline/candidate 的现金、积分、促销、信用卡、会籍进度、权益与 effective cost,`costBreakdownJson` 不再是 write-only。
 
 ### 1.6 Schema 里没有被任何计算使用的字段 — ⬜ 部分待办
 
@@ -545,21 +547,22 @@ review 中的原始攻击样例已变成负向回归:候选仍可作为价格事
 | 20 | 同步 PRD 与实施计划的取消政策表述(§3.1 遗留) | `dcc6710` |
 | 21 | 取消政策降级警告升级为 `caution` 层级 + 端到端用例(§3.17) | `d3ab9c4`、`2890fe1` |
 | 22 | 接 LLM 抽取器:DeepSeek replay + grounding + provenance + 评测门槛(§4.2、§4.8);顺带关闭 §3.6 | `b1e7be3` |
-| 23 | 四个 LLM 布尔字段改为可见证据推导,保留 raw/grounded 双份审计(§3.18) | 本次修改 |
+| 23 | 四个 LLM 布尔字段改为可见证据推导,保留 raw/grounded 双份审计(§3.18) | `30a75ec` |
+| 24 | 让搜索 session、浏览器 snapshots 与 recommendation cost breakdown 都有产品读取方(§1.5) | 本次提交 |
 
 ### 后续建议顺序
 
 | 顺序 | 事项 | 理由 |
 |---|---|---|
-| 24 | 币种录入入口或收缩多币种声明(§3.2) | 当前是用户无法解除的死 blocker |
-| 25 | 补完剩余 JSON codec(§2.4) | `browserTaskCodecs.ts` 已覆盖 3 列;`queryJson` / `resultsJson` / `resultJson` 仍是裸 `parseJson` |
-| 26 | 处理 write-only 数据(§1.5)与未使用字段(§1.6) | (b) `snapshotsJson` 已被 LLM replay 消费,可收窄为「在 Logs 页展示」;(a)(c) 与 §1.6 不变 |
-| 27 | CORS 收紧(§3.7) | 加固项。新 LLM 路由已刻意不继承开放姿态,可作为收紧时的参照 |
-| 28 | 房型等价性判定交给模型(§4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker——这是剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
+| 25 | 币种录入入口或收缩多币种声明(§3.2) | 当前是用户无法解除的死 blocker |
+| 26 | 补完剩余 JSON codec(§2.4) | `browserTaskCodecs.ts` 已覆盖 3 列;`queryJson` / `resultsJson` / `resultJson` 仍是裸 `parseJson` |
+| 27 | 处理未使用字段(§1.6) | 移除误导性输入,或让数据真正进入成本模型 |
+| 28 | CORS 收紧(§3.7) | 加固项。新 LLM 路由已刻意不继承开放姿态,可作为收紧时的参照 |
+| 29 | 房型等价性判定交给模型(§4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker——这是剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
 
 第 13–15 项作为一组一起做是对的:它们是同一条日期约定接缝的三个面,第 9 项(`a5af2de`)就是分开修、只修了一半的例子。
 
-**当前状态**:无已知的功能性缺陷;其余(§1.5、§1.6、§2.4、§3.2、§3.5、§3.7–§3.9)都是数据卫生与加固,没有用户可见症状。
+**当前状态**:无已知的功能性缺陷;其余(§1.6、§2.4、§3.2、§3.5、§3.7–§3.9)都是数据卫生与加固,没有用户可见症状。
 
 `b1e7be3` 顺带推进了两条既有条目:§3.6 的前端轮询已从硬编码 190s 改为消费服务端 `expiresAt`(**可标记完成**);§2.4 的 codec 覆盖了 3 列,尚余 3 列。
 

@@ -72,6 +72,28 @@ vi.mock("@/lib/db", () => ({
               points: null
             },
             currency: "USD",
+            costBreakdownJson: JSON.stringify({
+              baseline: {
+                benefitValue: 0,
+                cashPrice: 1200,
+                creditCardValue: 0,
+                effectiveCost: 1200,
+                eliteProgressValue: 0,
+                earnedPointsValue: 0,
+                promotionValue: 0,
+                redemptionPointsValue: 0
+              },
+              candidate: {
+                benefitValue: 0,
+                cashPrice: 1100,
+                creditCardValue: 0,
+                effectiveCost: 1100,
+                eliteProgressValue: 0,
+                earnedPointsValue: 0,
+                promotionValue: 0,
+                redemptionPointsValue: 0
+              }
+            }),
             decisionProvider: "deterministic",
             decisionVersion: "2",
             estimatedSavings: 0,
@@ -103,5 +125,9 @@ describe("booking detail page", () => {
       .toHaveClass("notice", "caution");
     expect(screen.getByText("Review the captured cancellation policy.")).toBeInTheDocument();
     expect(screen.getByText("Observed in MYR")).toBeInTheDocument();
+    expect(screen.getByText("Cost breakdown")).toBeInTheDocument();
+    expect(screen.getByText("Effective cost")).toBeInTheDocument();
+    expect(screen.getAllByText("$1,200").length).toBeGreaterThan(1);
+    expect(screen.getAllByText("$1,100").length).toBeGreaterThan(1);
   });
 });

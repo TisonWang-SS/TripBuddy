@@ -5,8 +5,9 @@ import { RunPriceCheckButton } from "@/app/components/RunPriceCheckButton";
 import { promoteObservationToBooking } from "@/lib/actions";
 import { formatBookingBaseline } from "@/lib/bookingPrice";
 import { prisma } from "@/lib/db";
+import type { CostBreakdown } from "@/lib/decision";
 import { formatCalendarDate, formatLocalInstant, formatMoney } from "@/lib/format";
-import { stringList } from "@/lib/json";
+import { parseJson, stringList } from "@/lib/json";
 
 export default async function BookingDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -61,6 +62,10 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
           <p>{latestRecommendation.explanation}</p>
           <p className="muted">Evidence: {latestRecommendation.qualityLevel} · Risk: {latestRecommendation.riskLevel} · {latestRecommendation.decisionProvider} v{latestRecommendation.decisionVersion}</p>
           <EvidenceIssueList className="section" blockers={stringList(latestRecommendation.blockersJson)} warnings={stringList(latestRecommendation.warningsJson)} />
+          <RecommendationCostBreakdown
+            currency={latestRecommendation.currency}
+            value={latestRecommendation.costBreakdownJson}
+          />
           {candidateObservation ? <form action={promoteObservationToBooking} className="section"><input type="hidden" name="bookingId" value={booking.id} /><input type="hidden" name="observationId" value={candidateObservation.id} /><button type="submit">Use candidate as current</button></form> : null}
         </section>
       ) : <section className="empty"><h2>No recommendation yet</h2><p>Run a price check or add a final manual observation.</p></section>}
@@ -102,4 +107,65 @@ function formatObservationPrice(observation: { cashCopay: number | null; cashCop
 
 function formatRoom(value: string | null) {
   return value && !/^(?:unknown|room not captured)$/i.test(value) ? value : "Not captured";
+}
+
+function RecommendationCostBreakdown({ currency, value }: { currency: string; value: string }) {
+  const breakdown = readCostBreakdown(value);
+  if (!breakdown) {
+    return null;
+  }
+  const rows: Array<[string, keyof CostBreakdown]> = [
+    ["Cash price", "cashPrice"],
+    ["Redeemed points value", "redemptionPointsValue"],
+    ["Earned points value", "earnedPointsValue"],
+    ["Promotion value", "promotionValue"],
+    ["Credit-card value", "creditCardValue"],
+    ["Elite progress value", "eliteProgressValue"],
+    ["Included benefits value", "benefitValue"],
+    ["Effective cost", "effectiveCost"]
+  ];
+  return (
+    <details className="section">
+      <summary>Cost breakdown</summary>
+      <table className="table">
+        <thead><tr><th>Component</th><th>Current booking</th><th>Candidate</th></tr></thead>
+        <tbody>{rows.map(([label, field]) => (
+          <tr key={field}>
+            <td>{label}</td>
+            <td>{formatMoney(breakdown.baseline[field], currency)}</td>
+            <td>{formatMoney(breakdown.candidate[field], currency)}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </details>
+  );
+}
+
+function readCostBreakdown(value: string) {
+  const parsed = parseJson<unknown>(value, null);
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+  const candidate = (parsed as { candidate?: unknown }).candidate;
+  const baseline = (parsed as { baseline?: unknown }).baseline;
+  return isCostBreakdown(candidate) && isCostBreakdown(baseline) ? { baseline, candidate } : null;
+}
+
+function isCostBreakdown(value: unknown): value is CostBreakdown {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  return [
+    "benefitValue",
+    "cashPrice",
+    "creditCardValue",
+    "effectiveCost",
+    "eliteProgressValue",
+    "earnedPointsValue",
+    "promotionValue",
+    "redemptionPointsValue"
+  ].every((field) => {
+    const fieldValue = (value as Record<string, unknown>)[field];
+    return typeof fieldValue === "number" && Number.isFinite(fieldValue);
+  });
 }
