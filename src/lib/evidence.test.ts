@@ -148,4 +148,15 @@ describe("observation evidence", () => {
     expect(purePoints.currencyComparable).toBe(true);
     expect(pointsAndCash.currencyComparable).toBe(false);
   });
+
+  it("derives login state from direct Browser Companion evidence", () => {
+    expect(buildObservationEvidence({ ...base, pageText: "Account Overview Points Balance Sign Out" }).loginState)
+      .toBe("member");
+    expect(buildObservationEvidence({ ...base, pageText: "Sign In Join World of Hyatt" }).loginState)
+      .toBe("anonymous");
+    expect(buildObservationEvidence({ ...base, pageText: "Price Summary Total Cash USD 900" }).loginState)
+      .toBe("unknown");
+    expect(buildObservationEvidence({ ...base, collectionMethod: "manual" }).loginState).toBe("unknown");
+    expect(buildObservationEvidence({ ...base, sourceType: "ota" }).loginState).toBe("not_required");
+  });
 });

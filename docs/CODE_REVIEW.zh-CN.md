@@ -2,7 +2,7 @@
 
 > 首次审查基线:`b7a55ec`(2026-08-08)
 > 最新复查基线:`30a75ec`(2026-08-11)
-> 门禁状态:`npm test` 32 文件 147 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / DeepSeek V4 Flash 实测 13 fixtures、63/63 断言通过 / TripBuddy Chrome profile + Logs 页真实 replay 成功 / migration 与 Prisma schema 零差异且在全新库干净应用
+> 门禁状态:`npm test` 32 文件 148 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / DeepSeek V4 Flash 实测 13 fixtures、63/63 断言通过 / TripBuddy Chrome profile + Logs 页真实 replay 成功 / migration 与 Prisma schema 零差异且在全新库干净应用
 > ✅ 套件已时区稳定:外部 `TZ` 设为 -7 / 0 / +14 分别运行全过(`vitest.config.ts` 固定 `TZ: "UTC"`,跨时区用例在测试内显式切换)
 > ✅ PRD、实施计划与代码行为一致
 
@@ -29,7 +29,7 @@
 
 - **LLM 抽取器落地,且是以「提议者」而非「权威」的方式接入的。** 每个模型输出的字符串和数字都必须在存档页面文本里逐字出现,四个安全相关布尔值再从可见 token 与已校验价格分量推导,算术交叉校验,provenance 落库,replay 针对存档快照而非重新爬取,评测门槛为「不劣于确定性基线」(`b1e7be3` 及本次修复)。
 
-当前剩余问题均为尚未动工的加固项:§3.5、§3.7–§3.9。
+当前剩余问题均为尚未动工的加固项:§3.7–§3.9。
 
 **已无已知的用户可见缺陷。** §3.10–§3.18 全部关闭,关键安全修复均有负向复现或端到端用例守卫,不是只靠读 diff 判断。
 
@@ -89,7 +89,7 @@
 | `LoyaltyRule.nightsRequired` / `pointsRequired` / `spendRequired` | ✅ 从 seed、schema 与数据库移除;当前不伪装成 tier/milestone 边际价值模型 |
 | `LoyaltyAccount.currentNights` / `currentPoints` / `currentSpend` / `targetTier` | ✅ 从 profile 表单、schema 与数据库移除;保留真正进入计算的 tier / point value |
 | `CreditCardBenefit.eliteNightCredits` | ✅ 从表单、决策类型、schema 与数据库移除;保留 cash back / point multiplier |
-| `LoginState.member` / `.anonymous` | ↪ 独立安全语义,在 §3.5 处理,不在本节重复计数 |
+| `LoginState.member` / `.anonymous` | ✅ direct Browser Companion 页面已从可见登录 token 推导(§3.5) |
 | `ObservationEvidence.promotionApplicability` | ✅ 恒为 unknown 的列与 enum 已移除;促销是否计值仍由现有确定性 promotion 过滤决定 |
 
 问题不是"占了几个字节",而是**用户在 profile 页面认真填了会籍夜数和信用卡会籍夜,系统完全没用**。这是产品层面的失真,比死代码严重。二选一:接进成本模型,或者从表单里拿掉。
@@ -186,9 +186,11 @@
 
 `formatMoney` 合并为单一实现,`maximumFractionDigits: Number.isInteger(value) ? 0 : 2`,新增 `format.test.ts` 覆盖两个分支。
 
-### 3.5 未使用的 `LoginState` 语义 — ⬜ 待办
+### 3.5 未使用的 `LoginState` 语义 — ✅ 已完成(本次提交)
 
 `evidence.ts:124` 是 `sourceVerified ? "unknown" : "not_required"`,语义上是反的(**已验证**的来源反而是"未知"),且 `member` / `anonymous` 永不产生。扩展在账户导入时已经能识别登录态(`Sign Out` / `Upcoming Stays`),这个信号从未流到证据层。
+
+✅ **按来源与可见 token 推导。** 非 direct 来源为 `not_required`;direct 手工证据因没有页面登录证据为 `unknown`;direct Browser Companion 页面优先识别 `Sign Out` / `My Stays` / `Points Balance` 等强登录 token 为 `member`,识别 `Sign In` / `Join World of Hyatt` 等为 `anonymous`,否则保持 `unknown`。行为测试覆盖五个分支,`member` / `anonymous` 不再是不可达枚举。
 
 ### 3.6 三个超时散在三处 — ✅ 已完成(`b1e7be3`)
 
@@ -554,18 +556,19 @@ review 中的原始攻击样例已变成负向回归:候选仍可作为价格事
 | 24 | 让搜索 session、浏览器 snapshots 与 recommendation cost breakdown 都有产品读取方(§1.5) | `d715bda` |
 | 25 | 删除不会影响计算的会籍进度、信用卡 elite nights 与 promotion applicability 字段(§1.6) | `5e6d34d` |
 | 26 | 为 BrowserTask、HotelSearchSession 与 Recommendation 的结构 JSON 补齐双向 codec(§2.4) | `fe7fefb` |
-| 27 | 在 Settings 增加 observed currency 汇率入口与服务层校验(§3.2) | 本次提交 |
+| 27 | 在 Settings 增加 observed currency 汇率入口与服务层校验(§3.2) | `5e4d23b` |
+| 28 | 从 direct Browser Companion 可见 token 推导真实 LoginState(§3.5) | 本次提交 |
 
 ### 后续建议顺序
 
 | 顺序 | 事项 | 理由 |
 |---|---|---|
-| 28 | CORS 收紧(§3.7) | 加固项。新 LLM 路由已刻意不继承开放姿态,可作为收紧时的参照 |
-| 29 | 房型等价性判定交给模型(§4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker——这是剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
+| 29 | CORS 收紧(§3.7) | 加固项。新 LLM 路由已刻意不继承开放姿态,可作为收紧时的参照 |
+| 30 | 房型等价性判定交给模型(§4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker——这是剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
 
 第 13–15 项作为一组一起做是对的:它们是同一条日期约定接缝的三个面,第 9 项(`a5af2de`)就是分开修、只修了一半的例子。
 
-**当前状态**:无已知的功能性缺陷;其余(§3.5、§3.7–§3.9)都是数据卫生与加固,没有用户可见症状。
+**当前状态**:无已知的功能性缺陷;其余(§3.7–§3.9)都是数据卫生与加固,没有用户可见症状。
 
 `b1e7be3` 顺带推进了两条既有条目:§3.6 的前端轮询已从硬编码 190s 改为消费服务端 `expiresAt`(**可标记完成**);§2.4 当时先覆盖 3 列,其余结构 JSON 已在本次提交补齐。
 

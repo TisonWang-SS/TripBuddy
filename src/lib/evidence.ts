@@ -78,6 +78,7 @@ export function buildObservationEvidence(input: EvidenceInput): BuiltEvidence {
     input.cashCurrency === input.bookingCurrency ||
     input.conversionAvailable;
   const sourceVerified = input.collectionMethod === "browser_companion" && input.sourceType === "direct";
+  const loginState = inferLoginState(input);
   const blockers: string[] = [];
   const warnings: string[] = [];
 
@@ -121,7 +122,7 @@ export function buildObservationEvidence(input: EvidenceInput): BuiltEvidence {
         : inferredCancellation.reason,
     currencyComparable,
     feesIncluded,
-    loginState: sourceVerified ? "unknown" : "not_required",
+    loginState,
     loyaltyEligibility,
     qualityLevel: classifyQuality({ blockers, roomMatch, sourceVerified, warnings }),
     roomAssessmentSource,
@@ -136,6 +137,23 @@ export function buildObservationEvidence(input: EvidenceInput): BuiltEvidence {
     taxesIncluded,
     warnings
   };
+}
+
+function inferLoginState(input: EvidenceInput): LoginState {
+  if (input.sourceType !== "direct") {
+    return "not_required";
+  }
+  if (input.collectionMethod !== "browser_companion") {
+    return "unknown";
+  }
+  const pageText = input.pageText?.replace(/\s+/g, " ").trim() ?? "";
+  if (/\b(?:Sign Out|Log Out|Upcoming Stays|My Stays|Points Balance|Account Overview)\b/i.test(pageText)) {
+    return "member";
+  }
+  if (/\b(?:Sign In|Log In|Join World of Hyatt|Not a member|Activate your online account)\b/i.test(pageText)) {
+    return "anonymous";
+  }
+  return "unknown";
 }
 
 function inferCancellationMatch(
