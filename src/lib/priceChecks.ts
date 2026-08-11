@@ -154,6 +154,7 @@ export async function captureBookingPriceTask(taskId: string, capture: BrowserTa
         pageText: "",
         pageTitle: "",
         parsed: {
+          candidatesTruncated: task.priceCheckRun.candidatesTruncated,
           errorCode: capture.errorCode ?? "browser_capture_partial",
           errorMessage: capture.errorMessage,
           inventory,
@@ -162,6 +163,7 @@ export async function captureBookingPriceTask(taskId: string, capture: BrowserTa
           status: "partial",
           summary: "Explicit award evidence was saved, but the browser task did not reach a final cash summary."
         },
+        candidatesTruncated: task.priceCheckRun.candidatesTruncated,
         taskId
       });
       if (observationIds.length > 0) {
@@ -187,10 +189,19 @@ export async function captureBookingPriceTask(taskId: string, capture: BrowserTa
   await appendBrowserSnapshot(taskId, snapshot);
   const parsed = provider.parseSnapshot(snapshot, context);
   const existingInventory = parseObservationDrafts(task.priceCheckRun.inventoryEvidenceJson);
-  const inventory = mergeCandidates(existingInventory, parsed.inventory.map((candidate) => ({ ...candidate, sourceUrl: snapshot.sourceUrl })));
+  const inventoryMerge = mergeObservationCandidates(
+    existingInventory,
+    parsed.inventory.map((candidate) => ({ ...candidate, sourceUrl: snapshot.sourceUrl }))
+  );
+  const candidatesTruncated =
+    task.priceCheckRun.candidatesTruncated || parsed.candidatesTruncated || inventoryMerge.truncated;
   await prisma.priceCheckRun.update({
     where: { id: task.priceCheckRun.id },
-    data: { inventoryEvidenceJson: toJson(inventory), sourceUrl: snapshot.sourceUrl }
+    data: {
+      candidatesTruncated,
+      inventoryEvidenceJson: toJson(inventoryMerge.candidates),
+      sourceUrl: snapshot.sourceUrl
+    }
   });
 
   if (parsed.status === "failed") {
@@ -207,14 +218,15 @@ export async function captureBookingPriceTask(taskId: string, capture: BrowserTa
     return { ...serializeTaskState(await getBrowserTask(taskId)), action };
   }
 
-  const observations = mergeCandidates(
-    inventory.filter((candidate) => candidate.inventoryType === "award"),
+  const observationMerge = mergeObservationCandidates(
+    inventoryMerge.candidates.filter((candidate) => candidate.inventoryType === "award"),
     parsed.observations.map((candidate) => ({ ...candidate, sourceUrl: snapshot.sourceUrl }))
   );
   const observationIds = await completePriceCheckTask({
+    candidatesTruncated: candidatesTruncated || observationMerge.truncated,
     context,
-    inventory,
-    observations,
+    inventory: inventoryMerge.candidates,
+    observations: observationMerge.candidates,
     pageText: snapshot.pageText,
     pageTitle: snapshot.pageTitle,
     parsed,
@@ -227,6 +239,7 @@ export async function captureBookingPriceTask(taskId: string, capture: BrowserTa
 }
 
 async function completePriceCheckTask(input: {
+  candidatesTruncated: boolean;
   context: BookingPriceInput;
   inventory: ParsedObservationDraft[];
   observations: ParsedObservationDraft[];
@@ -330,6 +343,7 @@ async function completePriceCheckTask(input: {
     await tx.priceCheckRun.update({
       where: { id: task.priceCheckRun!.id },
       data: {
+        candidatesTruncated: input.candidatesTruncated,
         errorCode: input.parsed.errorCode,
         errorMessage: input.parsed.errorMessage,
         finishedAt,
@@ -378,7 +392,7 @@ async function failPriceCheckTask(taskId: string, errorCode: string, errorMessag
   ]);
 }
 
-function mergeCandidates(current: ParsedObservationDraft[], incoming: ParsedObservationDraft[]) {
+export function mergeObservationCandidates(current: ParsedObservationDraft[], incoming: ParsedObservationDraft[]) {
   const result = new Map<string, ParsedObservationDraft>();
   for (const candidate of [...current, ...incoming]) {
     const key = [
@@ -392,5 +406,6 @@ function mergeCandidates(current: ParsedObservationDraft[], incoming: ParsedObse
     ].join("|");
     result.set(key, candidate);
   }
-  return [...result.values()].slice(0, 24);
+  const candidates = [...result.values()];
+  return { candidates: candidates.slice(0, 24), truncated: candidates.length > 24 };
 }

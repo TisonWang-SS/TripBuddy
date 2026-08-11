@@ -177,6 +177,35 @@ describe("persistent browser price-check flow", () => {
     });
   });
 
+  it("records when browser snapshot history exceeds its retention limit", async () => {
+    const task = await prisma.browserTask.create({
+      data: {
+        contextJson: "{}",
+        expiresAt: new Date(Date.now() + 60_000),
+        hotelGroup: "Hyatt",
+        id: "snapshot-retention-task",
+        kind: "hotel_search",
+        launchUrl: "https://www.hyatt.com/search/hotels/en-US/Tokyo"
+      }
+    });
+
+    for (let index = 1; index <= 13; index += 1) {
+      await appendBrowserSnapshot(task.id, {
+        capturedAt: new Date(2026, 7, 11, 0, 0, index).toISOString(),
+        controls: [],
+        pageText: `Visible evidence ${index}`,
+        pageTitle: `Snapshot ${index}`,
+        sourceUrl: "https://www.hyatt.com/search/hotels/en-US/Tokyo"
+      });
+    }
+
+    const retained = await prisma.browserTask.findUniqueOrThrow({ where: { id: task.id } });
+    const snapshots = JSON.parse(retained.snapshotsJson) as Array<{ pageTitle: string }>;
+    expect(snapshots).toHaveLength(12);
+    expect(snapshots[0].pageTitle).toBe("Snapshot 2");
+    expect(retained.snapshotsTruncated).toBe(true);
+  });
+
   it("persists a weaker-policy warning on an automatic direct rebook recommendation", async () => {
     const booking = await prisma.hotelBooking.create({
       data: {

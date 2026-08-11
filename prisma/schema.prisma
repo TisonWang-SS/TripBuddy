@@ -248,21 +248,22 @@ model WatchPlan {
 }
 
 model BrowserTask {
-  id            String            @id @default(cuid())
-  kind          BrowserTaskKind
-  hotelGroup    String
-  status        BrowserTaskStatus @default(pending)
-  launchUrl     String
-  contextJson   String
-  snapshotsJson String            @default("[]")
-  resultJson    String?
-  errorCode     String?
-  errorMessage  String?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  expiresAt     DateTime
-  finishedAt    DateTime?
-  priceCheckRun PriceCheckRun?
+  id                 String            @id @default(cuid())
+  kind               BrowserTaskKind
+  hotelGroup         String
+  status             BrowserTaskStatus @default(pending)
+  launchUrl          String
+  contextJson        String
+  snapshotsJson      String            @default("[]")
+  snapshotsTruncated Boolean           @default(false)
+  resultJson         String?
+  errorCode          String?
+  errorMessage       String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  expiresAt          DateTime
+  finishedAt         DateTime?
+  priceCheckRun      PriceCheckRun?
 
   @@index([status, expiresAt])
 }
@@ -298,6 +299,7 @@ model PriceCheckRun {
   errorCode             String?
   errorMessage          String?
   inventoryEvidenceJson String                  @default("[]")
+  candidatesTruncated   Boolean                 @default(false)
   booking               HotelBooking            @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   watchPlan             WatchPlan?              @relation(fields: [watchPlanId], references: [id], onDelete: SetNull)
   browserTask           BrowserTask             @relation(fields: [browserTaskId], references: [id], onDelete: Cascade)

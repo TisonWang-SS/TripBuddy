@@ -61,6 +61,10 @@ export function normalizeBrowserEvidencePayload(payload: BrowserEvidencePayload)
 }
 
 export function parseHyattEvidenceFromText(text: string, sourceUrl: string) {
+  return parseHyattEvidenceFromTextWithMetadata(text, sourceUrl).candidates;
+}
+
+export function parseHyattEvidenceFromTextWithMetadata(text: string, sourceUrl: string) {
   const candidates: BrowserEvidenceCandidateInput[] = [];
   const normalizedText = text.replace(/\s+/g, " ").trim();
   const [roomListText, detailText] = normalizedText.split("__TRIPBUDDY_FINAL_DETAIL_PAGE__").map((part) => part.trim());
@@ -72,7 +76,7 @@ export function parseHyattEvidenceFromText(text: string, sourceUrl: string) {
   const detailRateCandidates = detailText || /Choose Your Rate/i.test(normalizedText) ? extractHyattDetailRateCandidates(detailTextForTotals, nights) : [];
 
   if (isHyattSearchPageUrl(sourceUrl) && !detailText && !finalTotal && detailRateCandidates.length === 0) {
-    return [];
+    return { candidates: [], truncated: false };
   }
 
   if (finalTotal) {
@@ -454,7 +458,7 @@ function dedupeCandidates(candidates: BrowserEvidenceCandidateInput[]) {
       result.push(candidate);
     }
   }
-  return result.slice(0, 12);
+  return { candidates: result.slice(0, 12), truncated: result.length > 12 };
 }
 
 function mergeSimilarCashCandidates(candidates: BrowserEvidenceCandidateInput[]) {

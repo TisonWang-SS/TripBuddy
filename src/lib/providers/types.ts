@@ -88,6 +88,7 @@ export type ParsedObservationDraft = {
 };
 
 export type ParsedBookingEvidence = {
+  candidatesTruncated: boolean;
   errorCode: string | null;
   errorMessage: string | null;
   inventory: ParsedObservationDraft[];

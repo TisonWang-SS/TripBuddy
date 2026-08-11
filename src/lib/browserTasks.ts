@@ -93,9 +93,10 @@ export async function appendBrowserSnapshot(taskId: string, snapshot: BrowserPag
     textSample,
     truncated: sanitizedText.length > textSample.length
   });
+  const snapshotsTruncated = task.snapshotsTruncated || snapshots.length > 12;
   return prisma.browserTask.update({
     where: { id: taskId },
-    data: { snapshotsJson: toJson(snapshots.slice(-12)), status: "running" }
+    data: { snapshotsJson: toJson(snapshots.slice(-12)), snapshotsTruncated, status: "running" }
   });
 }
 

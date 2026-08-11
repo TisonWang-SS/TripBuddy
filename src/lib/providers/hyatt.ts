@@ -4,7 +4,7 @@ import {
   isHyattReservationDetailUrl,
   parseHyattAccountBookingsFromSnapshots
 } from "@/lib/providers/hyattAccount";
-import { normalizeBrowserEvidencePayload, parseHyattEvidenceFromText } from "@/lib/providers/hyattEvidence";
+import { normalizeBrowserEvidencePayload, parseHyattEvidenceFromTextWithMetadata } from "@/lib/providers/hyattEvidence";
 import {
   buildHyattCitySearchUrl,
   normalizeHyattCitySearchQuery,
@@ -36,6 +36,7 @@ const bookingPrice: BookingPriceProvider = {
     const pageText = snapshot.pageText.replace(/\s+/g, " ").trim();
     if (!pageText && !snapshot.pageTitle.trim()) {
       return {
+        candidatesTruncated: false,
         errorCode: "empty_page",
         errorMessage: "Hyatt returned an empty page document.",
         inventory: [],
@@ -47,6 +48,7 @@ const bookingPrice: BookingPriceProvider = {
     }
     if (!pageText) {
       return {
+        candidatesTruncated: false,
         errorCode: "page_loading",
         errorMessage: "Hyatt's page title was visible while its booking content was still loading.",
         inventory: [],
@@ -58,6 +60,7 @@ const bookingPrice: BookingPriceProvider = {
     }
     if (/Looks like an error occurred while your request was being processed/i.test(pageText)) {
       return {
+        candidatesTruncated: false,
         errorCode: "hyatt_page_error",
         errorMessage: "Hyatt could not process the visible booking request after the page refresh.",
         inventory: [],
@@ -69,6 +72,7 @@ const bookingPrice: BookingPriceProvider = {
     }
     if (/ERROR:E6020|browser did something unexpected|KPSDK/i.test(pageText)) {
       return {
+        candidatesTruncated: false,
         errorCode: "hyatt_blocked",
         errorMessage: "Hyatt blocked or challenged the visible browser page.",
         inventory: [],
@@ -79,9 +83,10 @@ const bookingPrice: BookingPriceProvider = {
       };
     }
 
+    const extracted = parseHyattEvidenceFromTextWithMetadata(pageText, snapshot.sourceUrl);
     const normalized = normalizeBrowserEvidencePayload({
       bookingId: input.bookingId,
-      candidates: parseHyattEvidenceFromText(pageText, snapshot.sourceUrl),
+      candidates: extracted.candidates,
       capturedAt: snapshot.capturedAt,
       hotelGroup: "Hyatt",
       pageText,
@@ -99,6 +104,7 @@ const bookingPrice: BookingPriceProvider = {
     );
 
     return {
+      candidatesTruncated: extracted.truncated,
       errorCode: selected.length > 0 ? null : "no_observation_ready_rate",
       errorMessage:
         selected.length > 0

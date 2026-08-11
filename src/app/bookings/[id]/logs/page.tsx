@@ -61,6 +61,8 @@ export default async function BookingLogsPage({ params }: { params: Promise<{ id
             <div>
               <h3>{run.providerName}</h3>
               <p>{run.summary ?? run.errorMessage ?? "Waiting for evidence."}</p>
+              {run.candidatesTruncated ? <p className="notice warning">Candidate evidence exceeded the audit limit; only the first 24 distinct candidates were retained.</p> : null}
+              {run.browserTask.snapshotsTruncated ? <p className="notice warning">Browser history exceeded the audit limit; only the 12 most recent sanitized snapshots were retained.</p> : null}
               {run.sourceUrl ? <a className="muted" href={run.sourceUrl} rel="noreferrer" target="_blank">Open source</a> : null}
               {snapshots.length > 0 ? <details><summary>{snapshots.length} sanitized browser snapshot{snapshots.length === 1 ? "" : "s"}</summary><div className="list">{snapshots.map((snapshot) => <div className="listItem" key={`${snapshot.capturedAt}-${snapshot.sourceUrl}`}><div><strong>{snapshot.pageTitle || snapshot.phase}</strong><p className="muted">{snapshot.textSample.slice(0, 1200)}{snapshot.textSample.length > 1200 || snapshot.truncated ? "…" : ""}</p></div><span className="badge">{snapshot.phase}</span></div>)}</div></details> : null}
               {run.extractionRuns.length > 0 ? <details><summary>{run.extractionRuns.length} LLM extraction run{run.extractionRuns.length === 1 ? "" : "s"}</summary><div className="list">{run.extractionRuns.map((extraction) => {

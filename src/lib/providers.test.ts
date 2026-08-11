@@ -140,4 +140,13 @@ describe("hotel provider registry", () => {
       })
     ]);
   });
+
+  it("reports when Hyatt exposes more candidates than the parser retains", () => {
+    const provider = getBookingPriceProvider("Hyatt")!;
+    const awardRates = Array.from({ length: 13 }, (_, index) => `${10_000 + index * 1_000} points`).join(" ");
+    const parsed = provider.parseSnapshot(snapshot(awardRates), input);
+
+    expect(parsed.inventory).toHaveLength(12);
+    expect(parsed.candidatesTruncated).toBe(true);
+  });
 });
