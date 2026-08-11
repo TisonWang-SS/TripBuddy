@@ -62,4 +62,16 @@ describe("hotel search API", () => {
     expect(createHotelSearchTask).toHaveBeenCalledWith(expect.objectContaining({ hotelGroup: "Hyatt" }));
     await expect(response.json()).resolves.toMatchObject({ searchSessionId: "session-1" });
   });
+
+  it("rejects a simple cross-origin POST before creating a search task", async () => {
+    const { POST } = await import("@/app/api/hotel-search/route");
+    const response = await POST(new Request("http://localhost/api/hotel-search", {
+      body: JSON.stringify({ city: "Tokyo", hotelGroup: "Hyatt" }),
+      headers: { "Content-Type": "text/plain", Origin: "https://evil.example" },
+      method: "POST"
+    }));
+
+    expect(response.status).toBe(403);
+    expect(createHotelSearchTask).not.toHaveBeenCalled();
+  });
 });

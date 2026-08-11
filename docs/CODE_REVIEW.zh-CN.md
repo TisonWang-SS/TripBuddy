@@ -1,8 +1,8 @@
 # TripBuddy 代码审查报告
 
 > 首次审查基线:`b7a55ec`(2026-08-08)
-> 最新复查基线:`30a75ec`(2026-08-11)
-> 门禁状态:`npm test` 35 文件 156 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / DeepSeek V4 Flash 实测 13 fixtures、63/63 断言通过 / TripBuddy Chrome profile + Logs 页真实 replay 成功 / migration 与 Prisma schema 零差异且在全新库干净应用
+> 最新复查基线:`b6d093a`(2026-08-11)
+> 门禁状态:`npm test` 37 文件 165 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / DeepSeek V4 Flash 实测 13 fixtures、63/63 断言通过 / TripBuddy Chrome profile + Logs 页真实 replay 成功 / migration 与 Prisma schema 零差异且在全新库干净应用
 > ✅ 套件已时区稳定:外部 `TZ` 设为 -7 / 0 / +14 分别运行全过(`vitest.config.ts` 固定 `TZ: "UTC"`,跨时区用例在测试内显式切换)
 > ✅ PRD、实施计划与代码行为一致
 
@@ -31,7 +31,7 @@
 
 本轮列出的数据卫生与加固项已全部完成。
 
-**已无已知的用户可见缺陷。** §3.10–§3.18 全部关闭,关键安全修复均有负向复现或端到端用例守卫,不是只靠读 diff 判断。
+**已无已知的用户可见缺陷。** §3.7、§3.10–§3.18 全部关闭,关键安全修复均有负向复现或端到端用例守卫,不是只靠读 diff 判断。
 
 ---
 
@@ -140,6 +140,10 @@
 
 ✅ **所有产品结构 JSON 都有读写双向 codec。** `browserTaskCodecs.ts` 按 task kind 校验 context/result,并继续负责 inventory/snapshots;`hotelSearchSessionCodecs.ts` 对 query 与嵌套 hotel/offer results fail-closed;`recommendationCodecs.ts` 校验 baseline/candidate 的八个有限数值成本字段。写入侧使用对应 serializer,非法内部结果会立即抛错;读取旧行时结构不合法则返回 `null` / 安全空值,不再靠 `parseJson<T>` 类型断言。
 
+模式用对了:全仓库剩余的 `parseJson<unknown>` 调用**都在 codec 内部**——先解析成 `unknown`、再交给 decoder 校验,这正是应有的形状,不是遗漏。
+
+✅ **最后一处直接断言已收口。** `ObservationEvidence.snapshotJson` 现在通过 `evidenceCodecs.ts` 双向编解码;写入走 serializer,Logs 读取旧行时先以 `unknown` 解析并校验三个字段,畸形结构返回安全空快照。独立测试覆盖 round-trip 与 fail-closed。
+
 ### 2.5 Scheduler 与执行模型自相矛盾 — ✅ 已完成(`e658fd5`)
 
 用 ADR(`docs/decisions/0001-foreground-price-checks.md`)显式关闭:检查必须有可见标签页和活的登录态,服务端 scheduler 无法在安全边界内完成这件事。
@@ -190,7 +194,9 @@
 
 `evidence.ts:124` 是 `sourceVerified ? "unknown" : "not_required"`,语义上是反的(**已验证**的来源反而是"未知"),且 `member` / `anonymous` 永不产生。扩展在账户导入时已经能识别登录态(`Sign Out` / `Upcoming Stays`),这个信号从未流到证据层。
 
-✅ **按来源与可见 token 推导。** 非 direct 来源为 `not_required`;direct 手工证据因没有页面登录证据为 `unknown`;direct Browser Companion 页面优先识别 `Sign Out` / `My Stays` / `Points Balance` 等强登录 token 为 `member`,识别 `Sign In` / `Join World of Hyatt` 等为 `anonymous`,否则保持 `unknown`。行为测试覆盖五个分支,`member` / `anonymous` 不再是不可达枚举。
+✅ **按来源与可见 token 推导。** 非 direct 来源为 `not_required`;direct 手工证据因没有页面登录证据为 `unknown`;direct Browser Companion 页面优先识别 `Sign Out` / `My Stays` / `Points Balance` 等强登录 token 为 `member`,识别 `Sign In` / `Join World of Hyatt` 等为 `anonymous`,否则保持 `unknown`。行为测试覆盖五个分支,`member` / `anonymous` 不再是不可达枚举。反证确认:改回固定值,`evidence.test.ts` 立刻变红。
+
+✅ **Hyatt 登录 token 已下沉到 provider。** `BookingPriceProvider.inferLoginState` 返回结构化 `LoginState`,`ParsedBookingEvidence` 将它带到持久化路径;LLM replay 也通过 registry 调用同一 provider 能力。共享 `evidence.ts` 只处理 direct/manual/OTA 的通用来源语义,不再含 `Join World of Hyatt`、`Upcoming Stays` 等品牌词汇。provider 行为测试守住 member / anonymous / unknown 三个分支。
 
 ### 3.6 三个超时散在三处 — ✅ 已完成(`b1e7be3`)
 
@@ -209,6 +215,37 @@
 对本地单用户工具危害有限,但修复很便宜:把 origin 限制到扩展 ID,或者给每个任务发一个只回传给发起方、POST 时必须携带的 secret。
 
 ✅ **网络请求移出页面执行上下文。** content script 不再直接 `fetch` 本地 API,而是通过 Chrome runtime message 交给 `background.js`;service worker 同时校验 sender 必须是 Hyatt task tab、endpoint 必须是 localhost/127.0.0.1、task ID 形状合法。服务端 browser-task route 在执行 GET/POST 之前拒绝 Hyatt/其他 page origin,只允许 same-origin 或合法 `chrome-extension://<id>`,并回显精确 origin、永不返回 `*`;可用 `TRIPBUDDY_BROWSER_EXTENSION_ORIGIN` 进一步钉死具体安装 ID。即使页面脚本读到 hash/sessionStorage 中的 task ID,也无法再直接伪造 capture。service worker 与服务端 origin 边界均有行为测试。
+
+**复查侧起真实服务实测**(`next start` + curl):
+
+| Origin | 结果 |
+|---|---|
+| 无 Origin | 放行 |
+| `chrome-extension://<32 位 a-p>` | 放行 |
+| `chrome-extension://<含非法字符>` | **403** |
+| `https://www.hyatt.com`(原攻击) | **403**(GET 与 POST 均是) |
+| `https://evil.example` | **403** |
+
+原始攻击路径已关闭。反证确认:把门禁改成全放行,`browserApi.test.ts` 立刻变红。
+
+✅ **另外三条任务创建路由已补同源门禁。**
+
+`/api/hotel-search`、`/api/price-checks`、`/api/account-imports` 仍未校验 Origin。它们没有 ACAO 头,所以跨源页面**读不到响应**,但用 `Content-Type: text/plain`(简单请求、免预检)仍可让**服务端副作用真实发生**。实测:
+
+```
+POST /api/hotel-search  Origin: https://evil.example  Content-Type: text/plain
+→ HTTP 201,数据库新增 BrowserTask 1 行、HotelSearchSession 1 行
+```
+
+危害有限(无数据外泄、不改预订、不涉支付),但 `/api/price-checks` 还会顺带写 `lastAttemptedAt`,扰动 Dashboard 到期队列。更重要的是**同一类问题现在处理得不一致**:browser-task 路由有门禁,兄弟路由没有。
+
+这三条只被应用自身 UI 调用、从不被扩展调用,所以修法比 §3.7 本身更简单——**只允许 same-origin**,任何跨源 Origin 直接拒绝。
+
+`sameOriginRequestError` 现在位于三条任务创建 POST 的第一行逻辑,先于 `request.json()` 和所有 handler;路由级回归使用复查原样的 `Origin: https://evil.example` + `Content-Type: text/plain`,逐条断言 403 且 create handler 零调用。另起隔离 `next start` 做真实 curl 复测,三条均返回 403 且空数据库文件没有被创建,确认 Prisma 写路径未触发。无 Origin 的本地/CLI 请求与应用同源请求仍放行。
+
+同为应用 UI 专用 mutation 的 `/api/price-checks/[id]/llm-extraction` 也复用该门禁,避免跨源页面在猜中/泄露 run ID 时触发模型费用和审计写入;负向测试断言 extractor 零调用。最终生产服务 curl 覆盖四条 mutation 路由,全部返回同一 403,隔离数据库仍未创建。
+
+✅ **环回 host 别名已统一。** 同协议、同端口时 `localhost` 与 `127.0.0.1` 视为同一应用 origin;不同端口仍为 403。该判定同时用于应用 POST 门禁与 browser-task same-origin 分支,测试覆盖别名放行和端口不匹配拒绝。
 
 ### 3.8 静默截断 — ✅ 已完成(`0563e84`)
 
@@ -564,17 +601,19 @@ review 中的原始攻击样例已变成负向回归:候选仍可作为价格事
 | 28 | 从 direct Browser Companion 可见 token 推导真实 LoginState(§3.5) | `a721b6a` |
 | 29 | 将本地 API 请求移到扩展 service worker 并移除 wildcard CORS(§3.7) | `1a2be63` |
 | 30 | 持久化候选与浏览器快照的截断审计标记(§3.8) | `0563e84` |
-| 31 | 将 Browser Companion 源码字面量测试改为 VM 行为测试(§3.9) | 本次提交 |
+| 31 | 将 Browser Companion 源码字面量测试改为 VM 行为测试(§3.9) | `b6d093a` |
+| 32 | 三条任务创建 POST 补 same-origin 门禁并统一环回 host 别名(§3.7 遗留) | 本次修复 |
+| 33 | 登录 token 下沉 provider,ObservationEvidence snapshot 补 codec(§3.5、§2.4 观察) | 本次修复 |
 
 ### 后续建议顺序
 
 | 顺序 | 事项 | 理由 |
 |---|---|---|
-| 32 | 房型等价性判定交给模型(§4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker——这是剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
+| 34 | 房型等价性判定交给模型(§4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker——这是剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
 
 第 13–15 项作为一组一起做是对的:它们是同一条日期约定接缝的三个面,第 9 项(`a5af2de`)就是分开修、只修了一半的例子。
 
-**当前状态**:本轮要求的 §1.5、§1.6、§2.4、§3.2、§3.5、§3.7–§3.9 已全部关闭;无已知的功能性缺陷。
+**当前状态**:本轮要求与复查新增项均已关闭:三条应用内任务创建路由拒绝跨源副作用,环回 host 别名统一,Hyatt 登录 token 下沉 provider,最后一处结构 JSON 断言进入 codec。除此之外无已知的功能性缺陷。
 
 `b1e7be3` 顺带推进了两条既有条目:§3.6 的前端轮询已从硬编码 190s 改为消费服务端 `expiresAt`(**可标记完成**);§2.4 当时先覆盖 3 列,其余结构 JSON 已在本次提交补齐。
 

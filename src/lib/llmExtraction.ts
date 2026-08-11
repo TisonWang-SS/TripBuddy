@@ -15,6 +15,7 @@ import {
   LlmEvidenceError,
   validateLlmEvidenceCandidates
 } from "@/lib/providers/llmEvidence";
+import { getBookingPriceProvider } from "@/lib/providers/registry";
 import type { BookingPriceInput, ParsedObservationDraft, SanitizedBrowserSnapshot } from "@/lib/providers/types";
 import { createRecommendationForBooking } from "@/lib/recommendations";
 import { getCurrencyConversion } from "@/lib/systemSettings";
@@ -258,6 +259,7 @@ export function selectReplaySnapshots(snapshots: readonly SanitizedBrowserSnapsh
 }
 
 async function prepareObservations(context: BookingPriceInput, candidates: readonly AcceptedCandidate[]) {
+  const provider = getBookingPriceProvider(context.hotelGroup);
   return Promise.all(candidates.map(async (candidate) => {
     const conversionAvailable =
       candidate.draft.inventoryType === "award" ||
@@ -277,6 +279,7 @@ async function prepareObservations(context: BookingPriceInput, candidates: reado
         feesIncluded: candidate.draft.feesIncluded,
         hasCashComponent: candidate.draft.cashCopay !== null,
         inventoryType: candidate.draft.inventoryType,
+        loginState: provider?.inferLoginState(candidate.pageText) ?? "unknown",
         loyaltyEligible: candidate.draft.loyaltyEligible,
         pageText: candidate.pageText,
         pageTitle: candidate.pageTitle,

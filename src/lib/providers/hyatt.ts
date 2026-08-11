@@ -23,6 +23,7 @@ const bookingPrice: BookingPriceProvider = {
   hotelGroup: "Hyatt",
   name: "hyatt-browser-companion",
   buildLaunchUrl: buildHyattBookingSearchUrl,
+  inferLoginState: inferHyattLoginState,
   planAction(snapshot, input) {
     return planBrowserAgentAction({
       controls: snapshot.controls,
@@ -34,12 +35,14 @@ const bookingPrice: BookingPriceProvider = {
   },
   parseSnapshot(snapshot, input) {
     const pageText = snapshot.pageText.replace(/\s+/g, " ").trim();
+    const loginState = bookingPrice.inferLoginState(pageText);
     if (!pageText && !snapshot.pageTitle.trim()) {
       return {
         candidatesTruncated: false,
         errorCode: "empty_page",
         errorMessage: "Hyatt returned an empty page document.",
         inventory: [],
+        loginState,
         observations: [],
         sourceUrl: snapshot.sourceUrl,
         status: "failed",
@@ -52,6 +55,7 @@ const bookingPrice: BookingPriceProvider = {
         errorCode: "page_loading",
         errorMessage: "Hyatt's page title was visible while its booking content was still loading.",
         inventory: [],
+        loginState,
         observations: [],
         sourceUrl: snapshot.sourceUrl,
         status: "partial",
@@ -64,6 +68,7 @@ const bookingPrice: BookingPriceProvider = {
         errorCode: "hyatt_page_error",
         errorMessage: "Hyatt could not process the visible booking request after the page refresh.",
         inventory: [],
+        loginState,
         observations: [],
         sourceUrl: snapshot.sourceUrl,
         status: "failed",
@@ -76,6 +81,7 @@ const bookingPrice: BookingPriceProvider = {
         errorCode: "hyatt_blocked",
         errorMessage: "Hyatt blocked or challenged the visible browser page.",
         inventory: [],
+        loginState,
         observations: [],
         sourceUrl: snapshot.sourceUrl,
         status: "failed",
@@ -111,6 +117,7 @@ const bookingPrice: BookingPriceProvider = {
           ? null
           : "Only transient room-list estimates or incomplete rate evidence were visible.",
       inventory,
+      loginState,
       observations: selected,
       sourceUrl: snapshot.sourceUrl,
       status: selected.length > 0 ? "succeeded" : inventory.length > 0 ? "partial" : "partial",
@@ -123,6 +130,17 @@ const bookingPrice: BookingPriceProvider = {
     };
   }
 };
+
+export function inferHyattLoginState(pageText: string) {
+  const normalized = pageText.replace(/\s+/g, " ").trim();
+  if (/\b(?:Sign Out|Log Out|Upcoming Stays|My Stays|Points Balance|Account Overview)\b/i.test(normalized)) {
+    return "member" as const;
+  }
+  if (/\b(?:Sign In|Log In|Join World of Hyatt|Not a member|Activate your online account)\b/i.test(normalized)) {
+    return "anonymous" as const;
+  }
+  return "unknown" as const;
+}
 
 const hotelSearch: HotelSearchProvider = {
   hotelGroup: "Hyatt",

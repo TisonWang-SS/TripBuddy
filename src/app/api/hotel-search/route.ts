@@ -1,4 +1,4 @@
-import { browserJson } from "@/lib/browserApi";
+import { browserJson, sameOriginRequestError } from "@/lib/browserApi";
 import { createHotelSearchTask, supportedHotelSearchGroups } from "@/lib/browserTaskHandlers";
 import { BrowserTaskError } from "@/lib/browserTasks";
 import { getHotelSearchSession } from "@/lib/hotelSearchSessions";
@@ -17,6 +17,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const accessError = sameOriginRequestError(request);
+  if (accessError) {
+    return accessError;
+  }
   try {
     return browserJson(await createHotelSearchTask(await request.json()), 201);
   } catch (error) {

@@ -97,6 +97,14 @@ describe("hotel provider registry", () => {
     expect(empty).toMatchObject({ errorCode: "empty_page", status: "failed" });
   });
 
+  it("maps Hyatt-specific account tokens to structured login state", () => {
+    const provider = getBookingPriceProvider("Hyatt")!;
+
+    expect(provider.inferLoginState("Account Overview Points Balance Sign Out")).toBe("member");
+    expect(provider.inferLoginState("Sign In Join World of Hyatt")).toBe("anonymous");
+    expect(provider.inferLoginState("Price Summary Total Cash USD 900")).toBe("unknown");
+  });
+
   it("fails fast when Hyatt visibly reports a request-processing error", () => {
     const provider = getBookingPriceProvider("Hyatt")!;
     const parsed = provider.parseSnapshot(

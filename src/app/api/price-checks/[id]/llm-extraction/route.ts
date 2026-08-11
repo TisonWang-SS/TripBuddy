@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
+import { sameOriginRequestError } from "@/lib/browserApi";
 import { runLlmExtractionForPriceCheck } from "@/lib/llmExtraction";
 import { LlmEvidenceError } from "@/lib/providers/llmEvidence";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const accessError = sameOriginRequestError(request);
+  if (accessError) {
+    return accessError;
+  }
   const { id } = await params;
   try {
     return NextResponse.json(await runLlmExtractionForPriceCheck(id));

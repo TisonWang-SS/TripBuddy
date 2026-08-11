@@ -1,10 +1,14 @@
-import { browserJson } from "@/lib/browserApi";
+import { browserJson, sameOriginRequestError } from "@/lib/browserApi";
 import { createBookingPriceTask } from "@/lib/browserTaskHandlers";
 import { BrowserTaskError } from "@/lib/browserTasks";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const accessError = sameOriginRequestError(request);
+  if (accessError) {
+    return accessError;
+  }
   try {
     const payload = (await request.json()) as { bookingId?: string; trigger?: "due_queue" | "manual" };
     const bookingId = String(payload.bookingId ?? "").trim();

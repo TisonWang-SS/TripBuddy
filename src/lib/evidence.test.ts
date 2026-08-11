@@ -149,14 +149,11 @@ describe("observation evidence", () => {
     expect(pointsAndCash.currencyComparable).toBe(false);
   });
 
-  it("derives login state from direct Browser Companion evidence", () => {
-    expect(buildObservationEvidence({ ...base, pageText: "Account Overview Points Balance Sign Out" }).loginState)
-      .toBe("member");
-    expect(buildObservationEvidence({ ...base, pageText: "Sign In Join World of Hyatt" }).loginState)
-      .toBe("anonymous");
-    expect(buildObservationEvidence({ ...base, pageText: "Price Summary Total Cash USD 900" }).loginState)
-      .toBe("unknown");
+  it("uses provider-supplied login state only for direct Browser Companion evidence", () => {
+    expect(buildObservationEvidence({ ...base, loginState: "member" }).loginState).toBe("member");
+    expect(buildObservationEvidence({ ...base, loginState: "anonymous" }).loginState).toBe("anonymous");
+    expect(buildObservationEvidence({ ...base, loginState: "unknown" }).loginState).toBe("unknown");
     expect(buildObservationEvidence({ ...base, collectionMethod: "manual" }).loginState).toBe("unknown");
-    expect(buildObservationEvidence({ ...base, sourceType: "ota" }).loginState).toBe("not_required");
+    expect(buildObservationEvidence({ ...base, loginState: "member", sourceType: "ota" }).loginState).toBe("not_required");
   });
 });

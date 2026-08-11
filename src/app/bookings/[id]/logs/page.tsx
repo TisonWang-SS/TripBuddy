@@ -5,8 +5,9 @@ import { RunLlmExtractionButton } from "@/app/components/RunLlmExtractionButton"
 import { deleteObservation, promoteObservationToBooking } from "@/lib/actions";
 import { parseSanitizedBrowserSnapshots } from "@/lib/browserTaskCodecs";
 import { prisma } from "@/lib/db";
+import { parseObservationEvidenceSnapshot } from "@/lib/evidenceCodecs";
 import { formatLocalInstant, formatMoney } from "@/lib/format";
-import { parseJson, stringList } from "@/lib/json";
+import { stringList } from "@/lib/json";
 import { isLlmEvidenceExtractionConfigured } from "@/lib/providers/llmEvidence";
 
 export default async function BookingLogsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -37,7 +38,7 @@ export default async function BookingLogsPage({ params }: { params: Promise<{ id
           <div className="list">{booking.observations.map((observation) => {
             const blockers = stringList(observation.evidence?.blockersJson);
             const warnings = stringList(observation.evidence?.warningsJson);
-            const snapshot = parseJson<{ textSample?: string }>(observation.evidence?.snapshotJson, {});
+            const snapshot = parseObservationEvidenceSnapshot(observation.evidence?.snapshotJson);
             return <article className="listItem evidenceItem" key={observation.id}>
               <div>
                 <h3>{formatObservationPrice(observation, booking.currency)}</h3>

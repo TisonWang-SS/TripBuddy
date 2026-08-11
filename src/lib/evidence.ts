@@ -8,8 +8,9 @@ import type {
   RoomMatch
 } from "@prisma/client";
 import { calendarDayOf, localInstantDayOf } from "@/lib/dateSemantics";
+import { serializeObservationEvidenceSnapshot } from "@/lib/evidenceCodecs";
 import { WEAKER_CANCELLATION_WARNING } from "@/lib/evidenceWarnings";
-import { sanitizeEvidenceText, toJson } from "@/lib/json";
+import { sanitizeEvidenceText } from "@/lib/json";
 
 export type EvidenceAssessmentOverride = {
   cancellationMatch?: CancellationMatch;
@@ -28,6 +29,7 @@ export type EvidenceInput = {
   feesIncluded: boolean | null;
   hasCashComponent?: boolean;
   inventoryType: "cash" | "award";
+  loginState?: LoginState;
   loyaltyEligible: boolean | null;
   overrides?: EvidenceAssessmentOverride;
   pageText?: string;
@@ -78,7 +80,7 @@ export function buildObservationEvidence(input: EvidenceInput): BuiltEvidence {
     input.cashCurrency === input.bookingCurrency ||
     input.conversionAvailable;
   const sourceVerified = input.collectionMethod === "browser_companion" && input.sourceType === "direct";
-  const loginState = inferLoginState(input);
+  const loginState = resolveLoginState(input);
   const blockers: string[] = [];
   const warnings: string[] = [];
 
@@ -128,7 +130,7 @@ export function buildObservationEvidence(input: EvidenceInput): BuiltEvidence {
     roomAssessmentSource,
     roomMatch,
     roomMatchReason: roomAssessmentSource === "user" ? "Confirmed by the user." : inferredRoom.reason,
-    snapshotJson: toJson({
+    snapshotJson: serializeObservationEvidenceSnapshot({
       pageTitle: input.pageTitle?.trim() || null,
       sourceUrl: input.sourceUrl,
       textSample: sanitizeEvidenceText(input.pageText ?? "")
@@ -139,21 +141,14 @@ export function buildObservationEvidence(input: EvidenceInput): BuiltEvidence {
   };
 }
 
-function inferLoginState(input: EvidenceInput): LoginState {
+function resolveLoginState(input: EvidenceInput): LoginState {
   if (input.sourceType !== "direct") {
     return "not_required";
   }
   if (input.collectionMethod !== "browser_companion") {
     return "unknown";
   }
-  const pageText = input.pageText?.replace(/\s+/g, " ").trim() ?? "";
-  if (/\b(?:Sign Out|Log Out|Upcoming Stays|My Stays|Points Balance|Account Overview)\b/i.test(pageText)) {
-    return "member";
-  }
-  if (/\b(?:Sign In|Log In|Join World of Hyatt|Not a member|Activate your online account)\b/i.test(pageText)) {
-    return "anonymous";
-  }
-  return "unknown";
+  return input.loginState ?? "unknown";
 }
 
 function inferCancellationMatch(

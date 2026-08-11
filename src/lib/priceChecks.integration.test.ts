@@ -293,7 +293,7 @@ describe("persistent browser price-check flow", () => {
     });
     const task = await new BrowserCompanionPriceCheckRunner().run({ bookingId: booking.id, trigger: "manual" });
     const pageText =
-      "Payment summary Member Rate Stay subtotal USD 800.00 Taxes & Fees USD 100.00 Final amount payable USD 900.00 1 King Bed Cancellation Policy 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE";
+      "Account Overview Sign Out Payment summary Member Rate Stay subtotal USD 800.00 Taxes & Fees USD 100.00 Final amount payable USD 900.00 1 King Bed Cancellation Policy 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE";
     await appendBrowserSnapshot(task.taskId, {
       capturedAt: "2032-08-11T10:00:00.000Z",
       controls: [],
@@ -353,7 +353,7 @@ describe("persistent browser price-check flow", () => {
       extractionRun: { modelName: "fixture-model", status: "succeeded" },
       extractorName: "fixture-llm-extractor",
       extractorVersion: "test-1",
-      evidence: { qualityLevel: "high" }
+      evidence: { loginState: "member", qualityLevel: "high" }
     });
 
     const replay = await runLlmExtractionForPriceCheck(task.runId, { extractor });

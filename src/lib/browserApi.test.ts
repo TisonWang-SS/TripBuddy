@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   browserOptionsResponse,
   browserTaskAccessError,
-  browserTaskJson
+  browserTaskJson,
+  sameOriginRequestError
 } from "@/lib/browserApi";
 
 const extensionOrigin = `chrome-extension://${"a".repeat(32)}`;
@@ -34,5 +35,30 @@ describe("Browser Companion API origin boundary", () => {
     expect(browserTaskJson(sameOriginRequest, { ok: true }).headers.get("Access-Control-Allow-Origin"))
       .toBeNull();
     expect(browserOptionsResponse(extensionRequest).headers.get("Access-Control-Allow-Origin")).not.toBe("*");
+  });
+
+  it("treats localhost and 127.0.0.1 on the same port as one application origin", () => {
+    const aliasRequest = new Request("http://localhost:3123/api/hotel-search", {
+      headers: { Origin: "http://127.0.0.1:3123" },
+      method: "POST"
+    });
+    const differentPort = new Request("http://localhost:3123/api/hotel-search", {
+      headers: { Origin: "http://127.0.0.1:3000" },
+      method: "POST"
+    });
+
+    expect(sameOriginRequestError(aliasRequest)).toBeNull();
+    expect(browserTaskAccessError(aliasRequest)).toBeNull();
+    expect(sameOriginRequestError(differentPort)?.status).toBe(403);
+  });
+
+  it("rejects a cross-origin task creation request before route handling", async () => {
+    const response = sameOriginRequestError(new Request("http://localhost:3000/api/hotel-search", {
+      headers: { Origin: "https://evil.example" },
+      method: "POST"
+    }));
+
+    expect(response?.status).toBe(403);
+    await expect(response?.json()).resolves.toMatchObject({ error: "Cross-origin requests are not allowed." });
   });
 });

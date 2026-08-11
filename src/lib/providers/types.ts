@@ -1,3 +1,4 @@
+import type { LoginState } from "@prisma/client";
 import type { BrowserAgentAction, BrowserAgentControlSnapshot } from "@/lib/providers/hyattBrowser";
 
 export type InventoryTypeValue = "cash" | "award";
@@ -92,6 +93,7 @@ export type ParsedBookingEvidence = {
   errorCode: string | null;
   errorMessage: string | null;
   inventory: ParsedObservationDraft[];
+  loginState: LoginState;
   observations: ParsedObservationDraft[];
   sourceUrl: string;
   status: "succeeded" | "partial" | "failed";
@@ -121,6 +123,7 @@ export interface BookingPriceProvider {
   hotelGroup: string;
   name: string;
   buildLaunchUrl(input: BookingPriceInput): string;
+  inferLoginState(pageText: string): LoginState;
   parseSnapshot(snapshot: BrowserPageSnapshot, input: BookingPriceInput): ParsedBookingEvidence;
   planAction(snapshot: BrowserPageSnapshot, input: BookingPriceInput): BrowserAgentAction;
 }
