@@ -15,24 +15,73 @@ const manifest = JSON.parse(readFileSync(resolve("browser-extension/manifest.jso
   content_scripts: Array<{ js: string[] }>;
 };
 
-describe("Browser Companion source", () => {
-  it("is valid JavaScript and uses one browser-task API", () => {
-    expect(() => new vm.Script(extensionSource)).not.toThrow();
-    expect(() => new vm.Script(background)).not.toThrow();
+function baseContentGlobals(overrides: Record<string, unknown> = {}) {
+  const values = new Map<string, string>();
+  return {
+    URL,
+    URLSearchParams,
+    chrome: { runtime: { onMessage: { addListener: vi.fn() }, sendMessage: vi.fn() } },
+    console,
+    location: {
+      hash: "",
+      href: "https://www.hyatt.com/",
+      origin: "https://www.hyatt.com",
+      pathname: "/"
+    },
+    sessionStorage: {
+      getItem: vi.fn((key: string) => values.get(key) ?? null),
+      removeItem: vi.fn((key: string) => values.delete(key)),
+      setItem: vi.fn((key: string, value: string) => values.set(key, value))
+    },
+    setTimeout,
+    ...overrides
+  };
+}
+
+function contentContext(overrides: Record<string, unknown> = {}) {
+  const context = vm.createContext(baseContentGlobals(overrides));
+  new vm.Script(extensionSource).runInContext(context);
+  return context;
+}
+
+describe("Browser Companion behavior", () => {
+  it("routes task reads and captures through the extension service worker", async () => {
+    const sendMessage = vi.fn()
+      .mockResolvedValueOnce({ body: { status: "running" }, ok: true, status: 200 })
+      .mockResolvedValueOnce({ body: { status: "succeeded" }, ok: true, status: 200 });
+    const context = contentContext({
+      chrome: { runtime: { onMessage: { addListener: vi.fn() }, sendMessage } }
+    });
+
+    await expect(vm.runInContext('readTask("http://localhost:3000", "task-123456")', context)).resolves.toEqual({
+      status: "running"
+    });
+    await expect(
+      vm.runInContext(
+        'postCapture("http://localhost:3000", "task-123456", { snapshot: { pageText: "Visible" } })',
+        context
+      )
+    ).resolves.toEqual({ status: "succeeded" });
+    expect(sendMessage).toHaveBeenNthCalledWith(1, {
+      endpoint: "http://localhost:3000",
+      method: "GET",
+      payload: undefined,
+      taskId: "task-123456",
+      type: "tripbuddy:browser-request"
+    });
+    expect(sendMessage).toHaveBeenNthCalledWith(2, {
+      endpoint: "http://localhost:3000",
+      method: "POST",
+      payload: { snapshot: { pageText: "Visible" } },
+      taskId: "task-123456",
+      type: "tripbuddy:browser-request"
+    });
     expect(manifest.background.service_worker).toBe("background.js");
-    expect(background).toContain("/api/browser-tasks/");
-    expect(content).toContain('type: "tripbuddy:browser-request"');
-    expect(content).not.toContain("fetch(");
-    expect(content).not.toContain("/api/browser-evidence");
-    expect(content).not.toContain("/api/browser-agent/snapshot");
+    expect(() => new vm.Script(background)).not.toThrow();
   });
 
-  it("loads shared protocol and final-action guards before the content script", () => {
+  it("loads shared protocol and final-action guards before the content script and fails closed", () => {
     expect(manifest.content_scripts[0].js).toEqual(["taskProtocol.js", "safetyRules.js", "content.js"]);
-    expect(safetyRules).toMatch(/payment\|pay now\|confirm\|purchase\|place order\|complete reservation/);
-    expect(content).toContain("TASK_PROTOCOL.requestedCurrencyKey");
-    expect(content).toContain("SAFETY_RULES.isUnsafeBookingControl(label)");
-    expect(content).toContain("activateSafeControl(element)");
 
     const context = vm.createContext({});
     new vm.Script(taskProtocolSource).runInContext(context);
@@ -40,39 +89,159 @@ describe("Browser Companion source", () => {
     expect(vm.runInContext("TripBuddyTaskProtocol", context)).toEqual(taskProtocol);
     expect(vm.runInContext('TripBuddySafetyRules.isUnsafeBookingControl("Continue to payment")', context)).toBe(true);
     expect(vm.runInContext('TripBuddySafetyRules.isUnsafeBookingControl("Select & Book")', context)).toBe(false);
+
+    const missingSafetyRules = vm.createContext(baseContentGlobals());
+    new vm.Script(taskProtocolSource).runInContext(missingSafetyRules);
+    expect(() => new vm.Script(content).runInContext(missingSafetyRules)).toThrow("safety rules failed to load");
   });
 
   it("keeps approved Hyatt links in the same task tab", () => {
-    expect(content).toContain("element instanceof HTMLAnchorElement && isHyattNavigationHref(element.href)");
-    expect(content).toContain("location.assign(element.href)");
-    expect(content).toContain("url.protocol === \"https:\"");
+    const assign = vi.fn();
+    const context = contentContext({
+      HTMLAnchorElement: class TestAnchor {},
+      MouseEvent: class TestMouseEvent {},
+      location: {
+        assign,
+        hash: "",
+        href: "https://www.hyatt.com/",
+        origin: "https://www.hyatt.com",
+        pathname: "/"
+      },
+      window: {}
+    });
+    vm.runInContext(`
+      var approvedAnchor = new HTMLAnchorElement();
+      approvedAnchor.href = "https://www.hyatt.com/shop/rooms/tyogh";
+      approvedAnchor.scrollIntoView = () => {};
+      approvedAnchor.focus = () => {};
+      approvedAnchor.dispatchEvent = () => {};
+      approvedAnchor.click = () => {};
+      activateSafeControl(approvedAnchor);
+    `, context);
+
+    expect(assign).toHaveBeenCalledWith("https://www.hyatt.com/shop/rooms/tyogh");
+    expect(vm.runInContext('isHyattNavigationHref("https://sub.hyatt.com/path")', context)).toBe(true);
+    expect(vm.runInContext('isHyattNavigationHref("http://www.hyatt.com/path")', context)).toBe(false);
+    expect(vm.runInContext('isHyattNavigationHref("https://hyatt.example/path")', context)).toBe(false);
   });
 
-  it("opens collected Stay Details URLs directly", () => {
-    expect(content).toContain("findStayDetailLinks");
-    expect(content).toContain("await waitForCondition(");
-    expect(content).toContain("location.href = state.links[state.index]");
+  it("collects visible Stay Details links and opens them directly", async () => {
+    const values = new Map<string, string>();
+    const location = {
+      hash: "",
+      href: "https://www.hyatt.com/profile/en-US/my-stays",
+      origin: "https://www.hyatt.com",
+      pathname: "/profile/en-US/my-stays"
+    };
+    const detailLink = {
+      getAttribute: vi.fn(() => null),
+      getBoundingClientRect: () => ({ height: 20, width: 100 }),
+      href: "https://www.hyatt.com/profile/en-US/reservation/ABC123",
+      innerText: "Stay Details",
+      textContent: "Stay Details"
+    };
+    const ignoredLink = { ...detailLink, href: "https://example.com/ABC123" };
+    const context = contentContext({
+      document: {
+        body: { innerText: "Upcoming Stays" },
+        querySelectorAll: vi.fn(() => [detailLink, ignoredLink]),
+        title: "My Stays"
+      },
+      getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+      location,
+      sessionStorage: {
+        getItem: vi.fn((key: string) => values.get(key) ?? null),
+        removeItem: vi.fn((key: string) => values.delete(key)),
+        setItem: vi.fn((key: string, value: string) => values.set(key, value))
+      }
+    });
+    vm.runInContext(`
+      waitForText = async () => true;
+      waitForCondition = async (check) => check();
+      showStatus = () => {};
+    `, context);
+
+    await expect(vm.runInContext('runAccountImportTask("http://localhost:3000", "account-task")', context)).resolves.toBeNull();
+    expect(location.href).toBe(detailLink.href);
+    expect(JSON.parse(values.get("tripbuddyAccountState")!)).toMatchObject({
+      index: 0,
+      links: [detailLink.href],
+      taskId: "account-task"
+    });
   });
 
   it("prioritizes visible dialog controls before background room cards", () => {
-    expect(content).toContain("const dialogControls = visible.filter");
-    expect(content).toContain("const prioritized = [...dialogControls");
+    const element = (label: string, inDialog: boolean) => ({
+      closest: vi.fn(() => (inDialog ? {} : null)),
+      getAttribute: vi.fn(() => null),
+      getBoundingClientRect: () => ({ height: 20, width: 100 }),
+      innerText: label,
+      parentElement: null,
+      setAttribute: vi.fn(),
+      textContent: label
+    });
+    const backgroundControl = element("Background room", false);
+    const dialogControl = element("Dialog rate", true);
+    const context = contentContext({
+      HTMLAnchorElement: class TestAnchor {},
+      document: { querySelectorAll: vi.fn(() => [backgroundControl, dialogControl]) },
+      getComputedStyle: () => ({ display: "block", visibility: "visible" })
+    });
+
+    expect(vm.runInContext("collectControls().map((control) => control.label)", context)).toEqual([
+      "Dialog rate",
+      "Background room"
+    ]);
   });
 
-  it("returns visible Hyatt sign-in evidence through the task protocol", () => {
-    expect(content).toContain("Sign in to Hyatt in Chrome, then start the import again from TripBuddy.");
-    expect(content).toContain("snapshots: [buildAccountSnapshot()]");
-    expect(content).toContain('searchParams.get("returnUrl")');
+  it("returns visible Hyatt sign-in evidence through the task protocol", async () => {
+    const location = {
+      hash: "",
+      href: "https://www.hyatt.com/profile/en-US/my-stays",
+      origin: "https://www.hyatt.com",
+      pathname: "/profile/en-US/my-stays"
+    };
+    const context = contentContext({
+      document: {
+        body: { innerText: "Sign In Password" },
+        querySelectorAll: vi.fn(() => []),
+        title: "Sign In | Hyatt"
+      },
+      location
+    });
+    vm.runInContext(`
+      var accountPayload = null;
+      var accountStatus = null;
+      waitForText = async () => true;
+      postCapture = async (_endpoint, _taskId, payload) => {
+        accountPayload = payload;
+        return { errorMessage: "Login required", status: "partial" };
+      };
+      showStatus = (message) => { accountStatus = message; };
+    `, context);
+
+    await expect(
+      vm.runInContext('runAccountImportTask("http://localhost:3000", "account-task")', context)
+    ).resolves.toMatchObject({ status: "partial" });
+    expect(vm.runInContext("accountPayload.snapshots[0]", context)).toMatchObject({
+      pageText: "Sign In Password",
+      pageTitle: "Sign In | Hyatt"
+    });
+    expect(vm.runInContext("accountStatus", context)).toBe("Login required");
+
+    const returnUrl = `https://www.hyatt.com/profile/en-US/my-stays#${taskProtocol.taskIdKey}=return-task`;
+    location.href = `https://www.hyatt.com/login?returnUrl=${encodeURIComponent(returnUrl)}`;
+    expect(vm.runInContext(`taskHashFromLocation().get("${taskProtocol.taskIdKey}")`, context)).toBe("return-task");
   });
 
   it("requires a visible currency switch before importing city prices", () => {
-    expect(content).toContain("selectHyattCurrency(requestedCurrency)");
-    expect(content).toContain("runHotelSearchTask(endpoint, taskId, task.hotelSearchMode)");
-    expect(content).toContain('hotelSearchMode !== "tax_inclusive_total"');
-    expect(content).toContain("currencyControlText(toggle)");
-    expect(content).toContain("element.innerText || \"\"");
-    expect(content).toContain("currency_selector_unavailable");
-    expect(content).toContain("no official prices were imported");
+    const context = contentContext();
+    expect(
+      vm.runInContext(
+        'currencyControlText({ getAttribute: () => "Currency", innerText: "Chinese Yuan", textContent: "" })',
+        context
+      )
+    ).toBe("CHINESE YUAN CURRENCY");
   });
 
   it("uses the saved hotel-search mode when the currency selector is unavailable", async () => {
@@ -97,13 +266,14 @@ describe("Browser Companion source", () => {
     new vm.Script(extensionSource).runInContext(context);
     vm.runInContext(
       `
+        var statusMessages = [];
         var waitForTextCalls = 0;
         var waitForReadablePageCalls = 0;
         waitForText = async () => { waitForTextCalls += 1; return true; };
         waitForReadablePage = async () => { waitForReadablePageCalls += 1; return true; };
         selectHyattCurrency = async () => false;
         reportFailure = async (_endpoint, _taskId, errorCode, errorMessage) => ({ errorCode, errorMessage });
-        showStatus = () => {};
+        showStatus = (message) => { statusMessages.push(message); };
         buildPageSnapshot = () => ({ pageText: "A".repeat(81), pageTitle: "Hyatt" });
         postCapture = async () => ({ status: "succeeded", result: { results: [] } });
       `,
@@ -125,6 +295,9 @@ describe("Browser Companion source", () => {
       waitForReadablePageCalls: 1,
       waitForTextCalls: 1
     });
+    expect(vm.runInContext("statusMessages", context)).toContain(
+      "Hyatt's search currency control was not readable. TripBuddy will only accept a final total visibly shown in CNY."
+    );
   });
 
   it("does not post an empty Hyatt snapshot during a tax-total navigation", async () => {
@@ -337,13 +510,53 @@ describe("Browser Companion source", () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
-  it("allows a tax-total task to continue only when its final visible total matches the requested currency", () => {
-    expect(content).toContain("TripBuddy will only accept a final total visibly shown in ${requestedCurrency}.");
+  it("retries only the current Hyatt tab from the popup", async () => {
+    let clickHandler: (() => Promise<void>) | null = null;
+    const importButton = {
+      addEventListener: vi.fn((_type: string, handler: () => Promise<void>) => {
+        clickHandler = handler;
+      }),
+      disabled: false
+    };
+    const statusBox = { textContent: "" };
+    const query = vi.fn().mockResolvedValue([{ id: 7, url: "https://www.hyatt.com/shop/rooms/tyogh" }]);
+    const sendMessage = vi.fn().mockResolvedValue({ ok: true, result: { status: "running" } });
+    const context = vm.createContext({
+      chrome: { tabs: { query, sendMessage } },
+      document: {
+        querySelector: (selector: string) => (selector === "#importButton" ? importButton : statusBox)
+      }
+    });
+    new vm.Script(popup).runInContext(context);
+
+    expect(clickHandler).not.toBeNull();
+    await clickHandler!();
+    expect(query).toHaveBeenCalledWith({ active: true, currentWindow: true });
+    expect(sendMessage).toHaveBeenCalledWith(7, { type: "tripbuddy:import-current-task" });
+    expect(statusBox.textContent).toBe("Task status: running.");
+    expect(importButton.disabled).toBe(false);
   });
 
-  it("keeps popup parsing and arbitrary booking identifiers out of the extension", () => {
-    expect(() => new vm.Script(popup)).not.toThrow();
-    expect(popup).not.toContain("bookingId");
-    expect(popup).not.toContain("parseHyatt");
+  it("refuses to send popup retry messages to a non-Hyatt tab", async () => {
+    const importButton = { addEventListener: vi.fn(), disabled: false };
+    const statusBox = { textContent: "" };
+    const sendMessage = vi.fn();
+    const context = vm.createContext({
+      chrome: {
+        tabs: {
+          query: vi.fn().mockResolvedValue([{ id: 9, url: "https://example.com/" }]),
+          sendMessage
+        }
+      },
+      document: {
+        querySelector: (selector: string) => (selector === "#importButton" ? importButton : statusBox)
+      }
+    });
+    new vm.Script(popup).runInContext(context);
+
+    await vm.runInContext("retryCurrentTask()", context);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(statusBox.textContent).toBe("Open the Hyatt tab launched by TripBuddy first.");
+    expect(importButton.disabled).toBe(false);
   });
 });

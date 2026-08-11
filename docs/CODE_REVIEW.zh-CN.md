@@ -29,7 +29,7 @@
 
 - **LLM 抽取器落地,且是以「提议者」而非「权威」的方式接入的。** 每个模型输出的字符串和数字都必须在存档页面文本里逐字出现,四个安全相关布尔值再从可见 token 与已校验价格分量推导,算术交叉校验,provenance 落库,replay 针对存档快照而非重新爬取,评测门槛为「不劣于确定性基线」(`b1e7be3` 及本次修复)。
 
-当前剩余问题仅有测试加固项 §3.9。
+本轮列出的数据卫生与加固项已全部完成。
 
 **已无已知的用户可见缺陷。** §3.10–§3.18 全部关闭,关键安全修复均有负向复现或端到端用例守卫,不是只靠读 diff 判断。
 
@@ -210,17 +210,17 @@
 
 ✅ **网络请求移出页面执行上下文。** content script 不再直接 `fetch` 本地 API,而是通过 Chrome runtime message 交给 `background.js`;service worker 同时校验 sender 必须是 Hyatt task tab、endpoint 必须是 localhost/127.0.0.1、task ID 形状合法。服务端 browser-task route 在执行 GET/POST 之前拒绝 Hyatt/其他 page origin,只允许 same-origin 或合法 `chrome-extension://<id>`,并回显精确 origin、永不返回 `*`;可用 `TRIPBUDDY_BROWSER_EXTENSION_ORIGIN` 进一步钉死具体安装 ID。即使页面脚本读到 hash/sessionStorage 中的 task ID,也无法再直接伪造 capture。service worker 与服务端 origin 边界均有行为测试。
 
-### 3.8 静默截断 — ✅ 已完成(本次提交)
+### 3.8 静默截断 — ✅ 已完成(`0563e84`)
 
 `priceChecks.ts:370`(24 条候选)、`hyattEvidence.ts:457`(12 条)、`browserTasks.ts:88`(保留最近 12 个快照)。至少要记录"发生了截断"这件事。
 
 ✅ **截断已成为持久化审计事实。** `BrowserTask.snapshotsTruncated` 与 `PriceCheckRun.candidatesTruncated` 都是 sticky 标记:一旦任一页超过 12 个解析候选、跨页合并超过 24 个不同候选,或浏览器历史超过 12 个快照,后续写入都不会把标记清回 false。Hyatt 解析器在保留原数组 API 的同时向 provider 传递截断元数据,price-check 合并器返回 `{ candidates, truncated }`,Logs 页明确显示上限及实际保留策略。migration 为历史行默认 false;三条行为测试分别越过 12/24/12 边界并验证标记与保留顺序。
 
-### 3.9 测试质量 — ⬜ 部分待办
+### 3.9 测试质量 — ✅ 已完成(本次提交)
 
 ✅ 集成测试的 migration 列表已改为从目录枚举并排序,新增 migration 不会再被静默跳过。
 
-⬜ `browserExtensionContent.test.ts` 仍有 27 处 `expect(content).toContain("字面量源码")`,测的是源码文本而非行为,改个变量名就会红。同文件的 `vm.createContext` 测试才是对的做法。更好的方向:把扩展里的纯逻辑抽成模块,让扩展和测试都 import 它——`safetyRules.js` 和 `taskProtocol.js` 已经证明这条路可行,可以继续推。
+✅ **源码字符串断言归零。** `browserExtensionContent.test.ts` 不再搜索变量名、函数名或提示文案源码;测试在 VM 中执行真实 `content.js` / `popup.js`,覆盖 service-worker 请求消息、共享协议 fail-closed、同标签 Hyatt 导航、Stay Details 直达、dialog 控件优先级、登录页快照、city/total 币种分支、空页面等待、单次 reload 与 popup 的 Hyatt-tab 边界。改变量名或重排实现不会误报,行为改变才会让测试变红。
 
 ### 3.10 失败的检查永远出不了到期队列 — ✅ 已完成(`ee4f6de`、`4dd2abe`、`8072b9f`)
 
@@ -563,17 +563,18 @@ review 中的原始攻击样例已变成负向回归:候选仍可作为价格事
 | 27 | 在 Settings 增加 observed currency 汇率入口与服务层校验(§3.2) | `5e4d23b` |
 | 28 | 从 direct Browser Companion 可见 token 推导真实 LoginState(§3.5) | `a721b6a` |
 | 29 | 将本地 API 请求移到扩展 service worker 并移除 wildcard CORS(§3.7) | `1a2be63` |
-| 30 | 持久化候选与浏览器快照的截断审计标记(§3.8) | 本次提交 |
+| 30 | 持久化候选与浏览器快照的截断审计标记(§3.8) | `0563e84` |
+| 31 | 将 Browser Companion 源码字面量测试改为 VM 行为测试(§3.9) | 本次提交 |
 
 ### 后续建议顺序
 
 | 顺序 | 事项 | 理由 |
 |---|---|---|
-| 31 | 房型等价性判定交给模型(§4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker——这是剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
+| 32 | 房型等价性判定交给模型(§4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker——这是剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
 
 第 13–15 项作为一组一起做是对的:它们是同一条日期约定接缝的三个面,第 9 项(`a5af2de`)就是分开修、只修了一半的例子。
 
-**当前状态**:无已知的功能性缺陷;其余 §3.9 是测试卫生与加固,没有用户可见症状。
+**当前状态**:本轮要求的 §1.5、§1.6、§2.4、§3.2、§3.5、§3.7–§3.9 已全部关闭;无已知的功能性缺陷。
 
 `b1e7be3` 顺带推进了两条既有条目:§3.6 的前端轮询已从硬编码 190s 改为消费服务端 `expiresAt`(**可标记完成**);§2.4 当时先覆盖 3 列,其余结构 JSON 已在本次提交补齐。
 
