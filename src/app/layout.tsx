@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
+import { CommandBar, type Command } from "@/app/components/CommandBar";
 import { SidebarNav, type NavItem } from "@/app/components/SidebarNav";
 import { ThemeToggle } from "@/app/components/ThemeToggle";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
+import shell from "./shell.module.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,13 +17,23 @@ export const viewport: Viewport = {
   width: "device-width"
 };
 
+/* The visible fallback for anyone who has not found Cmd-K yet. */
 const navItems: readonly NavItem[] = [
-  { href: "/", label: "Dashboard" },
+  { href: "/", label: "Desk" },
   { href: "/hotel-search", label: "Hotel Search" },
   { href: "/bookings/new", label: "Add Booking" },
   { href: "/profile", label: "Profile" },
   { href: "/promotions", label: "Promotions" },
   { href: "/settings", label: "Settings" }
+];
+
+const commands: readonly Command[] = [
+  { group: "Desk", href: "/", keywords: "dashboard home watchlist stays bookings", label: "Open the desk" },
+  { group: "Desk", href: "/bookings/new", keywords: "create new stay reservation", label: "Add a booking" },
+  { group: "Find", href: "/hotel-search", keywords: "city rates comparable prices hyatt", label: "Search hotels in a city" },
+  { group: "Set up", href: "/profile", keywords: "loyalty tier points value thresholds", label: "Profile values" },
+  { group: "Set up", href: "/promotions", keywords: "bonus offers campaigns", label: "Promotions" },
+  { group: "Set up", href: "/settings", keywords: "extractor llm currency preferences", label: "Settings" }
 ];
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -33,22 +45,24 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body>
-        <div className="shell">
-          <aside className="sidebar">
-            <Link href="/" className="brand">
-              <span className="brandMark">TB</span>
-              <span>
-                <strong>TripBuddy</strong>
-                <small>Hotel Optimizer</small>
-              </span>
-            </Link>
-            <SidebarNav items={navItems} />
-            <div className="sidebarFooter">
+        <header className={shell.header}>
+          <div className={`${shell.slab} deskHalftone`}>
+            <div className={shell.slabInner}>
+              <Link className={shell.wordmark} href="/">
+                Trip<em>Buddy</em>
+              </Link>
+              <CommandBar commands={commands} />
+              <span className={shell.stamp}>Local only · nothing booked</span>
+            </div>
+          </div>
+          <div className={shell.sections}>
+            <SidebarNav className={shell.sectionNav} items={navItems} />
+            <div className={shell.sectionsEnd}>
               <ThemeToggle />
             </div>
-          </aside>
-          <main className="main">{children}</main>
-        </div>
+          </div>
+        </header>
+        <main className={shell.page}>{children}</main>
       </body>
     </html>
   );

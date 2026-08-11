@@ -5,4 +5,5 @@ export { Card } from "./Card";
 export { EmptyState } from "./EmptyState";
 export { Field } from "./Field";
 export { Notice } from "./Notice";
+export { LabelStamp, Stamp } from "./Stamp";
 export { Table } from "./Table";

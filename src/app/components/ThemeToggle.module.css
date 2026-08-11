@@ -1,27 +1,44 @@
+/*
+ * Sits at the end of the shell's section rule, so it is sized and voiced like a
+ * section link rather than like a control. The explicit height/shadow/radius
+ * resets are there because globals.css still styles bare <button> elements for
+ * the pages that have not migrated yet.
+ */
 .toggle {
-  display: flex;
-  width: 100%;
+  display: inline-flex;
+  width: auto;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-2);
-  height: 32px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--text-base);
-  font-weight: var(--weight-medium);
+  height: auto;
+  padding: var(--space-2) 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
   box-shadow: none;
+  color: var(--desk-muted);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  font-weight: 400;
+  white-space: nowrap;
+  transition: color var(--desk-dur-short) var(--desk-ease-out);
 }
 
 .toggle:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text-primary);
+  background: none;
+  color: var(--desk-ink);
+}
+
+.toggle:focus-visible {
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: 2px;
+  border-radius: var(--desk-radius);
+  box-shadow: none;
 }
 
 .value {
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-normal);
+  color: var(--desk-accent);
+  font-size: var(--desk-text-xs);
+  font-weight: 700;
+  /* Reserves the widest label so the rule does not reflow as it cycles. */
+  min-width: 3.5em;
 }

@@ -19,7 +19,8 @@ import {
   verdictLabel
 } from "@/lib/labels";
 import { parseRecommendationCostBreakdown } from "@/lib/recommendationCodecs";
-import { LabelBadge } from "@/ui";
+import { Button, buttonClassName, Card, EmptyState, LabelStamp, Table } from "@/ui";
+import styles from "./page.module.css";
 
 export default async function BookingDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -47,63 +48,162 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
   const latestRun = booking.priceCheckRuns[0];
 
   return (
-    <div className="grid">
-      <div className="pageHeader">
-        <div><p className="eyebrow">{booking.hotelGroup}</p><h1>{booking.hotelName}</h1><p>{booking.city} · {formatCalendarDate(booking.checkIn)} to {formatCalendarDate(booking.checkOut)} · {booking.guests} guest{booking.guests === 1 ? "" : "s"} · {booking.isSuite ? "Suite" : "Standard room"}</p></div>
-        <RunPriceCheckButton bookingId={booking.id} />
-      </div>
+    <div className={`${styles.sheet} deskPage`}>
+      <header className={styles.head}>
+        <div className={styles.headText}>
+          <p className={styles.eyebrow}>
+            {booking.hotelGroup} · No. {booking.id.slice(-4).toUpperCase()}
+          </p>
+          <h1>{booking.hotelName}</h1>
+          <p className={styles.where}>
+            {booking.city} · {formatCalendarDate(booking.checkIn)} to {formatCalendarDate(booking.checkOut)} ·{" "}
+            {booking.guests} guest{booking.guests === 1 ? "" : "s"} · {booking.isSuite ? "Suite" : "Standard room"}
+          </p>
+        </div>
+        <RunPriceCheckButton bookingId={booking.id} className={buttonClassName()} />
+      </header>
 
-      <section className="grid three">
-        <Metric label="Current baseline" value={formatBookingBaseline(booking)} />
-        <Metric label="Latest direct" value={formatObservationPrice(latestDirect, booking.currency)} />
-        <Metric label="Latest OTA" value={formatObservationPrice(latestOta, booking.currency)} />
+      <section className={styles.figures}>
+        <Figure label="Current baseline" value={formatBookingBaseline(booking)} />
+        <Figure label="Latest direct" value={formatObservationPrice(latestDirect, booking.currency)} />
+        <Figure label="Latest OTA" value={formatObservationPrice(latestOta, booking.currency)} />
       </section>
 
-      <nav className="subnav" aria-label="Booking tools">
+      <nav aria-label="Booking tools" className={styles.tools}>
         <Link href={`/bookings/${booking.id}/edit`}>Edit booking</Link>
         <Link href={`/bookings/${booking.id}/observations/new`}>Manual entry</Link>
         <Link href={`/bookings/${booking.id}/watch-plan`}>Watch plan</Link>
         <Link href={`/bookings/${booking.id}/logs`}>Logs</Link>
       </nav>
 
-      {latestRun ? <section className="card flat"><div className="pageHeader"><div><p className="eyebrow">Latest price check</p><strong>{latestRun.summary ?? latestRun.errorMessage ?? "Waiting for Browser Companion evidence."}</strong></div><div><LabelBadge dot value={runStatusLabel(latestRun.status)} /><p className="muted">{formatLocalInstant(latestRun.startedAt)}</p></div></div></section> : null}
+      {latestRun ? (
+        <div className={styles.runLine}>
+          <LabelStamp value={runStatusLabel(latestRun.status)} />
+          <p className={styles.runSummary}>
+            {latestRun.summary ?? latestRun.errorMessage ?? "Waiting for Browser Companion evidence."}
+          </p>
+          <p className={styles.runWhen}>{formatLocalInstant(latestRun.startedAt)}</p>
+        </div>
+      ) : null}
 
       {latestRecommendation ? (
-        <section className="card">
-          <div className="pageHeader"><div><p className="eyebrow">Recommendation</p><h2><LabelBadge value={verdictLabel(latestRecommendation.verdict)} /></h2></div><div><p className="muted">Estimated savings</p><h2>{formatMoney(latestRecommendation.estimatedSavings, latestRecommendation.currency)}</h2></div></div>
-          <p>{latestRecommendation.explanation}</p>
-          <p className="muted">Evidence: {evidenceQualityLabel(latestRecommendation.qualityLevel).label} · Risk: {riskLevelLabel(latestRecommendation.riskLevel).label} · {latestRecommendation.decisionProvider} v{latestRecommendation.decisionVersion}</p>
-          <EvidenceIssueList className="section" blockers={stringList(latestRecommendation.blockersJson)} warnings={stringList(latestRecommendation.warningsJson)} />
-          <RecommendationCostBreakdown
-            currency={latestRecommendation.currency}
-            value={latestRecommendation.costBreakdownJson}
-          />
-          {candidateObservation ? <form action={promoteObservationToBooking} className="section"><input type="hidden" name="bookingId" value={booking.id} /><input type="hidden" name="observationId" value={candidateObservation.id} /><button type="submit">Use candidate as current</button></form> : null}
+        <section className={styles.verdict}>
+          <div className={styles.verdictBody}>
+            <LabelStamp value={verdictLabel(latestRecommendation.verdict)} />
+            <p className={styles.explanation}>{latestRecommendation.explanation}</p>
+            <p className={styles.provenance}>
+              Evidence: {evidenceQualityLabel(latestRecommendation.qualityLevel).label} · Risk:{" "}
+              {riskLevelLabel(latestRecommendation.riskLevel).label} · {latestRecommendation.decisionProvider} v
+              {latestRecommendation.decisionVersion}
+            </p>
+            <EvidenceIssueList
+              blockers={stringList(latestRecommendation.blockersJson)}
+              warnings={stringList(latestRecommendation.warningsJson)}
+            />
+            <RecommendationCostBreakdown
+              currency={latestRecommendation.currency}
+              value={latestRecommendation.costBreakdownJson}
+            />
+          </div>
+          <div className={styles.savings}>
+            <span className={styles.figureLabel}>Estimated savings</span>
+            <span
+              className={
+                latestRecommendation.estimatedSavings > 0
+                  ? `${styles.savingsValue} ${styles.savingsValueReal}`
+                  : styles.savingsValue
+              }
+            >
+              {formatMoney(latestRecommendation.estimatedSavings, latestRecommendation.currency)}
+            </span>
+            {candidateObservation ? (
+              <form action={promoteObservationToBooking} className={styles.promote}>
+                <input name="bookingId" type="hidden" value={booking.id} />
+                <input name="observationId" type="hidden" value={candidateObservation.id} />
+                <Button size="sm" type="submit" variant="secondary">
+                  Use candidate as current
+                </Button>
+              </form>
+            ) : null}
+          </div>
         </section>
-      ) : <section className="empty"><h2>No recommendation yet</h2><p>Run a price check or add a final manual observation.</p></section>}
+      ) : (
+        <EmptyState
+          description="Run a price check or add a final manual observation."
+          title="No recommendation yet"
+        />
+      )}
 
-      <section className="card">
-        <div className="pageHeader"><div><p className="eyebrow">Recent prices</p><h2>Observations</h2></div><Link className="button secondary" href={`/bookings/${booking.id}/logs`}>View all</Link></div>
-        {booking.observations.length === 0 ? <div className="empty"><h3>No observations</h3><p>Only final cash evidence, explicit points rates, and manual observations appear here.</p></div> : (
-          <table className="table"><thead><tr><th>Observed</th><th>Source</th><th>Price</th><th>Room</th><th>Evidence</th></tr></thead><tbody>
-            {booking.observations.map((observation) => (
-              <tr key={observation.id}>
-                <td>{formatLocalInstant(observation.observedAt)}</td>
-                <td>{observation.sourceName}<br /><span className="muted">{sourceTypeLabel(observation.sourceType).label} · {collectionMethodLabel(observation.collectionMethod).label}</span></td>
-                <td>{formatObservationPrice(observation, booking.currency)}{observation.cashCurrency && observation.cashCurrency !== booking.currency ? <><br /><span className="muted">Observed in {observation.cashCurrency}</span></> : null}</td>
-                <td>{formatRoom(observation.roomTypeRaw)}<br /><span className="muted">{observation.ratePlanName ?? "Rate plan not captured"}</span></td>
-                <td><LabelBadge value={evidenceQualityLabel(observation.evidence?.qualityLevel)} /><br /><span className="muted">{roomMatchLabel(observation.evidence?.roomMatch).label} room · {cancellationMatchLabel(observation.evidence?.cancellationMatch).label} policy</span></td>
+      <Card
+        actions={
+          <Link className={buttonClassName({ size: "sm", variant: "secondary" })} href={`/bookings/${booking.id}/logs`}>
+            View all
+          </Link>
+        }
+        eyebrow="Recent prices"
+        title="Observations"
+      >
+        {booking.observations.length === 0 ? (
+          <EmptyState
+            description="Only final cash evidence, explicit points rates, and manual observations appear here."
+            title="No observations"
+          />
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <th scope="col">Observed</th>
+                <th scope="col">Source</th>
+                <th scope="col">Price</th>
+                <th scope="col">Room</th>
+                <th scope="col">Evidence</th>
               </tr>
-            ))}
-          </tbody></table>
+            </thead>
+            <tbody>
+              {booking.observations.map((observation) => (
+                <tr key={observation.id}>
+                  <td className={styles.money}>{formatLocalInstant(observation.observedAt)}</td>
+                  <td>
+                    {observation.sourceName}
+                    <span className={styles.stacked}>
+                      {sourceTypeLabel(observation.sourceType).label} ·{" "}
+                      {collectionMethodLabel(observation.collectionMethod).label}
+                    </span>
+                  </td>
+                  <td className={styles.money}>
+                    {formatObservationPrice(observation, booking.currency)}
+                    {observation.cashCurrency && observation.cashCurrency !== booking.currency ? (
+                      <span className={styles.stacked}>Observed in {observation.cashCurrency}</span>
+                    ) : null}
+                  </td>
+                  <td>
+                    {formatRoom(observation.roomTypeRaw)}
+                    <span className={styles.stacked}>{observation.ratePlanName ?? "Rate plan not captured"}</span>
+                  </td>
+                  <td>
+                    <LabelStamp value={evidenceQualityLabel(observation.evidence?.qualityLevel)} />
+                    <span className={styles.stacked}>
+                      {roomMatchLabel(observation.evidence?.roomMatch).label} room ·{" "}
+                      {cancellationMatchLabel(observation.evidence?.cancellationMatch).label} policy
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
         )}
-      </section>
+      </Card>
     </div>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="card flat metric"><span className="muted">{label}</span><strong>{value}</strong></div>;
+function Figure({ label, value }: { label: string; value: string }) {
+  return (
+    <div className={styles.figure}>
+      <span className={styles.figureLabel}>{label}</span>
+      <span className={styles.figureValue}>{value}</span>
+    </div>
+  );
 }
 
 function formatObservationPrice(observation: { cashCopay: number | null; cashCopayCurrency: string | null; cashCurrency: string | null; cashTotal: number | null; inventoryType: string; points: number | null } | null | undefined, fallbackCurrency: string) {
@@ -137,18 +237,26 @@ function RecommendationCostBreakdown({ currency, value }: { currency: string; va
     ["Effective cost", "effectiveCost"]
   ];
   return (
-    <details className="section">
+    <details className={styles.breakdown}>
       <summary>Cost breakdown</summary>
-      <table className="table">
-        <thead><tr><th>Component</th><th>Current booking</th><th>Candidate</th></tr></thead>
-        <tbody>{rows.map(([label, field]) => (
-          <tr key={field}>
-            <td>{label}</td>
-            <td>{formatMoney(breakdown.baseline[field], currency)}</td>
-            <td>{formatMoney(breakdown.candidate[field], currency)}</td>
+      <Table className={styles.breakdownTable}>
+        <thead>
+          <tr>
+            <th scope="col">Component</th>
+            <th scope="col">Current booking</th>
+            <th scope="col">Candidate</th>
           </tr>
-        ))}</tbody>
-      </table>
+        </thead>
+        <tbody>
+          {rows.map(([label, field]) => (
+            <tr key={field}>
+              <td>{label}</td>
+              <td className={styles.money}>{formatMoney(breakdown.baseline[field], currency)}</td>
+              <td className={styles.money}>{formatMoney(breakdown.candidate[field], currency)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
     </details>
   );
 }

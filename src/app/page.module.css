@@ -1,0 +1,398 @@
+/*
+ * The desk. Every stay is a ticket stub: a date block torn off on the left, the
+ * stay in the middle, the money and the stamped verdict on the right. The three
+ * columns are fixed so the eye lands in the same place on every row.
+ */
+
+.desk {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 17rem;
+  gap: var(--space-8);
+  align-items: start;
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-base);
+  line-height: var(--desk-leading-body);
+  color: var(--desk-ink);
+}
+
+/* ------------------------------------------------------------------ head -- */
+
+.head {
+  grid-column: 1 / -1;
+}
+
+.head h1 {
+  font-family: var(--desk-font-display);
+  font-size: var(--desk-text-display);
+  font-weight: 400;
+  line-height: var(--desk-leading-display);
+  letter-spacing: 0.005em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+  color: var(--desk-ink);
+  max-width: 20ch;
+}
+
+.head h1 em {
+  font-style: normal;
+  color: var(--desk-accent);
+}
+
+.sub {
+  margin: var(--space-3) 0 0;
+  max-width: 52ch;
+  font-size: var(--desk-text-md);
+  color: var(--desk-muted);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  margin-top: var(--space-4);
+  padding-top: var(--space-2);
+  border-top: var(--desk-rule-slab) solid var(--desk-ink);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  color: var(--desk-muted);
+}
+
+.meta b {
+  color: var(--desk-ink);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ stub -- */
+
+/*
+ * globals.css still colours bare <ul> with the legacy --text-secondary for the
+ * pages that have not migrated, and the stub list is a <ul>, so ink has to be
+ * restated here or every span inside inherits the teal set's grey.
+ */
+.stubs {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--desk-ink);
+}
+
+.stub {
+  position: relative;
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr) 11rem;
+  background: var(--desk-paper-2);
+  border: var(--desk-rule-slab) solid var(--desk-ink);
+  transition:
+    transform var(--desk-dur-short) var(--desk-ease-out),
+    box-shadow var(--desk-dur-short) var(--desk-ease-out);
+}
+
+.stub:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 4px 4px 0 0 var(--desk-ink);
+}
+
+/* The perforation. It, not the outer frame, is what separates one stay from the next. */
+.tear {
+  position: relative;
+  padding: var(--space-4);
+  border-right: var(--desk-rule-slab) dashed var(--desk-rule);
+  background: var(--desk-paper-3);
+}
+
+.tear::before,
+.tear::after {
+  content: "";
+  position: absolute;
+  right: -7px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--desk-paper);
+  border: var(--desk-rule-slab) solid var(--desk-ink);
+}
+
+.tear::before {
+  top: -8px;
+  clip-path: inset(50% 0 0 0);
+}
+
+.tear::after {
+  bottom: -8px;
+  clip-path: inset(0 0 50% 0);
+}
+
+.stubNo {
+  display: block;
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--desk-neutral);
+}
+
+.stubDate {
+  display: block;
+  margin-top: var(--space-1);
+  font-family: var(--desk-font-display);
+  font-size: var(--desk-text-xl);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.stubNights {
+  display: block;
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--desk-muted);
+}
+
+.stubBody {
+  padding: var(--space-4);
+  min-width: 0;
+}
+
+.hotel {
+  font-family: var(--desk-font-display);
+  font-size: var(--desk-text-lg);
+  line-height: var(--desk-leading-display);
+  letter-spacing: 0.005em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+  color: var(--desk-ink);
+}
+
+.hotel:hover {
+  color: var(--desk-accent);
+}
+
+.hotel:focus-visible {
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.where {
+  margin: var(--space-1) 0 0;
+  font-size: var(--desk-text-sm);
+  color: var(--desk-muted);
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-3);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--desk-neutral);
+}
+
+.facts b {
+  color: var(--desk-ink-2);
+  font-weight: 700;
+}
+
+/* The recommendation's own words, kept on the stub so the verdict shows its reason. */
+.why {
+  margin: var(--space-3) 0 0;
+  padding-left: var(--space-3);
+  border-left: var(--desk-rule-slab) solid var(--desk-rule);
+  font-size: var(--desk-text-sm);
+  color: var(--desk-ink-2);
+}
+
+.stubEnd {
+  padding: var(--space-4);
+  border-left: var(--desk-rule-hair) dashed var(--desk-rule);
+  text-align: right;
+}
+
+.amount {
+  display: block;
+  font-family: var(--desk-font-display);
+  font-size: var(--desk-text-xl);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.basis {
+  display: block;
+  margin-top: 2px;
+  margin-bottom: var(--space-3);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--desk-neutral);
+}
+
+.saving {
+  display: block;
+  margin-top: var(--space-3);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  color: var(--desk-muted);
+}
+
+/* ---------------------------------------------------------------- column -- */
+
+.column {
+  position: sticky;
+  top: 7rem;
+  border: var(--desk-rule-slab) solid var(--desk-ink);
+  background: var(--desk-paper-2);
+}
+
+.columnHead {
+  padding: var(--space-3) var(--space-4);
+  background: var(--desk-ink);
+  color: var(--desk-paper-2);
+}
+
+.columnHead h2 {
+  font-family: var(--desk-font-display);
+  font-size: var(--desk-text-md);
+  font-weight: 400;
+  line-height: var(--desk-leading-display);
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  color: inherit;
+}
+
+.columnHead p {
+  margin: 2px 0 0;
+  color: inherit;
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.job {
+  padding: var(--space-4);
+  border-bottom: var(--desk-rule-hair) dashed var(--desk-rule);
+}
+
+.job:last-child {
+  border-bottom: 0;
+}
+
+.job h3 {
+  font-family: var(--desk-font-display);
+  font-size: var(--desk-text-md);
+  font-weight: 400;
+  line-height: var(--desk-leading-display);
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+  color: var(--desk-ink);
+}
+
+.job p {
+  margin: var(--space-1) 0 0;
+  font-size: var(--desk-text-sm);
+  color: var(--desk-muted);
+}
+
+.clock {
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  color: var(--desk-accent);
+}
+
+/* --------------------------------------------------------------- actions -- */
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  margin-top: var(--space-4);
+}
+
+/*
+ * Both action buttons wrap themselves in a .importPanel grid that stacks the
+ * button above its result notice. Dissolving it lets the buttons sit as direct
+ * children of the flex row so they align with each other, and the notice wraps
+ * onto its own line beneath.
+ */
+.desk :global(.importPanel) {
+  display: contents;
+}
+.colophon {
+  grid-column: 1 / -1;
+  margin: var(--space-6) 0 0;
+  padding-top: var(--space-4);
+  border-top: var(--desk-rule-slab) solid var(--desk-ink);
+  max-width: 54ch;
+  font-size: var(--desk-text-sm);
+  color: var(--desk-muted);
+}
+
+.colophon b {
+  color: var(--desk-ink);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------ responsive -- */
+
+@media (max-width: 66rem) {
+  .desk {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-6);
+  }
+
+  .column {
+    position: static;
+  }
+}
+
+@media (max-width: 48rem) {
+  .stub {
+    grid-template-columns: 7rem minmax(0, 1fr);
+  }
+
+  .stubEnd {
+    grid-column: 1 / -1;
+    border-left: 0;
+    border-top: var(--desk-rule-hair) dashed var(--desk-rule);
+    text-align: left;
+  }
+
+  .basis {
+    margin-bottom: var(--space-2);
+  }
+}
+
+@media (max-width: 30rem) {
+  .stub {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tear {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    border-right: 0;
+    border-bottom: var(--desk-rule-slab) dashed var(--desk-rule);
+  }
+
+  .tear::before,
+  .tear::after {
+    display: none;
+  }
+
+  .stubDate {
+    margin-top: 0;
+    font-size: var(--desk-text-lg);
+  }
+}

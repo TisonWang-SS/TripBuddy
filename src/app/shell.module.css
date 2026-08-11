@@ -1,0 +1,156 @@
+/*
+ * The desk shell: an ink masthead carrying the command bar, a hairline rule of
+ * section links beneath it, then the page.
+ *
+ * There is no sidebar. The brief the design came from was workbench-first with
+ * the command bar as the way in, and a persistent left rail competes with that
+ * — so navigation lives in Cmd-K, with the section rule as the visible fallback
+ * for anyone who has not learned the shortcut yet.
+ */
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: var(--desk-z-slab);
+}
+
+.slab {
+  background: var(--desk-slab);
+  color: var(--desk-slab-ink);
+}
+
+.slabInner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  width: min(1320px, 100%);
+  margin-inline: auto;
+  padding: var(--space-3) var(--space-5);
+}
+
+.wordmark {
+  font-family: var(--desk-font-display);
+  font-size: var(--desk-text-lg);
+  line-height: 1;
+  letter-spacing: 0.005em;
+  color: inherit;
+  white-space: nowrap;
+  flex: none;
+}
+
+.wordmark em {
+  font-style: normal;
+  color: var(--desk-accent);
+}
+
+.wordmark:focus-visible {
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: 3px;
+  box-shadow: none;
+}
+
+/* The product's one standing promise, kept in the masthead on every page. */
+.stamp {
+  flex: none;
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  color: var(--desk-accent);
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------- section rule -- */
+
+.sections {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: min(1320px, 100%);
+  margin-inline: auto;
+  padding: 0 var(--space-5);
+  background: var(--desk-paper);
+  border-bottom: var(--desk-rule-slab) solid var(--desk-ink);
+}
+
+/*
+ * The scroller is the nav, not the row. With it on the row the nowrap links
+ * spilled out of their box and ran underneath the theme toggle at phone widths.
+ */
+.sectionNav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.sectionNav::-webkit-scrollbar {
+  display: none;
+}
+
+.sectionNav a {
+  padding: var(--space-2) 0;
+  border-bottom: var(--desk-rule-slab) solid transparent;
+  color: var(--desk-muted);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  white-space: nowrap;
+  transition: color var(--desk-dur-short) var(--desk-ease-out);
+}
+
+.sectionNav a:hover {
+  color: var(--desk-ink);
+}
+
+.sectionNav a[aria-current="page"] {
+  color: var(--desk-accent);
+  border-bottom-color: var(--desk-accent);
+}
+
+.sectionNav a:focus-visible {
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: 2px;
+  border-radius: var(--desk-radius);
+  box-shadow: none;
+}
+
+.sectionsEnd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding-left: var(--space-4);
+}
+
+/* ------------------------------------------------------------------ page -- */
+
+.page {
+  width: min(1320px, 100%);
+  margin-inline: auto;
+  padding: var(--space-8) var(--space-5) var(--space-12);
+}
+
+@media (max-width: 920px) {
+  .slabInner {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .sections {
+    padding-inline: var(--space-4);
+  }
+
+  .page {
+    padding: var(--space-5) var(--space-4) var(--space-10);
+  }
+}
+
+@media (max-width: 560px) {
+  .stamp {
+    display: none;
+  }
+
+  .header {
+    position: static;
+  }
+}

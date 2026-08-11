@@ -1,0 +1,255 @@
+/* The slab field. Sits on the ink masthead, so it is drawn in paper. */
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1 1 16rem;
+  min-width: 0;
+  height: auto;
+  padding: 0.5rem 0.6rem 0.5rem 0.85rem;
+  background: none;
+  border: var(--desk-rule-slab) solid var(--desk-slab-ink);
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--desk-slab-ink);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-sm);
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--desk-dur-short) var(--desk-ease-out),
+    color var(--desk-dur-short) var(--desk-ease-out),
+    border-color var(--desk-dur-short) var(--desk-ease-out);
+}
+
+.trigger:hover {
+  background: var(--desk-accent);
+  border-color: var(--desk-accent);
+  color: var(--desk-accent-ink);
+}
+
+.trigger:focus-visible {
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.triggerText {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.keys {
+  display: flex;
+  gap: 0.2rem;
+  flex: none;
+}
+
+.trigger kbd,
+.field kbd,
+.foot kbd {
+  font-family: var(--desk-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0.1rem 0.35rem;
+  border: var(--desk-rule-hair) solid currentcolor;
+  border-radius: var(--desk-radius);
+}
+
+/* ------------------------------------------------------------- overlay -- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--desk-z-palette);
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--desk-scrim);
+  cursor: default;
+}
+
+.panel {
+  position: absolute;
+  top: 10vh;
+  left: 50%;
+  width: min(34rem, calc(100vw - 2rem));
+  transform: translateX(-50%);
+  background: var(--desk-paper-2);
+  border: var(--desk-rule-slab) solid var(--desk-ink);
+  /* Hard offset rather than a blur — the desk prints, it does not float. */
+  box-shadow: 8px 8px 0 0 var(--desk-accent);
+  animation: panelIn var(--desk-dur-mid) var(--desk-ease-out);
+}
+
+@keyframes panelIn {
+  from {
+    transform: translateX(-50%) translateY(-6px);
+    opacity: 0;
+  }
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: var(--desk-rule-slab) solid var(--desk-ink);
+  color: var(--desk-muted);
+}
+
+/*
+ * The ring moves to the field row: globals.css puts a teal --focus-ring on any
+ * focused input, which is the wrong palette here, and the bare input alone is
+ * too thin a target to show a 2px outline well.
+ */
+.field:focus-within {
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: -2px;
+}
+
+.input:focus,
+.input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.fieldIcon {
+  color: var(--desk-accent);
+  flex: none;
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-md);
+  color: var(--desk-ink);
+}
+
+.input::placeholder {
+  color: var(--desk-neutral);
+}
+
+.results {
+  max-height: min(24rem, 50vh);
+  overflow-y: auto;
+  padding-bottom: var(--space-2);
+}
+
+.group {
+  margin: 0;
+  padding: var(--space-3) var(--space-4) var(--space-1);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--desk-neutral);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  height: auto;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: none;
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-base);
+  font-weight: 400;
+  color: var(--desk-ink-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.itemActive {
+  background: var(--desk-ink);
+  color: var(--desk-paper-2);
+}
+
+.item:focus-visible {
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+.itemNo {
+  flex: none;
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  font-weight: 700;
+  color: var(--desk-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.itemLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-4);
+  font-size: var(--desk-text-sm);
+  color: var(--desk-muted);
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--desk-rule-slab) solid var(--desk-ink);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  color: var(--desk-neutral);
+}
+
+.foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+@media (max-width: 560px) {
+  .panel {
+    top: 0;
+    width: 100vw;
+    max-width: 100%;
+    box-shadow: none;
+    border-left: 0;
+    border-right: 0;
+    border-top: 0;
+  }
+
+  .results {
+    max-height: calc(100dvh - 11rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel {
+    animation: none;
+  }
+}

@@ -1,12 +1,18 @@
+/*
+ * Tone is carried by the frame and the text, not by a tinted fill. Five
+ * coloured backgrounds stacked on a page is how an accent stops meaning
+ * anything; the paper stays paper and only the border changes.
+ */
 .notice {
   display: grid;
   gap: var(--space-1);
-  border: 1px solid;
-  border-left-width: 3px;
-  border-radius: var(--radius-sm);
+  border: var(--desk-rule-slab) solid;
+  border-radius: 0;
   padding: var(--space-3);
-  font-size: var(--text-base);
-  line-height: var(--leading-snug);
+  background: var(--desk-paper-3);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-sm);
+  line-height: 1.5;
   text-align: left;
 }
 
@@ -17,37 +23,35 @@
 
 .notice a {
   color: inherit;
-  font-weight: var(--weight-semibold);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-underline-offset: 3px;
 }
 
 .neutral {
-  background: var(--tone-neutral-bg);
-  border-color: var(--tone-neutral-border);
-  color: var(--text-secondary);
+  border-color: var(--desk-rule);
+  color: var(--desk-ink-2);
 }
 
 .positive {
-  background: var(--tone-positive-bg);
-  border-color: var(--tone-positive-border);
-  color: var(--tone-positive-text);
+  border-color: var(--desk-ok);
+  color: var(--desk-ok);
 }
 
 .info {
-  background: var(--tone-info-bg);
-  border-color: var(--tone-info-border);
-  color: var(--tone-info-text);
+  border-color: var(--desk-accent-2);
+  color: var(--desk-accent-2);
 }
 
 .caution {
-  background: var(--tone-caution-bg);
-  border-color: var(--tone-caution-border);
-  color: var(--tone-caution-text);
+  border-color: var(--desk-warn);
+  color: var(--desk-warn);
 }
 
+/* Critical is the one that fills — same rule as the verdict stamp. */
 .critical {
-  background: var(--tone-critical-bg);
-  border-color: var(--tone-critical-border);
-  color: var(--tone-critical-text);
+  background: var(--desk-alert);
+  border-color: var(--desk-alert);
+  color: var(--desk-accent-ink);
 }

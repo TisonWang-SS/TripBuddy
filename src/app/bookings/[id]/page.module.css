@@ -1,0 +1,316 @@
+/*
+ * The stub, opened out. The desk shows a booking as one torn ticket; this page
+ * is the same ticket unfolded — the same date block, the same stamped verdict,
+ * with the figures and the evidence that were folded away behind them.
+ *
+ * Every <p> here carries an explicit colour class on purpose: globals.css still
+ * paints bare <p> with the teal set's --text-secondary for the un-migrated
+ * pages, and anything left unclassed inherits it.
+ */
+
+/*
+ * minmax(0, 1fr) rather than a bare implicit column: grid items default to
+ * min-width auto, so one nowrap child (the action button, a table row) sizes
+ * the whole column to its min-content and every section overflows the phone
+ * viewport together. The explicit min of 0 lets the column track the container.
+ */
+.sheet {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-base);
+  line-height: var(--desk-leading-body);
+  color: var(--desk-ink);
+}
+
+.sheet > * {
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------------ head -- */
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
+.headText {
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.head h1 {
+  margin: var(--space-1) 0 0;
+  color: var(--desk-ink);
+  font-family: var(--desk-font-display);
+  font-size: var(--desk-text-2xl);
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  line-height: var(--desk-leading-display);
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.where {
+  margin: var(--space-2) 0 0;
+  max-width: 60ch;
+  color: var(--desk-muted);
+  font-size: var(--desk-text-sm);
+}
+
+/* ---------------------------------------------------------------- figures -- */
+
+/*
+ * Three readings off one ticket, not three cards. The dashed verticals are the
+ * same rule language as the stub's perforation.
+ */
+.figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: var(--desk-rule-slab) solid var(--desk-ink);
+  border-bottom: var(--desk-rule-slab) solid var(--desk-ink);
+}
+
+.figure {
+  padding: var(--space-3) var(--space-4);
+  border-left: var(--desk-rule-hair) dashed var(--desk-rule);
+}
+
+.figure:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.figureLabel {
+  display: block;
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.figureValue {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--desk-ink);
+  font-family: var(--desk-font-display);
+  font-size: var(--desk-text-lg);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ tools -- */
+
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--desk-rule-hair) solid var(--desk-rule);
+}
+
+.tools a {
+  color: var(--desk-muted);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  white-space: nowrap;
+  transition: color var(--desk-dur-short) var(--desk-ease-out);
+}
+
+.tools a:hover {
+  color: var(--desk-accent);
+}
+
+.tools a:focus-visible {
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* -------------------------------------------------------------- run line -- */
+
+.runLine {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) 0;
+  border-bottom: var(--desk-rule-hair) dashed var(--desk-rule);
+}
+
+.runSummary {
+  margin: 0;
+  flex: 1 1 18rem;
+  min-width: 0;
+  color: var(--desk-ink-2);
+  font-size: var(--desk-text-sm);
+}
+
+.runWhen {
+  margin: 0;
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------------- the verdict -- */
+
+.verdict {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 13rem;
+  gap: var(--space-5);
+  align-items: start;
+  padding: var(--space-5);
+  border: var(--desk-rule-slab) solid var(--desk-ink);
+  background: var(--desk-paper-2);
+}
+
+.verdictBody {
+  min-width: 0;
+}
+
+.explanation {
+  margin: var(--space-3) 0 0;
+  max-width: 66ch;
+  color: var(--desk-ink);
+  font-size: var(--desk-text-md);
+  line-height: 1.5;
+}
+
+.provenance {
+  margin: var(--space-3) 0 0;
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+}
+
+.savings {
+  padding-left: var(--space-5);
+  border-left: var(--desk-rule-hair) dashed var(--desk-rule);
+  text-align: right;
+}
+
+/*
+ * Ink by default. The accent is reserved for a saving that actually exists —
+ * painting a $0 in the loudest colour on the page points the eye at nothing.
+ */
+.savingsValue {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--desk-ink);
+  font-family: var(--desk-font-display);
+  font-size: var(--desk-text-xl);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.savingsValueReal {
+  color: var(--desk-accent);
+}
+
+.promote {
+  margin-top: var(--space-4);
+}
+
+/* -------------------------------------------------------------- breakdown -- */
+
+.breakdown {
+  margin-top: var(--space-4);
+}
+
+.breakdown > summary {
+  color: var(--desk-muted);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.breakdown > summary:hover {
+  color: var(--desk-accent);
+}
+
+.breakdown > summary:focus-visible {
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.breakdownTable {
+  margin-top: var(--space-3);
+}
+
+/* ------------------------------------------------------------ observation -- */
+
+.sub {
+  color: var(--desk-muted);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+}
+
+.stacked {
+  display: block;
+  margin-top: 2px;
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+}
+
+.money {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- responsive -- */
+
+@media (max-width: 60rem) {
+  .verdict {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .savings {
+    padding-left: 0;
+    padding-top: var(--space-4);
+    border-left: 0;
+    border-top: var(--desk-rule-hair) dashed var(--desk-rule);
+    text-align: left;
+  }
+}
+
+@media (max-width: 40rem) {
+  .figures {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .figure {
+    padding: var(--space-3) 0;
+    border-left: 0;
+    border-top: var(--desk-rule-hair) dashed var(--desk-rule);
+  }
+
+  .figure:first-child {
+    border-top: 0;
+    padding-top: var(--space-3);
+  }
+
+  .head h1 {
+    font-size: var(--desk-text-xl);
+  }
+}

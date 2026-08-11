@@ -1,3 +1,4 @@
+/* A line on a form: mono caption above a hard-edged box. */
 .field {
   display: grid;
   gap: var(--space-2);
@@ -5,59 +6,67 @@
 }
 
 .label {
-  color: var(--text-secondary);
-  font-size: var(--text-base);
-  font-weight: var(--weight-medium);
+  color: var(--desk-muted);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .hint {
   margin: 0;
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-  line-height: var(--leading-snug);
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-sm);
+  line-height: 1.45;
 }
 
 .field input,
 .field select,
 .field textarea {
   width: 100%;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
+  border: var(--desk-rule-slab) solid var(--desk-ink);
+  border-radius: 0;
   padding: var(--space-2) var(--space-3);
-  background: var(--surface-raised);
-  color: var(--text-primary);
+  background: var(--desk-paper-2);
+  color: var(--desk-ink);
   font: inherit;
-  font-size: var(--text-base);
-  box-shadow: var(--shadow-xs);
-  transition:
-    border-color var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-sm);
+  box-shadow: none;
+  transition: border-color var(--desk-dur-short) var(--desk-ease-out);
 }
 
 .field input:hover,
 .field select:hover,
 .field textarea:hover {
-  border-color: var(--border-strong);
+  border-color: var(--desk-accent);
 }
 
+/*
+ * The ring is an outline rather than globals.css's teal --focus-ring box-shadow,
+ * which would otherwise win here and land the wrong palette on a desk form.
+ */
 .field input:focus-visible,
 .field select:focus-visible,
 .field textarea:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: var(--focus-ring);
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: 2px;
+  border-color: var(--desk-accent);
+  box-shadow: none;
 }
 
 .field input:disabled,
 .field select:disabled,
 .field textarea:disabled {
-  background: var(--surface-sunken);
-  color: var(--text-tertiary);
+  background: var(--desk-paper-3);
+  border-color: var(--desk-rule);
+  color: var(--desk-neutral);
   cursor: not-allowed;
 }
 
 .field textarea {
   min-height: 96px;
   resize: vertical;
-  line-height: var(--leading-normal);
+  line-height: var(--desk-leading-body);
 }

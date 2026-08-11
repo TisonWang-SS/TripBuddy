@@ -1,0 +1,160 @@
+/*
+ * Ticket-desk design layer.
+ *
+ * A second, additive token set that sits beside the ones in tokens.css rather
+ * than replacing them. Every name is prefixed --desk-* so the two systems can
+ * coexist while pages migrate one at a time: the shell and the dashboard read
+ * from here, every other page still reads the teal set in tokens.css and is
+ * untouched.
+ *
+ * Spacing is deliberately NOT redefined — this layer reuses --space-* from
+ * tokens.css, because two spacing scales in one codebase is how rhythm drifts.
+ *
+ * Colour follows the same light-dark() discipline as tokens.css: one
+ * declaration carries both schemes so they cannot fall out of step. The dark
+ * scheme is a designed variant, not an inversion — the slab flips from black
+ * to paper (an inverse overprint), which falls out of ink/paper for free.
+ */
+
+:root {
+  /* ---- paper and ink ------------------------------------------------ */
+  --desk-paper: light-dark(oklch(89% 0.028 82), oklch(16% 0.020 78));
+  --desk-paper-2: light-dark(oklch(93% 0.022 82), oklch(20% 0.022 78));
+  --desk-paper-3: light-dark(oklch(85% 0.032 80), oklch(24% 0.024 78));
+  --desk-rule: light-dark(oklch(72% 0.030 78), oklch(34% 0.018 78));
+  --desk-rule-2: light-dark(oklch(80% 0.028 80), oklch(28% 0.016 78));
+  --desk-neutral: light-dark(oklch(52% 0.024 72), oklch(58% 0.016 78));
+  --desk-muted: light-dark(oklch(42% 0.026 68), oklch(72% 0.014 80));
+  --desk-ink: light-dark(oklch(21% 0.024 62), oklch(92% 0.014 82));
+  --desk-ink-2: light-dark(oklch(31% 0.024 64), oklch(80% 0.014 82));
+
+  /*
+   * The slab is the black masthead in light and a paper-coloured bar in dark.
+   * Deriving it from ink/paper rather than declaring it twice is what keeps the
+   * inverse-overprint idea true in both schemes.
+   */
+  --desk-slab: var(--desk-ink);
+  --desk-slab-ink: var(--desk-paper);
+
+  /* ---- accents ------------------------------------------------------- */
+  /* Vermilion lifts and desaturates on dark paper, per the dark-mode recipe. */
+  --desk-accent: light-dark(oklch(55% 0.185 32), oklch(64% 0.150 32));
+  --desk-accent-ink: light-dark(oklch(93% 0.022 82), oklch(16% 0.020 78));
+  --desk-accent-2: light-dark(oklch(48% 0.135 250), oklch(70% 0.110 250));
+  --desk-focus: light-dark(oklch(52% 0.200 32), oklch(70% 0.180 32));
+  --desk-scrim: light-dark(oklch(21% 0.024 62 / 0.4), oklch(8% 0.012 78 / 0.62));
+
+  /* ---- verdict signal ------------------------------------------------- */
+  --desk-ok: light-dark(oklch(45% 0.110 158), oklch(74% 0.130 158));
+  --desk-warn: light-dark(oklch(53% 0.140 74), oklch(80% 0.130 80));
+  --desk-alert: var(--desk-accent);
+
+  /* ---- type ----------------------------------------------------------- */
+  --desk-font-display: "Anton", "Arial Narrow", ui-sans-serif, sans-serif;
+  --desk-font-body: "Spectral", ui-serif, Georgia, serif;
+  --desk-font-mono: "Space Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /*
+   * A 15px base, one step up from the 13px legacy scale. The desk trades some
+   * density for the ticket metaphor; it is scoped to this layer so the legacy
+   * pages keep the density their tables were built for.
+   */
+  --desk-text-xs: 0.75rem;
+  --desk-text-sm: 0.8125rem;
+  --desk-text-base: 0.9375rem;
+  --desk-text-md: 1.0625rem;
+  --desk-text-lg: 1.5rem;
+  --desk-text-xl: 2rem;
+  --desk-text-2xl: 2.75rem;
+  --desk-text-display: clamp(2.5rem, 5vw + 1rem, 3.75rem);
+
+  /* All-caps display sits on a 1.02 floor; below it cap-tops collide. */
+  --desk-leading-display: 1.02;
+  --desk-leading-body: 1.6;
+
+  /* ---- rules and radii -------------------------------------------------- */
+  --desk-rule-hair: 1px;
+  --desk-rule-slab: 2px;
+  --desk-radius: 2px;
+
+  /* ---- motion ------------------------------------------------------------ */
+  --desk-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --desk-dur-short: 120ms;
+  --desk-dur-mid: 220ms;
+
+  /* ---- layers ------------------------------------------------------------ */
+  --desk-z-slab: 40;
+  --desk-z-palette: 60;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --desk-dur-short: 1ms;
+    --desk-dur-mid: 1ms;
+  }
+}
+
+/*
+ * Adapter for un-migrated markup. Components shared with pages that are still
+ * on the teal set — EvidenceIssueList is the live case — render the legacy
+ * .notice class rather than the Notice primitive. A page opts in with
+ * .deskPage and its notices pick up the desk voice, while the same component
+ * keeps its old look on the pages that have not moved.
+ *
+ * This block disappears when the last .notice call site becomes <Notice>.
+ */
+.deskPage :is(p, div).notice {
+  max-width: 100%;
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3);
+  border: var(--desk-rule-slab) solid var(--desk-rule);
+  border-left-width: var(--desk-rule-slab);
+  border-radius: 0;
+  background: var(--desk-paper-3);
+  color: var(--desk-ink-2);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-sm);
+  line-height: 1.5;
+}
+
+.deskPage :is(p, div).notice.warning {
+  border-color: var(--desk-warn);
+  color: var(--desk-warn);
+}
+
+.deskPage :is(p, div).notice.caution {
+  border-color: var(--desk-warn);
+  border-left-color: var(--desk-warn);
+  color: var(--desk-warn);
+}
+
+.deskPage :is(p, div).notice.success {
+  border-color: var(--desk-ok);
+  color: var(--desk-ok);
+}
+
+.deskPage :is(p, div).notice a,
+.deskPage :is(p, div).notice small {
+  color: var(--desk-accent);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+}
+
+/*
+ * Riso halftone. Scoped to the ink surfaces rather than laid over the whole
+ * viewport: as a fixed full-page overlay it reads as a gauze the content
+ * scrolls behind, which is tiring over a long session.
+ */
+.deskHalftone {
+  position: relative;
+}
+
+.deskHalftone::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.12;
+  background-image: radial-gradient(currentcolor 1px, transparent 1.15px);
+  background-size: 4px 4px;
+}

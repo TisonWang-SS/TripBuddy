@@ -1,0 +1,39 @@
+.stamp {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border: var(--desk-rule-slab) solid currentcolor;
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* The tilt is the stamp. Small enough to read as pressed, not as broken. */
+  transform: rotate(-2.5deg);
+}
+
+.neutral {
+  color: var(--desk-muted);
+}
+
+.positive {
+  color: var(--desk-ok);
+}
+
+.info {
+  color: var(--desk-accent-2);
+}
+
+.caution {
+  color: var(--desk-warn);
+}
+
+/*
+ * Critical is the only filled stamp on the desk. Reserving the fill for one
+ * tone is what keeps it loud — if two verdicts were filled, neither would be.
+ */
+.critical {
+  background: var(--desk-alert);
+  border-color: var(--desk-alert);
+  color: var(--desk-accent-ink);
+}

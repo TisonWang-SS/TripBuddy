@@ -1,91 +1,105 @@
+/*
+ * Ticket-desk voice: a stamped mono label in a hard-edged frame. No radius, no
+ * blur shadow — the desk prints, it does not float.
+ *
+ * The height/box-shadow/radius resets are load-bearing: globals.css still
+ * styles bare <button> for the pages that have not migrated, and those
+ * declarations would otherwise leak through the properties this file omits.
+ */
 .button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  font-family: inherit;
-  font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-tight);
+  height: auto;
+  border: var(--desk-rule-slab) solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  font-family: var(--desk-font-mono);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   line-height: 1;
   white-space: nowrap;
   text-decoration: none;
   cursor: pointer;
   transition:
-    background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out);
+    background-color var(--desk-dur-short) var(--desk-ease-out),
+    border-color var(--desk-dur-short) var(--desk-ease-out),
+    color var(--desk-dur-short) var(--desk-ease-out);
 }
 
 .button:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.button:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: translateY(1px);
 }
 
 .button:disabled,
 .button[aria-disabled="true"] {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.5;
 }
 
 .md {
-  height: 34px;
-  padding: 0 var(--space-3);
-  font-size: var(--text-base);
+  padding: 0.45rem 0.85rem;
+  font-size: var(--desk-text-xs);
 }
 
 .sm {
-  height: 28px;
-  padding: 0 var(--space-2);
-  font-size: var(--text-sm);
+  padding: 0.3rem 0.6rem;
+  font-size: 0.6875rem;
 }
 
+/* Vermilion is the hover, not the resting state — one loud colour, used late. */
 .primary {
-  background: var(--accent);
-  color: var(--text-on-accent);
-  box-shadow: var(--shadow-xs);
+  background: var(--desk-ink);
+  border-color: var(--desk-ink);
+  color: var(--desk-paper-2);
 }
 
-.primary:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--accent-hover);
-}
-
+.primary:hover:not(:disabled):not([aria-disabled="true"]),
 .primary:active:not(:disabled) {
-  background: var(--accent-active);
+  background: var(--desk-accent);
+  border-color: var(--desk-accent);
+  color: var(--desk-accent-ink);
 }
 
 .secondary {
-  background: var(--surface-raised);
-  border-color: var(--border-default);
-  color: var(--text-primary);
-  box-shadow: var(--shadow-xs);
+  background: none;
+  border-color: var(--desk-ink);
+  color: var(--desk-ink);
 }
 
 .secondary:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--surface-hover);
-  border-color: var(--border-strong);
+  background: var(--desk-ink);
+  color: var(--desk-paper-2);
 }
 
 .ghost {
-  background: transparent;
-  color: var(--text-secondary);
+  background: none;
+  border-color: transparent;
+  color: var(--desk-muted);
 }
 
 .ghost:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--surface-hover);
-  color: var(--text-primary);
+  border-color: var(--desk-rule);
+  color: var(--desk-ink);
 }
 
 .danger {
-  background: var(--tone-critical-bg);
-  border-color: var(--tone-critical-border);
-  color: var(--tone-critical-text);
+  background: none;
+  border-color: var(--desk-alert);
+  color: var(--desk-alert);
 }
 
 .danger:hover:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--tone-critical-border);
+  background: var(--desk-alert);
+  color: var(--desk-accent-ink);
 }
 
 .spinner {
@@ -94,8 +108,7 @@
   flex: none;
   border: 2px solid currentcolor;
   border-right-color: transparent;
-  border-radius: var(--radius-full);
-  opacity: 0.85;
+  border-radius: 50%;
   animation: spin 640ms linear infinite;
 }
 

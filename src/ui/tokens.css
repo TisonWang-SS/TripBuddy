@@ -107,9 +107,11 @@
   --ease-out: cubic-bezier(0.2, 0.8, 0.3, 1);
 
   /*
-   * System stack rather than a webfont: `npm run build` is a required gate and
-   * AGENTS.md has us delete .next before committing, so a build-time font fetch
-   * would make the gate need network. Swap in next/font here if that changes.
+   * System stack for the pages still on this token set. The constraint that put
+   * it here — `npm run build` is a required gate and AGENTS.md has us delete
+   * .next first, so the gate must not need network — still holds, and is why
+   * the desk layer self-hosts its faces from /public instead of reaching for
+   * next/font. See ui/fonts.css.
    */
   --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif;

@@ -3,8 +3,17 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { waitForBrowserTask, type BrowserTaskPayload } from "@/lib/browserTaskClient";
+import { Notice } from "@/ui";
 
-export function RunPriceCheckButton({ bookingId, trigger = "manual" }: { bookingId: string; trigger?: "due_queue" | "manual" }) {
+export function RunPriceCheckButton({
+  bookingId,
+  className,
+  trigger = "manual"
+}: {
+  bookingId: string;
+  className?: string;
+  trigger?: "due_queue" | "manual";
+}) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [task, setTask] = useState<BrowserTaskPayload | null>(null);
@@ -43,16 +52,16 @@ export function RunPriceCheckButton({ bookingId, trigger = "manual" }: { booking
 
   return (
     <div className="importPanel">
-      <button disabled={loading} onClick={run} type="button">
+      <button className={className} disabled={loading} onClick={run} type="button">
         {loading ? "Checking Hyatt..." : "Run price check"}
       </button>
-      {error ? <div className="notice warning">{error}</div> : null}
+      {error ? <Notice tone="caution">{error}</Notice> : null}
       {task && !error ? (
-        <div className={`notice ${task.status === "succeeded" ? "success" : "warning"}`}>
+        <Notice tone={task.status === "succeeded" ? "positive" : "caution"}>
           Price check {task.status}. {task.result && typeof task.result === "object" && "observationsCreated" in task.result
             ? `${String(task.result.observationsCreated)} observation(s) created.`
             : "Keep the Hyatt tab open until capture finishes."}
-        </div>
+        </Notice>
       ) : null}
     </div>
   );

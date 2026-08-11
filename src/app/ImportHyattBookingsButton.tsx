@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { waitForBrowserTask, type BrowserTaskPayload } from "@/lib/browserTaskClient";
+import { Notice } from "@/ui";
 
 type ImportPayload = {
   created?: number;
@@ -16,7 +17,7 @@ type ImportPayload = {
   error?: string;
 };
 
-export function ImportHyattBookingsButton() {
+export function ImportHyattBookingsButton({ className }: { className?: string } = {}) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [payload, setPayload] = useState<ImportPayload | null>(null);
@@ -54,11 +55,11 @@ export function ImportHyattBookingsButton() {
 
   return (
     <div className="importPanel">
-      <button disabled={loading} onClick={importBookings} type="button">
+      <button className={className} disabled={loading} onClick={importBookings} type="button">
         {loading ? "Importing Hyatt..." : "Import Hyatt bookings"}
       </button>
       {payload ? (
-        <div className={`notice ${payload.error || payload.status === "login_required" ? "warning" : "success"}`}>
+        <Notice tone={payload.error || payload.status === "login_required" ? "caution" : "positive"}>
           <p>
             {payload.error ??
               payload.summary ??
@@ -74,7 +75,7 @@ export function ImportHyattBookingsButton() {
               Created {payload.created ?? 0}, updated {payload.updated ?? 0}.
             </small>
           ) : null}
-        </div>
+        </Notice>
       ) : null}
     </div>
   );

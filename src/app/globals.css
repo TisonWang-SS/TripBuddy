@@ -1,10 +1,18 @@
+@import "../ui/fonts.css";
 @import "../ui/tokens.css";
+@import "../ui/desk.css";
 
 /*
  * Global element styles plus the legacy layout classes the pages still use.
  * Everything below the "legacy" marker is replaced call site by call site in
  * P5, when pages move onto the src/ui primitives. New code should import from
  * @/ui rather than reach for these class names.
+ *
+ * Two token sets are live at once during that migration. desk.css carries the
+ * ticket-desk layer used by the shell and the dashboard; tokens.css carries the
+ * teal set every other page still reads. The element rules below stay on the
+ * teal set on purpose — changing them would restyle eleven pages that this
+ * change is not touching.
  */
 
 *,
@@ -17,11 +25,27 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/*
+ * clip, not hidden: it stops a stray wide child from scrolling the page
+ * sideways without creating a scroll container, which would break the shell's
+ * position: sticky header.
+ */
+html,
+body {
+  overflow-x: clip;
+}
+
 html,
 body {
   margin: 0;
   min-height: 100%;
-  background: var(--surface-base);
+  /*
+   * The ground is the desk's paper, not the teal set's cool white: the shell
+   * around every page is now the ticket desk, and a warm masthead sitting on a
+   * cool page reads as two products. Page *content* still uses --surface-* and
+   * is unchanged; only what shows through behind it moves.
+   */
+  background: var(--desk-paper);
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: var(--text-md);
@@ -96,98 +120,6 @@ details > summary {
   color: var(--text-secondary);
   font-size: var(--text-base);
   font-weight: var(--weight-medium);
-}
-
-/* ---------------------------------------------------------------- shell -- */
-
-.shell {
-  display: grid;
-  grid-template-columns: 236px minmax(0, 1fr);
-  min-height: 100vh;
-}
-
-.sidebar {
-  position: sticky;
-  top: 0;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  padding: var(--space-5) var(--space-3);
-  border-right: 1px solid var(--border-subtle);
-  background: var(--surface-raised);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: 0 var(--space-2);
-  margin-bottom: var(--space-6);
-}
-
-.brandMark {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  flex: none;
-  border-radius: var(--radius-md);
-  background: var(--accent);
-  color: var(--text-on-accent);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-bold);
-  letter-spacing: var(--tracking-tight);
-  box-shadow: var(--shadow-xs);
-}
-
-.brand strong {
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-}
-
-.brand small {
-  display: block;
-  margin-top: 1px;
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
-}
-
-.nav {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.nav a {
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: var(--text-base);
-  font-weight: var(--weight-medium);
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
-}
-
-.nav a:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-}
-
-.nav a[aria-current="page"] {
-  background: var(--accent-subtle);
-  color: var(--accent-text);
-  font-weight: var(--weight-semibold);
-}
-
-.sidebarFooter {
-  margin-top: auto;
-  padding-top: var(--space-4);
-}
-
-.main {
-  width: min(1320px, 100%);
-  padding: var(--space-8);
 }
 
 /* --------------------------------------------------------------- legacy -- */
@@ -593,39 +525,6 @@ a.listItem:hover {
 /* ----------------------------------------------------------- responsive -- */
 
 @media (max-width: 920px) {
-  .shell {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .sidebar {
-    position: relative;
-    height: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .brand {
-    margin-bottom: var(--space-4);
-  }
-
-  /*
-   * The previous rule set grid-template-columns on a flex container, so it
-   * never applied and the nav stayed a full-height column above the content.
-   */
-  .nav {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-1);
-  }
-
-  .sidebarFooter {
-    margin-top: var(--space-4);
-  }
-
-  .main {
-    padding: var(--space-5);
-  }
-
   .pageHeader,
   .listItem {
     flex-direction: column;
@@ -646,14 +545,6 @@ a.listItem:hover {
 }
 
 @media (max-width: 560px) {
-  .main {
-    padding: var(--space-4);
-  }
-
-  .nav {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   h1 {
     font-size: var(--text-2xl);
   }

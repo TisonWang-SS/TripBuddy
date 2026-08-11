@@ -15,11 +15,11 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function SidebarNav({ items }: { items: readonly NavItem[] }) {
+export function SidebarNav({ className, items }: { className?: string; items: readonly NavItem[] }) {
   const pathname = usePathname() ?? "/";
 
   return (
-    <nav className="nav">
+    <nav className={className}>
       {items.map((item) => (
         <Link aria-current={isActive(pathname, item.href) ? "page" : undefined} href={item.href} key={item.href}>
           {item.label}
