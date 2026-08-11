@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import taskProtocol from "@extension/taskProtocol.js";
 import type { BrowserTaskDefinition } from "@/lib/browserTaskDefinition";
 import {
+  parseHotelSearchTaskContext,
+  type HotelSearchTaskContext
+} from "@/lib/browserTaskCodecs";
+import {
   addBrowserTaskHash,
   appendBrowserSnapshot,
   BrowserTaskError,
@@ -20,19 +24,11 @@ import {
   recordOfficialFinalTotal,
   replaceOfficialSearchResults
 } from "@/lib/hotelSearchSessions";
-import { parseJson } from "@/lib/json";
 import { getProfileSearchCurrency } from "@/lib/profilePreferences";
 import { getBookingPriceProvider, getHotelSearchProvider, listSearchableHotelGroups } from "@/lib/providers/registry";
 import type { BookingPriceInput, HotelSearchQuery } from "@/lib/providers/types";
 
 type HotelSearchTaskMode = "city_results" | "tax_inclusive_total";
-
-type HotelSearchTaskContext = {
-  hotelName: string | null;
-  mode: HotelSearchTaskMode;
-  query: HotelSearchQuery;
-  searchSessionId: string | null;
-};
 
 export type HotelSearchTaskInput = Partial<HotelSearchQuery> & {
   hotelName?: unknown;
@@ -288,39 +284,6 @@ async function captureTaxInclusiveHotelSearchTask(
   }
   await finishBrowserTask({ result, status: "succeeded", taskId });
   return serializeTaskState(await getBrowserTask(taskId));
-}
-
-function parseHotelSearchTaskContext(value: string): HotelSearchTaskContext | null {
-  const parsed = parseJson<unknown>(value, null);
-  if (isHotelSearchQuery(parsed)) {
-    return { hotelName: null, mode: "city_results", query: parsed, searchSessionId: null };
-  }
-  if (!parsed || typeof parsed !== "object") {
-    return null;
-  }
-  const context = parsed as { hotelName?: unknown; mode?: unknown; query?: unknown; searchSessionId?: unknown };
-  if (!isHotelSearchQuery(context.query)) {
-    return null;
-  }
-  return {
-    hotelName: typeof context.hotelName === "string" && context.hotelName.trim() ? context.hotelName.trim() : null,
-    mode: context.mode === "tax_inclusive_total" ? "tax_inclusive_total" : "city_results",
-    query: context.query,
-    searchSessionId:
-      typeof context.searchSessionId === "string" && context.searchSessionId.trim()
-        ? context.searchSessionId.trim()
-        : null
-  };
-}
-
-function isHotelSearchQuery(value: unknown): value is HotelSearchQuery {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const query = value as Partial<HotelSearchQuery>;
-  return [query.adults, query.checkIn, query.checkOut, query.city, query.currency, query.hotelGroup].every(
-    (item) => item !== undefined && item !== null && String(item).trim() !== ""
-  );
 }
 
 function toCitySearchPriceInput(taskId: string, hotelGroup: string, context: HotelSearchTaskContext): BookingPriceInput {

@@ -2,7 +2,7 @@
 
 > 首次审查基线:`b7a55ec`(2026-08-08)
 > 最新复查基线:`30a75ec`(2026-08-11)
-> 门禁状态:`npm test` 29 文件 141 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / DeepSeek V4 Flash 实测 13 fixtures、63/63 断言通过 / TripBuddy Chrome profile + Logs 页真实 replay 成功 / migration 与 Prisma schema 零差异且在全新库干净应用
+> 门禁状态:`npm test` 31 文件 145 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / DeepSeek V4 Flash 实测 13 fixtures、63/63 断言通过 / TripBuddy Chrome profile + Logs 页真实 replay 成功 / migration 与 Prisma schema 零差异且在全新库干净应用
 > ✅ 套件已时区稳定:外部 `TZ` 设为 -7 / 0 / +14 分别运行全过(`vitest.config.ts` 固定 `TZ: "UTC"`,跨时区用例在测试内显式切换)
 > ✅ PRD、实施计划与代码行为一致
 
@@ -29,7 +29,7 @@
 
 - **LLM 抽取器落地,且是以「提议者」而非「权威」的方式接入的。** 每个模型输出的字符串和数字都必须在存档页面文本里逐字出现,四个安全相关布尔值再从可见 token 与已校验价格分量推导,算术交叉校验,provenance 落库,replay 针对存档快照而非重新爬取,评测门槛为「不劣于确定性基线」(`b1e7be3` 及本次修复)。
 
-当前剩余问题均为尚未动工的加固项:§2.4、§3.2、§3.5、§3.7–§3.9。
+当前剩余问题均为尚未动工的加固项:§3.2、§3.5、§3.7–§3.9。
 
 **已无已知的用户可见缺陷。** §3.10–§3.18 全部关闭,关键安全修复均有负向复现或端到端用例守卫,不是只靠读 diff 判断。
 
@@ -132,11 +132,13 @@
 
 `BrowserTaskError` 和 `serializeTaskState` 从 `priceChecks.ts` 移到 `browserTasks.ts`,路由不再从功能模块 import 基础设施。
 
-### 2.4 JSON 列没有边界校验 — ⬜ 待办
+### 2.4 JSON 列没有边界校验 — ✅ 已完成(本次提交)
 
 `contextJson` / `resultJson` / `inventoryEvidenceJson` / `costBreakdownJson` / `snapshotsJson`。在 SQLite 上这么做很务实,但 `parseJson<T>(value, fallback)` 是**无校验的类型断言**——结构变了不会编译报错,只会在运行时变成 `undefined`。
 
 你已经为其中两个手写了校验器(`parseBookingContext`、`parseHotelSearchTaskContext`),说明需求是真实的。建议每个 JSON 列配一个 codec 模块(zod 或手写),读写两侧都走它。
+
+✅ **所有产品结构 JSON 都有读写双向 codec。** `browserTaskCodecs.ts` 按 task kind 校验 context/result,并继续负责 inventory/snapshots;`hotelSearchSessionCodecs.ts` 对 query 与嵌套 hotel/offer results fail-closed;`recommendationCodecs.ts` 校验 baseline/candidate 的八个有限数值成本字段。写入侧使用对应 serializer,非法内部结果会立即抛错;读取旧行时结构不合法则返回 `null` / 安全空值,不再靠 `parseJson<T>` 类型断言。
 
 ### 2.5 Scheduler 与执行模型自相矛盾 — ✅ 已完成(`e658fd5`)
 
@@ -548,21 +550,21 @@ review 中的原始攻击样例已变成负向回归:候选仍可作为价格事
 | 22 | 接 LLM 抽取器:DeepSeek replay + grounding + provenance + 评测门槛(§4.2、§4.8);顺带关闭 §3.6 | `b1e7be3` |
 | 23 | 四个 LLM 布尔字段改为可见证据推导,保留 raw/grounded 双份审计(§3.18) | `30a75ec` |
 | 24 | 让搜索 session、浏览器 snapshots 与 recommendation cost breakdown 都有产品读取方(§1.5) | `d715bda` |
-| 25 | 删除不会影响计算的会籍进度、信用卡 elite nights 与 promotion applicability 字段(§1.6) | 本次提交 |
+| 25 | 删除不会影响计算的会籍进度、信用卡 elite nights 与 promotion applicability 字段(§1.6) | `5e6d34d` |
+| 26 | 为 BrowserTask、HotelSearchSession 与 Recommendation 的结构 JSON 补齐双向 codec(§2.4) | 本次提交 |
 
 ### 后续建议顺序
 
 | 顺序 | 事项 | 理由 |
 |---|---|---|
-| 26 | 币种录入入口或收缩多币种声明(§3.2) | 当前是用户无法解除的死 blocker |
-| 27 | 补完剩余 JSON codec(§2.4) | `browserTaskCodecs.ts` 已覆盖 3 列;`queryJson` / `resultsJson` / `resultJson` 仍是裸 `parseJson` |
+| 27 | 币种录入入口或收缩多币种声明(§3.2) | 当前是用户无法解除的死 blocker |
 | 28 | CORS 收紧(§3.7) | 加固项。新 LLM 路由已刻意不继承开放姿态,可作为收紧时的参照 |
 | 29 | 房型等价性判定交给模型(§4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker——这是剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
 
 第 13–15 项作为一组一起做是对的:它们是同一条日期约定接缝的三个面,第 9 项(`a5af2de`)就是分开修、只修了一半的例子。
 
-**当前状态**:无已知的功能性缺陷;其余(§2.4、§3.2、§3.5、§3.7–§3.9)都是数据卫生与加固,没有用户可见症状。
+**当前状态**:无已知的功能性缺陷;其余(§3.2、§3.5、§3.7–§3.9)都是数据卫生与加固,没有用户可见症状。
 
-`b1e7be3` 顺带推进了两条既有条目:§3.6 的前端轮询已从硬编码 190s 改为消费服务端 `expiresAt`(**可标记完成**);§2.4 的 codec 覆盖了 3 列,尚余 3 列。
+`b1e7be3` 顺带推进了两条既有条目:§3.6 的前端轮询已从硬编码 190s 改为消费服务端 `expiresAt`(**可标记完成**);§2.4 当时先覆盖 3 列,其余结构 JSON 已在本次提交补齐。
 
 **第 25 项已落地**:确定性 provider 抽取继续作为同步快路径;LLM 在日志页对最长 12k 的脱敏快照做独立回放,不占 Browser Companion 交互预算。当前适配 DeepSeek V4 Flash 的 Chat Completions JSON Output 协议(`/chat/completions` + `response_format=json_object`,关闭 thinking);API key、Base URL 和模型名只从服务端环境读取。模型提议必须依次通过本地严格 schema、逐数字页面落点、币种一致性和金额算术校验,失败声明只进审计记录、不写 observation。`ExtractionSource`、抽取器名称/版本、模型名和每次 replay 结果均可追溯。接入中同时消费了原 write-only 的 `snapshotsJson`,为相关 JSON 增加 codec,并把前端轮询超时收敛到服务端 `expiresAt`;第 22–24 项其余部分仍按原顺序推进。

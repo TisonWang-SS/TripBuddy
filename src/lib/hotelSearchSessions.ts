@@ -1,6 +1,11 @@
 import { DEFAULT_PROFILE_ID } from "@/lib/constants";
 import { prisma } from "@/lib/db";
-import { parseJson, toJson } from "@/lib/json";
+import {
+  parseHotelSearchQuery,
+  parseHotelSearchSessionResults,
+  serializeHotelSearchQuery,
+  serializeHotelSearchSessionResults
+} from "@/lib/hotelSearchSessionCodecs";
 import type { HotelSearchQuery, HotelSearchResult } from "@/lib/providers/types";
 
 export const HOTEL_SEARCH_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -80,8 +85,8 @@ export async function createHotelSearchSession(query: HotelSearchQuery) {
     data: {
       expiresAt: new Date(now.getTime() + HOTEL_SEARCH_SESSION_TTL_MS),
       profileId: DEFAULT_PROFILE_ID,
-      queryJson: toJson(query),
-      resultsJson: toJson(EMPTY_RESULTS)
+      queryJson: serializeHotelSearchQuery(query),
+      resultsJson: serializeHotelSearchSessionResults(EMPTY_RESULTS)
     }
   });
   return serializeHotelSearchSession(session);
@@ -256,7 +261,7 @@ function replaceOffer(offers: HotelSearchOffer[], replacement: HotelSearchOffer)
 
 async function updateSessionResults(searchSessionId: string, results: HotelSearchSessionResults) {
   const session = await prisma.hotelSearchSession.update({
-    data: { resultsJson: toJson(results) },
+    data: { resultsJson: serializeHotelSearchSessionResults(results) },
     where: { id: searchSessionId }
   });
   return serializeHotelSearchSession(session);
@@ -276,8 +281,8 @@ function serializeHotelSearchSession(session: {
     expiresAt: session.expiresAt.toISOString(),
     id: session.id,
     profileId: session.profileId,
-    query: parseJson<HotelSearchQuery>(session.queryJson, emptyQuery()),
-    results: parseJson<HotelSearchSessionResults>(session.resultsJson, EMPTY_RESULTS),
+    query: parseHotelSearchQuery(session.queryJson, emptyQuery()),
+    results: parseHotelSearchSessionResults(session.resultsJson, EMPTY_RESULTS),
     updatedAt: session.updatedAt.toISOString()
   };
 }

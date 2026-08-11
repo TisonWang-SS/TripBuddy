@@ -6,7 +6,8 @@ import {
 } from "@/lib/decision";
 import { DEFAULT_PROFILE_ID } from "@/lib/constants";
 import { prisma } from "@/lib/db";
-import { stringList, toJson } from "@/lib/json";
+import { stringList } from "@/lib/json";
+import { serializeRecommendationCostBreakdown } from "@/lib/recommendationCodecs";
 import { getCurrencyConversion } from "@/lib/systemSettings";
 
 export async function createRecommendationForBooking(
@@ -112,7 +113,7 @@ export async function createRecommendationForBooking(
       bookingId,
       candidateObservationId: selected.id,
       cashDifference: baselineCost.cashPrice - selected.cost.cashPrice,
-      costBreakdownJson: toJson({ baseline: baselineCost, candidate: selected.cost }),
+      costBreakdownJson: serializeRecommendationCostBreakdown({ baseline: baselineCost, candidate: selected.cost }),
       creditCardValueDifference: selected.cost.creditCardValue - baselineCost.creditCardValue,
       currency: booking.currency,
       decisionProvider: decider.name,

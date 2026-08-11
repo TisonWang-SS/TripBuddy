@@ -7,7 +7,8 @@ import { formatBookingBaseline } from "@/lib/bookingPrice";
 import { prisma } from "@/lib/db";
 import type { CostBreakdown } from "@/lib/decision";
 import { formatCalendarDate, formatLocalInstant, formatMoney } from "@/lib/format";
-import { parseJson, stringList } from "@/lib/json";
+import { stringList } from "@/lib/json";
+import { parseRecommendationCostBreakdown } from "@/lib/recommendationCodecs";
 
 export default async function BookingDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -110,7 +111,7 @@ function formatRoom(value: string | null) {
 }
 
 function RecommendationCostBreakdown({ currency, value }: { currency: string; value: string }) {
-  const breakdown = readCostBreakdown(value);
+  const breakdown = parseRecommendationCostBreakdown(value);
   if (!breakdown) {
     return null;
   }
@@ -139,33 +140,4 @@ function RecommendationCostBreakdown({ currency, value }: { currency: string; va
       </table>
     </details>
   );
-}
-
-function readCostBreakdown(value: string) {
-  const parsed = parseJson<unknown>(value, null);
-  if (!parsed || typeof parsed !== "object") {
-    return null;
-  }
-  const candidate = (parsed as { candidate?: unknown }).candidate;
-  const baseline = (parsed as { baseline?: unknown }).baseline;
-  return isCostBreakdown(candidate) && isCostBreakdown(baseline) ? { baseline, candidate } : null;
-}
-
-function isCostBreakdown(value: unknown): value is CostBreakdown {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  return [
-    "benefitValue",
-    "cashPrice",
-    "creditCardValue",
-    "effectiveCost",
-    "eliteProgressValue",
-    "earnedPointsValue",
-    "promotionValue",
-    "redemptionPointsValue"
-  ].every((field) => {
-    const fieldValue = (value as Record<string, unknown>)[field];
-    return typeof fieldValue === "number" && Number.isFinite(fieldValue);
-  });
 }

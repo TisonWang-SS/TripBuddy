@@ -1,9 +1,18 @@
-import { parseJson } from "@/lib/json";
+import type { BrowserTaskKind } from "@prisma/client";
+import { parseJson, toJson } from "@/lib/json";
 import type {
   BookingPriceInput,
+  HotelSearchQuery,
   ParsedObservationDraft,
   SanitizedBrowserSnapshot
 } from "@/lib/providers/types";
+
+export type HotelSearchTaskContext = {
+  hotelName: string | null;
+  mode: "city_results" | "tax_inclusive_total";
+  query: HotelSearchQuery;
+  searchSessionId: string | null;
+};
 
 export function serializeBookingPriceContext(input: BookingPriceInput) {
   return {
@@ -47,6 +56,55 @@ export function parseBookingPriceContext(value: string): BookingPriceInput | nul
       : ["cash", "award"],
     roomType: stringValue(context.roomType)
   };
+}
+
+export function parseHotelSearchTaskContext(value: string): HotelSearchTaskContext | null {
+  const parsed = parseJson<unknown>(value, null);
+  if (isHotelSearchQuery(parsed)) {
+    return { hotelName: null, mode: "city_results", query: parsed, searchSessionId: null };
+  }
+  if (!isRecord(parsed) || !isHotelSearchQuery(parsed.query)) {
+    return null;
+  }
+  return {
+    hotelName: nullableTrimmedString(parsed.hotelName),
+    mode: parsed.mode === "tax_inclusive_total" ? "tax_inclusive_total" : "city_results",
+    query: parsed.query,
+    searchSessionId: nullableTrimmedString(parsed.searchSessionId)
+  };
+}
+
+export function serializeBrowserTaskContext(kind: BrowserTaskKind, value: unknown) {
+  if (kind === "booking_price_check") {
+    const context = parseBookingPriceContext(toJson(value));
+    if (!context) {
+      throw new Error("Booking price task context is invalid.");
+    }
+    return toJson(serializeBookingPriceContext(context));
+  }
+  if (kind === "hotel_search") {
+    const context = parseHotelSearchTaskContext(toJson(value));
+    if (!context) {
+      throw new Error("Hotel search task context is invalid.");
+    }
+    return toJson(context);
+  }
+  if (!isRecord(value) || !stringValue(value.hotelGroup).trim()) {
+    throw new Error("Account import task context is invalid.");
+  }
+  return toJson({ hotelGroup: stringValue(value.hotelGroup).trim() });
+}
+
+export function parseBrowserTaskResult(kind: BrowserTaskKind, value: string | null | undefined) {
+  const parsed = parseJson<unknown>(value, null);
+  return isBrowserTaskResult(kind, parsed) ? parsed : null;
+}
+
+export function serializeBrowserTaskResult(kind: BrowserTaskKind, value: unknown) {
+  if (!isBrowserTaskResult(kind, value)) {
+    throw new Error(`${kind} result JSON is invalid.`);
+  }
+  return toJson(value);
 }
 
 export function parseObservationDrafts(value: string | null | undefined): ParsedObservationDraft[] {
@@ -108,6 +166,75 @@ function parseObservationDraft(value: unknown): ParsedObservationDraft | null {
   };
 }
 
+function isBrowserTaskResult(kind: BrowserTaskKind, value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (kind === "booking_price_check") {
+    return nonNegativeInteger(value.observationsCreated) !== null && Boolean(stringValue(value.runId).trim());
+  }
+  if (kind === "account_booking_import") {
+    return (
+      [value.created, value.imported, value.skipped, value.updated].every(
+        (item) => nonNegativeInteger(item) !== null
+      ) &&
+      [value.loginUrl, value.sourceUrl, value.summary].every((item) => Boolean(stringValue(item).trim())) &&
+      (value.status === "login_required" || value.status === "succeeded")
+    );
+  }
+  return isCitySearchResult(value) || isTaxInclusiveTotalResult(value);
+}
+
+function isCitySearchResult(value: Record<string, unknown>) {
+  return (
+    validDateString(value.capturedAt) &&
+    Array.isArray(value.results) &&
+    value.results.every(isHotelSearchResult) &&
+    Boolean(stringValue(value.searchSessionId).trim()) &&
+    Boolean(stringValue(value.searchUrl).trim()) &&
+    (value.status === "succeeded" || value.status === "partial") &&
+    Boolean(stringValue(value.summary).trim()) &&
+    (value.warning === null || typeof value.warning === "string")
+  );
+}
+
+function isHotelSearchResult(value: unknown) {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    [value.availabilityLabel, value.currency, value.hotelName, value.priceBasis, value.sourceUrl].every(
+      (item) => Boolean(stringValue(item).trim())
+    ) &&
+    finiteNumber(value.avgNightlyRate) !== null &&
+    (value.locationLabel === null || typeof value.locationLabel === "string")
+  );
+}
+
+function isTaxInclusiveTotalResult(value: Record<string, unknown>) {
+  return (
+    validDateString(value.capturedAt) &&
+    [value.currency, value.hotelName, value.priceBasis, value.searchSessionId, value.sourceUrl].every(
+      (item) => Boolean(stringValue(item).trim())
+    ) &&
+    positiveInteger(value.nights) !== null &&
+    finiteNumber(value.total) !== null &&
+    [value.fees, value.subtotal, value.taxes, value.taxesAndFees].every(nullableFiniteNumber)
+  );
+}
+
+function isHotelSearchQuery(value: unknown): value is HotelSearchQuery {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    positiveInteger(value.adults) !== null &&
+    [value.checkIn, value.checkOut, value.city, value.currency, value.hotelGroup].every(
+      (item) => Boolean(stringValue(item).trim())
+    )
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -118,6 +245,26 @@ function stringValue(value: unknown) {
 
 function finiteNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function nonNegativeInteger(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function positiveInteger(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function nullableFiniteNumber(value: unknown) {
+  return value === null || finiteNumber(value) !== null;
+}
+
+function nullableTrimmedString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function validDateString(value: unknown): value is string {
+  return typeof value === "string" && !Number.isNaN(new Date(value).getTime());
 }
 
 function nullableNumber(value: unknown) {

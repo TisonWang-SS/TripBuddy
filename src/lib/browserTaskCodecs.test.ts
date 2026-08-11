@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseBrowserTaskResult,
   parseBookingPriceContext,
+  parseHotelSearchTaskContext,
   parseObservationDrafts,
   parseSanitizedBrowserSnapshots,
-  serializeBookingPriceContext
+  serializeBookingPriceContext,
+  serializeBrowserTaskContext,
+  serializeBrowserTaskResult
 } from "@/lib/browserTaskCodecs";
 import { toJson } from "@/lib/json";
 
@@ -72,5 +76,31 @@ describe("browser task JSON codecs", () => {
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0]).toMatchObject({ phase: "detail", truncated: true });
     expect(snapshots[0].textSample).toHaveLength(12_000);
+  });
+
+  it("validates hotel-search contexts and task-kind-specific results on both boundaries", () => {
+    const context = {
+      hotelName: null,
+      mode: "city_results" as const,
+      query: {
+        adults: 2,
+        checkIn: "2030-09-10",
+        checkOut: "2030-09-13",
+        city: "Tokyo",
+        currency: "USD",
+        hotelGroup: "Hyatt"
+      },
+      searchSessionId: "session-1"
+    };
+    const result = { observationsCreated: 2, runId: "run-1" };
+
+    expect(parseHotelSearchTaskContext(serializeBrowserTaskContext("hotel_search", context))).toEqual(context);
+    expect(parseBrowserTaskResult(
+      "booking_price_check",
+      serializeBrowserTaskResult("booking_price_check", result)
+    )).toEqual(result);
+    expect(parseBrowserTaskResult("booking_price_check", '{"observationsCreated":"2"}')).toBeNull();
+    expect(() => serializeBrowserTaskResult("booking_price_check", { observationsCreated: -1, runId: "" }))
+      .toThrow(/result JSON is invalid/);
   });
 });

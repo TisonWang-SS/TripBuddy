@@ -3,7 +3,9 @@ import type { PriceCheckTrigger } from "@prisma/client";
 import {
   parseBookingPriceContext,
   parseObservationDrafts,
-  serializeBookingPriceContext
+  serializeBookingPriceContext,
+  serializeBrowserTaskContext,
+  serializeBrowserTaskResult
 } from "@/lib/browserTaskCodecs";
 import {
   addBrowserTaskHash,
@@ -102,7 +104,7 @@ export class BrowserCompanionPriceCheckRunner implements PriceCheckRunner {
     await prisma.$transaction([
       prisma.browserTask.create({
         data: {
-          contextJson: toJson(serializeBookingPriceContext(context)),
+          contextJson: serializeBrowserTaskContext("booking_price_check", serializeBookingPriceContext(context)),
           expiresAt,
           hotelGroup: booking.hotelGroup,
           id: taskId,
@@ -343,7 +345,10 @@ async function completePriceCheckTask(input: {
         errorCode: input.parsed.errorCode,
         errorMessage: input.parsed.errorMessage,
         finishedAt,
-        resultJson: toJson({ observationsCreated: observationIds.length, runId: task.priceCheckRun!.id }),
+        resultJson: serializeBrowserTaskResult("booking_price_check", {
+          observationsCreated: observationIds.length,
+          runId: task.priceCheckRun!.id
+        }),
         status
       }
     });

@@ -1,8 +1,14 @@
 import type { BrowserTaskKind, BrowserTaskStatus } from "@prisma/client";
 import taskProtocol from "@extension/taskProtocol.js";
-import { parseSanitizedBrowserSnapshots } from "@/lib/browserTaskCodecs";
+import {
+  parseBrowserTaskResult,
+  parseHotelSearchTaskContext,
+  parseSanitizedBrowserSnapshots,
+  serializeBrowserTaskContext,
+  serializeBrowserTaskResult
+} from "@/lib/browserTaskCodecs";
 import { prisma } from "@/lib/db";
-import { parseJson, sanitizeEvidenceText, selectEvidenceTextSample, toJson } from "@/lib/json";
+import { sanitizeEvidenceText, selectEvidenceTextSample, toJson } from "@/lib/json";
 import type { BrowserPageSnapshot, SanitizedBrowserSnapshot } from "@/lib/providers/types";
 
 export const BROWSER_TASK_TTL_MS = 3 * 60 * 1000;
@@ -30,7 +36,7 @@ export async function createBrowserTask(input: {
 }) {
   return prisma.browserTask.create({
     data: {
-      contextJson: toJson(input.context),
+      contextJson: serializeBrowserTaskContext(input.kind, input.context),
       expiresAt: input.expiresAt ?? new Date(Date.now() + BROWSER_TASK_TTL_MS),
       hotelGroup: input.hotelGroup,
       id: input.id,
@@ -64,7 +70,7 @@ export function serializeTaskState(task: Awaited<ReturnType<typeof getBrowserTas
     hotelSearchMode: task.kind === "hotel_search" ? readHotelSearchMode(task.contextJson) : null,
     kind: task.kind,
     launchUrl: task.launchUrl,
-    result: parseJson<unknown>(task.resultJson, null),
+    result: parseBrowserTaskResult(task.kind, task.resultJson),
     runId: task.priceCheckRun?.id ?? null,
     status: task.status,
     taskId: task.id
@@ -100,13 +106,17 @@ export async function finishBrowserTask(input: {
   status: Exclude<BrowserTaskStatus, "pending" | "running">;
   taskId: string;
 }) {
+  const task = await prisma.browserTask.findUnique({ where: { id: input.taskId }, select: { kind: true } });
+  if (!task) {
+    throw new BrowserTaskError("task_not_found", "Browser task was not found or expired.", 404);
+  }
   return prisma.browserTask.update({
     where: { id: input.taskId },
     data: {
       errorCode: input.errorCode ?? null,
       errorMessage: input.errorMessage ?? null,
       finishedAt: new Date(),
-      resultJson: input.result === undefined ? null : toJson(input.result),
+      resultJson: input.result === undefined ? null : serializeBrowserTaskResult(task.kind, input.result),
       status: input.status
     },
     include: { priceCheckRun: true }
@@ -211,8 +221,7 @@ export class BrowserTaskError extends Error {
 }
 
 function readHotelSearchMode(contextJson: string) {
-  const context = parseJson<{ mode?: unknown }>(contextJson, {});
-  return context.mode === "tax_inclusive_total" ? "tax_inclusive_total" : "city_results";
+  return parseHotelSearchTaskContext(contextJson)?.mode ?? "city_results";
 }
 
 function validCapturedAt(value: string | undefined) {
