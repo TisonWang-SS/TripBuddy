@@ -280,25 +280,29 @@ function taskHashFromLocation() {
 }
 
 async function readTask(endpoint, taskId) {
-  const response = await fetch(`${endpoint}/api/browser-tasks/${encodeURIComponent(taskId)}`, { cache: "no-store" });
-  const result = await response.json();
+  const response = await browserRequest(endpoint, taskId, "GET");
   if (!response.ok) {
-    throw new Error(result.error || `TripBuddy task lookup failed with ${response.status}.`);
+    throw new Error(response.body?.error || `TripBuddy task lookup failed with ${response.status}.`);
   }
-  return result;
+  return response.body;
 }
 
 async function postCapture(endpoint, taskId, payload) {
-  const response = await fetch(`${endpoint}/api/browser-tasks/${encodeURIComponent(taskId)}`, {
-    body: JSON.stringify(payload),
-    headers: { "Content-Type": "application/json" },
-    method: "POST"
-  });
-  const result = await response.json();
+  const response = await browserRequest(endpoint, taskId, "POST", payload);
   if (!response.ok) {
-    throw new Error(result.error || `TripBuddy capture failed with ${response.status}.`);
+    throw new Error(response.body?.error || `TripBuddy capture failed with ${response.status}.`);
   }
-  return result;
+  return response.body;
+}
+
+function browserRequest(endpoint, taskId, method, payload) {
+  return chrome.runtime.sendMessage({
+    endpoint,
+    method,
+    payload,
+    taskId,
+    type: "tripbuddy:browser-request"
+  });
 }
 
 async function reportFailure(endpoint, taskId, errorCode, errorMessage) {

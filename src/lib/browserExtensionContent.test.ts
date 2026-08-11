@@ -5,18 +5,24 @@ import { describe, expect, it, vi } from "vitest";
 import taskProtocol from "@extension/taskProtocol.js";
 
 const content = readFileSync(resolve("browser-extension/content.js"), "utf8");
+const background = readFileSync(resolve("browser-extension/background.js"), "utf8");
 const taskProtocolSource = readFileSync(resolve("browser-extension/taskProtocol.js"), "utf8");
 const safetyRules = readFileSync(resolve("browser-extension/safetyRules.js"), "utf8");
 const extensionSource = `${taskProtocolSource}\n${safetyRules}\n${content}`;
 const popup = readFileSync(resolve("browser-extension/popup.js"), "utf8");
 const manifest = JSON.parse(readFileSync(resolve("browser-extension/manifest.json"), "utf8")) as {
+  background: { service_worker: string };
   content_scripts: Array<{ js: string[] }>;
 };
 
 describe("Browser Companion source", () => {
   it("is valid JavaScript and uses one browser-task API", () => {
     expect(() => new vm.Script(extensionSource)).not.toThrow();
-    expect(content).toContain("/api/browser-tasks/");
+    expect(() => new vm.Script(background)).not.toThrow();
+    expect(manifest.background.service_worker).toBe("background.js");
+    expect(background).toContain("/api/browser-tasks/");
+    expect(content).toContain('type: "tripbuddy:browser-request"');
+    expect(content).not.toContain("fetch(");
     expect(content).not.toContain("/api/browser-evidence");
     expect(content).not.toContain("/api/browser-agent/snapshot");
   });
