@@ -59,7 +59,16 @@ The application is divided into four boundaries:
 - Preserve Hyatt account import behavior, including direct reservation-detail navigation and active-date filtering.
 - Prepare account-import conversions before entering one transaction that atomically resolves and writes every active booking.
 
-### 5. Verification
+### 5. Capability Layer
+
+- Describe each product action once in `src/lib/agent/capabilities/*` as a capability: name, one-line summary, parameter shapes, effect, and a handler that reuses the existing domain modules rather than reimplementing them.
+- Keep capabilities server-side functions invoked through `src/lib/agent/registry.ts`, not new REST routes. The app is a same-origin Next monolith; the only new HTTP surface is the event stream.
+- Classify effect as `read` or `browser_task`. A `browser_task` must declare `resultRoute`, the route that owns its progress and error notices — the command bar closes when it runs, so a task fired from there would leave its result nowhere to render.
+- Enforce confirmation in `invokeCapability`, not in handlers, so a new capability cannot forget it. Recognising an intent never authorises acting on it.
+- Parse arguments strictly in `src/lib/agent/args.ts`: reject undeclared keys, refuse natural-language dates, and require calendar dates as `YYYY-MM-DD`. These arguments arrive from a model, and a silent coercion becomes a wrong answer that looks right.
+- Return domain values, not copy: capability results carry stored enum values and ISO strings, and stay JSON-serializable because they cross the event stream.
+
+### 6. Verification
 
 - Unit-test providers, parsers, evidence, pricing, decider validation, expiry, and click guardrails.
 - Score every hotel evidence extractor against the same provider fixture set before it can replace or supplement a deterministic parser.

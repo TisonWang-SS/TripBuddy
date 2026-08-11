@@ -119,6 +119,14 @@ Shared interface primitives live in `src/ui` and carry the states the product ac
 
 Evidence ordering is a contract, not a layout preference: blockers and warnings render before any control that changes a baseline. Composition stays deterministic and server-owned so this ordering cannot be renegotiated per render.
 
+## Capability Boundary
+
+What TripBuddy can do is described once, as a set of named capabilities with typed arguments. Every caller — a page, the command bar, and later an intent router — goes through the same registry, so there is one list of product actions rather than one per surface.
+
+Capabilities are either reads or browser tasks. A read is safe to run as soon as an intent is recognised. A browser task opens a Hyatt tab through the Browser Companion, so it requires explicit confirmation and names the route that owns its progress and error notices; recognising an intent is never authority to act on it, and a result that has nowhere to render is not an acceptable outcome.
+
+Capability arguments are validated strictly and rejected rather than coerced. Dates must be calendar dates; an undeclared argument is an error, not something to ignore. Capability results carry stored enum values and explicit date strings, leaving copy to the presentation layer.
+
 ## Documentation and Validation Rule
 
 Every behavior, data-model, architecture, or assumption change updates this PRD and `docs/IMPLEMENTATION_PLAN.md` in the same change.
