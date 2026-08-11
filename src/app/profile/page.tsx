@@ -117,17 +117,6 @@ export default async function ProfilePage() {
                       </select>
                     </div>
                     <div className="field">
-                      <label htmlFor={`${group}_targetTier`}>Target tier</label>
-                      <select id={`${group}_targetTier`} name={`${group}_targetTier`} defaultValue={account?.targetTier ?? ""}>
-                        <option value="">No target</option>
-                        {HOTEL_GROUP_TIERS[group].map((tier) => (
-                          <option key={tier} value={tier}>
-                            {tier}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="field">
                       <label htmlFor={`${group}_pointValue`}>Point value</label>
                       <input
                         id={`${group}_pointValue`}
@@ -135,34 +124,6 @@ export default async function ProfilePage() {
                         type="number"
                         step="0.0001"
                         defaultValue={account?.pointValue ?? 0.005}
-                      />
-                    </div>
-                    <div className="field">
-                      <label htmlFor={`${group}_currentNights`}>Current nights</label>
-                      <input
-                        id={`${group}_currentNights`}
-                        name={`${group}_currentNights`}
-                        type="number"
-                        defaultValue={account?.currentNights ?? 0}
-                      />
-                    </div>
-                    <div className="field">
-                      <label htmlFor={`${group}_currentPoints`}>Current points</label>
-                      <input
-                        id={`${group}_currentPoints`}
-                        name={`${group}_currentPoints`}
-                        type="number"
-                        defaultValue={account?.currentPoints ?? 0}
-                      />
-                    </div>
-                    <div className="field">
-                      <label htmlFor={`${group}_currentSpend`}>Current spend</label>
-                      <input
-                        id={`${group}_currentSpend`}
-                        name={`${group}_currentSpend`}
-                        type="number"
-                        step="0.01"
-                        defaultValue={account?.currentSpend ?? 0}
                       />
                     </div>
                   </div>
@@ -181,7 +142,7 @@ export default async function ProfilePage() {
         {profile.creditCardBenefits.length === 0 ? (
           <div className="empty">
             <h3>No credit card benefits</h3>
-            <p>Add cards that provide hotel cash back, extra points, or elite night credits.</p>
+            <p>Add cards that provide hotel cash back or extra points.</p>
           </div>
         ) : (
           <table className="table">
@@ -191,7 +152,6 @@ export default async function ProfilePage() {
                 <th>Group</th>
                 <th>Cash back</th>
                 <th>Point multiplier</th>
-                <th>Elite nights</th>
               </tr>
             </thead>
             <tbody>
@@ -201,7 +161,6 @@ export default async function ProfilePage() {
                   <td>{card.hotelGroup ?? "Any"}</td>
                   <td>{card.cashBackRate}</td>
                   <td>{card.pointMultiplier}</td>
-                  <td>{card.eliteNightCredits}</td>
                 </tr>
               ))}
             </tbody>
@@ -234,10 +193,6 @@ export default async function ProfilePage() {
           <div className="field">
             <label htmlFor="pointMultiplier">Point multiplier</label>
             <input id="pointMultiplier" name="pointMultiplier" type="number" step="0.1" defaultValue="0" />
-          </div>
-          <div className="field">
-            <label htmlFor="eliteNightCredits">Elite night credits</label>
-            <input id="eliteNightCredits" name="eliteNightCredits" type="number" defaultValue="0" />
           </div>
         </div>
         <div className="field">

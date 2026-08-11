@@ -423,11 +423,7 @@ export async function updateProfile(formData: FormData) {
   });
   for (const group of HOTEL_GROUPS) {
     const data = {
-      currentNights: numberValue(formData, `${group}_currentNights`),
-      currentPoints: numberValue(formData, `${group}_currentPoints`),
-      currentSpend: numberValue(formData, `${group}_currentSpend`),
       pointValue: numberValue(formData, `${group}_pointValue`),
-      targetTier: optionalValue(formData, `${group}_targetTier`),
       tier: value(formData, `${group}_tier`)
     };
     await prisma.loyaltyAccount.upsert({
@@ -444,7 +440,6 @@ export async function createCreditCardBenefit(formData: FormData) {
   await prisma.creditCardBenefit.create({
     data: {
       cashBackRate: numberValue(formData, "cashBackRate"),
-      eliteNightCredits: numberValue(formData, "eliteNightCredits"),
       hotelGroup: optionalValue(formData, "hotelGroup"),
       name: value(formData, "name"),
       notes: optionalValue(formData, "notes"),
@@ -502,7 +497,6 @@ async function buildFormEvidence(
     feesIncluded: evidence.feesIncluded,
     loginState: evidence.loginState,
     loyaltyEligibility: evidence.loyaltyEligibility,
-    promotionApplicability: evidence.promotionApplicability,
     qualityLevel: evidence.qualityLevel,
     roomAssessmentSource: evidence.roomAssessmentSource,
     roomMatch: evidence.roomMatch,

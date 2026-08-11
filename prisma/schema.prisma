@@ -91,12 +91,6 @@ enum EligibilityStatus {
   unknown
 }
 
-enum PromotionApplicability {
-  applies
-  does_not_apply
-  unknown
-}
-
 enum EvidenceQuality {
   high
   medium
@@ -178,34 +172,29 @@ model UserProfile {
 }
 
 model LoyaltyAccount {
-  id            String      @id @default(cuid())
-  profileId     String
-  hotelGroup    String
-  tier          String
-  currentNights Int         @default(0)
-  currentPoints Int         @default(0)
-  currentSpend  Float       @default(0)
-  targetTier    String?
-  pointValue    Float       @default(0.005)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  profile       UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  id         String      @id @default(cuid())
+  profileId  String
+  hotelGroup String
+  tier       String
+  pointValue Float       @default(0.005)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  profile    UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
   @@unique([profileId, hotelGroup])
 }
 
 model CreditCardBenefit {
-  id                String      @id @default(cuid())
-  profileId         String
-  name              String
-  hotelGroup        String?
-  cashBackRate      Float       @default(0)
-  pointMultiplier   Float       @default(0)
-  eliteNightCredits Int         @default(0)
-  notes             String?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
-  profile           UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  id              String      @id @default(cuid())
+  profileId       String
+  name            String
+  hotelGroup      String?
+  cashBackRate    Float       @default(0)
+  pointMultiplier Float       @default(0)
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  profile         UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 }
 
 model HotelBooking {
@@ -381,29 +370,28 @@ model EvidenceExtractionRun {
 }
 
 model ObservationEvidence {
-  id                           String                 @id @default(cuid())
-  observationId                String                 @unique
-  sourceVerified               Boolean                @default(false)
-  loginState                   LoginState             @default(unknown)
-  roomMatch                    RoomMatch              @default(unknown)
+  id                           String            @id @default(cuid())
+  observationId                String            @unique
+  sourceVerified               Boolean           @default(false)
+  loginState                   LoginState        @default(unknown)
+  roomMatch                    RoomMatch         @default(unknown)
   roomMatchReason              String
-  roomAssessmentSource         AssessmentSource       @default(automated)
-  cancellationMatch            CancellationMatch      @default(unknown)
+  roomAssessmentSource         AssessmentSource  @default(automated)
+  cancellationMatch            CancellationMatch @default(unknown)
   cancellationMatchReason      String
-  cancellationAssessmentSource AssessmentSource       @default(automated)
-  taxesIncluded                InclusionStatus        @default(unknown)
-  feesIncluded                 InclusionStatus        @default(unknown)
-  loyaltyEligibility           EligibilityStatus      @default(unknown)
-  promotionApplicability       PromotionApplicability @default(unknown)
-  currencyComparable           Boolean                @default(false)
+  cancellationAssessmentSource AssessmentSource  @default(automated)
+  taxesIncluded                InclusionStatus   @default(unknown)
+  feesIncluded                 InclusionStatus   @default(unknown)
+  loyaltyEligibility           EligibilityStatus @default(unknown)
+  currencyComparable           Boolean           @default(false)
   qualityLevel                 EvidenceQuality
-  blockersJson                 String                 @default("[]")
-  warningsJson                 String                 @default("[]")
-  snapshotJson                 String                 @default("{}")
+  blockersJson                 String            @default("[]")
+  warningsJson                 String            @default("[]")
+  snapshotJson                 String            @default("{}")
   reviewedAt                   DateTime?
-  createdAt                    DateTime               @default(now())
-  updatedAt                    DateTime               @updatedAt
-  observation                  PriceObservation       @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  createdAt                    DateTime          @default(now())
+  updatedAt                    DateTime          @updatedAt
+  observation                  PriceObservation  @relation(fields: [observationId], references: [id], onDelete: Cascade)
 }
 
 model Promotion {
@@ -456,9 +444,6 @@ model LoyaltyRule {
   id                  String   @id @default(cuid())
   hotelGroup          String
   tier                String
-  nightsRequired      Int?
-  pointsRequired      Int?
-  spendRequired       Float?
   basePointsPerUsd    Float
   bonusRate           Float
   breakfastBenefit    Boolean  @default(false)

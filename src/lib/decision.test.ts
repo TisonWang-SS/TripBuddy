@@ -81,8 +81,8 @@ describe("decision boundary", () => {
       breakfastIncluded: false,
       cashPrice: 1000,
       creditCards: [
-        { cashBackRate: 0.02, eliteNightCredits: 0, hotelGroup: null, pointMultiplier: 0 },
-        { cashBackRate: 0, eliteNightCredits: 0, hotelGroup: "Hyatt", pointMultiplier: 4 }
+        { cashBackRate: 0.02, hotelGroup: null, pointMultiplier: 0 },
+        { cashBackRate: 0, hotelGroup: "Hyatt", pointMultiplier: 4 }
       ],
       loyaltyAccount: { hotelGroup: "Hyatt", pointValue: 0.01, tier: "Member" },
       loyaltyEligible: true,

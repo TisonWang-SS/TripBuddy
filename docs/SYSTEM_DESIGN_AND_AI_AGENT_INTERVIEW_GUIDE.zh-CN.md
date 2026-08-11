@@ -415,8 +415,8 @@ Agent 不等于“必须调用 LLM”。当前系统已经有：
 
 | 问题 | 当前表现 | 建议 |
 |---|---|---|
-| 促销资格建模不完整 | `requiresRegistration` 被保存，但成本引擎没有确认注册状态；`promotionApplicability` 仍是 unknown | 增加用户注册状态、适用 rate/channel/stay rules；未确认促销不能自动计入 savings |
-| 会籍进度模型较粗 | `currentNights/currentSpend/targetTier` 基本未进入边际价值计算；信用卡 `eliteNightCredits` 也未使用 | 计算“这次 stay 是否跨过 tier/milestone”的 marginal value，而不是固定每晚估值 |
+| 促销资格建模不完整 | `requiresRegistration` 被保存，但成本引擎没有确认注册状态 | 增加用户注册状态、适用 rate/channel/stay rules；未确认促销不能自动计入 savings |
+| 会籍进度模型较粗 | 当前只按用户配置的每晚 elite-night value 估值，不声称计算 tier/milestone | 若未来重新引入账户进度，必须计算“这次 stay 是否跨过 tier/milestone”的 marginal value |
 | 免房券机会成本未建模 | certificate baseline 的稀缺性、类别和到期日没有进入成本 | 建模 certificate category、expiry、替代使用价值，避免把“现金为 0”当成完整经济成本 |
 | FX 数据有模型但缺少完整管理闭环 | parser 能识别多币种，但 profile 只支持 USD/CNY，转换率无明显 UI/自动更新入口 | 增加汇率管理页、source/asOf、过期策略；继续保留原始 observed currency |
 | 自动取消政策判断始终保守为 unknown | 安全，但浏览器 observation 很容易落到 needs_review | 用规则 + 可引用文本的 LLM classifier 给出 tentative assessment；高风险结论仍要求用户确认 |

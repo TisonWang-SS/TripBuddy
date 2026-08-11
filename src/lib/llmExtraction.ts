@@ -180,7 +180,6 @@ export async function runLlmExtractionForPriceCheck(
               feesIncluded: evidence.feesIncluded,
               loginState: evidence.loginState,
               loyaltyEligibility: evidence.loyaltyEligibility,
-              promotionApplicability: evidence.promotionApplicability,
               qualityLevel: evidence.qualityLevel,
               roomAssessmentSource: evidence.roomAssessmentSource,
               roomMatch: evidence.roomMatch,

@@ -48,7 +48,6 @@ export type DecisionLoyaltyRule = {
 
 export type DecisionCreditCardBenefit = {
   cashBackRate: number;
-  eliteNightCredits: number;
   hotelGroup: string | null;
   pointMultiplier: number;
 };

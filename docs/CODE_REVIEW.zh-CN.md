@@ -29,10 +29,7 @@
 
 - **LLM 抽取器落地,且是以「提议者」而非「权威」的方式接入的。** 每个模型输出的字符串和数字都必须在存档页面文本里逐字出现,四个安全相关布尔值再从可见 token 与已校验价格分量推导,算术交叉校验,provenance 落库,replay 针对存档快照而非重新爬取,评测门槛为「不劣于确定性基线」(`b1e7be3` 及本次修复)。
 
-当前剩余问题分两类:
-
-1. **Schema 中未进入产品计算的字段**——§1.6。
-2. **尚未动工的加固项**——§2.4、§3.2、§3.5、§3.7–§3.9。
+当前剩余问题均为尚未动工的加固项:§2.4、§3.2、§3.5、§3.7–§3.9。
 
 **已无已知的用户可见缺陷。** §3.10–§3.18 全部关闭,关键安全修复均有负向复现或端到端用例守卫,不是只靠读 diff 判断。
 
@@ -84,18 +81,20 @@
 
 ✅ **三个写入路径均已有真实消费方。** `HotelSearchClient` 在 city search 和 final-total capture 完成后都通过 session API 重新读取 `HotelSearchSession.results`,页面展示的 evidence level、税费口径与最终总价不再来自临时 task result。`snapshotsJson` 已同时被 Logs 页的 phase/evidence 展示和 LLM replay 消费。booking 推荐卡新增可展开的成本构成表,逐项展示 baseline/candidate 的现金、积分、促销、信用卡、会籍进度、权益与 effective cost,`costBreakdownJson` 不再是 write-only。
 
-### 1.6 Schema 里没有被任何计算使用的字段 — ⬜ 部分待办
+### 1.6 Schema 里没有被任何计算使用的字段 — ✅ 已完成(本次提交)
 
 | 字段 | 状态 |
 |---|---|
 | `WatchPlan.normalCadenceHours` / `urgentCadenceHours` / `urgentWindowHours` | ✅ 已接入(`e658fd5`,驱动 Dashboard 到期队列) |
-| `LoyaltyRule.nightsRequired` / `pointsRequired` / `spendRequired` | ⬜ seed 写入,代码零引用 |
-| `LoyaltyAccount.currentNights` / `currentPoints` / `currentSpend` / `targetTier` | ⬜ profile 表单写入,成本模型不读。会籍进度只用 `profile.eliteNightValue × nights` 估算 |
-| `CreditCardBenefit.eliteNightCredits` | ⬜ 表单写入、`DecisionCreditCardBenefit` 里声明,但 `calculateStayCost` 的 `creditCardValue` 只用 `cashBackRate` 和 `pointMultiplier` |
-| `LoginState.member` / `.anonymous` | ⬜ 永不产生(见 §3.5) |
-| `ObservationEvidence.promotionApplicability` | ⬜ 恒为 `"unknown"`(`evidence.ts:126` 硬编码) |
+| `LoyaltyRule.nightsRequired` / `pointsRequired` / `spendRequired` | ✅ 从 seed、schema 与数据库移除;当前不伪装成 tier/milestone 边际价值模型 |
+| `LoyaltyAccount.currentNights` / `currentPoints` / `currentSpend` / `targetTier` | ✅ 从 profile 表单、schema 与数据库移除;保留真正进入计算的 tier / point value |
+| `CreditCardBenefit.eliteNightCredits` | ✅ 从表单、决策类型、schema 与数据库移除;保留 cash back / point multiplier |
+| `LoginState.member` / `.anonymous` | ↪ 独立安全语义,在 §3.5 处理,不在本节重复计数 |
+| `ObservationEvidence.promotionApplicability` | ✅ 恒为 unknown 的列与 enum 已移除;促销是否计值仍由现有确定性 promotion 过滤决定 |
 
 问题不是"占了几个字节",而是**用户在 profile 页面认真填了会籍夜数和信用卡会籍夜,系统完全没用**。这是产品层面的失真,比死代码严重。二选一:接进成本模型,或者从表单里拿掉。
+
+✅ **选择收缩产品声明。** 在没有“本次 stay 是否跨过 tier/milestone、跨级价值是多少”的明确模型前,这些字段不能诚实地进入单次住宿成本。migration 删除旧列,UI 不再向用户收集不会影响推荐的数据;现有每晚 elite-night value 明确保持为用户主观估值,不冒充会籍门槛计算。
 
 ### 1.7 重复实现 — ✅ 已完成(`d41dee6`)
 
@@ -548,21 +547,21 @@ review 中的原始攻击样例已变成负向回归:候选仍可作为价格事
 | 21 | 取消政策降级警告升级为 `caution` 层级 + 端到端用例(§3.17) | `d3ab9c4`、`2890fe1` |
 | 22 | 接 LLM 抽取器:DeepSeek replay + grounding + provenance + 评测门槛(§4.2、§4.8);顺带关闭 §3.6 | `b1e7be3` |
 | 23 | 四个 LLM 布尔字段改为可见证据推导,保留 raw/grounded 双份审计(§3.18) | `30a75ec` |
-| 24 | 让搜索 session、浏览器 snapshots 与 recommendation cost breakdown 都有产品读取方(§1.5) | 本次提交 |
+| 24 | 让搜索 session、浏览器 snapshots 与 recommendation cost breakdown 都有产品读取方(§1.5) | `d715bda` |
+| 25 | 删除不会影响计算的会籍进度、信用卡 elite nights 与 promotion applicability 字段(§1.6) | 本次提交 |
 
 ### 后续建议顺序
 
 | 顺序 | 事项 | 理由 |
 |---|---|---|
-| 25 | 币种录入入口或收缩多币种声明(§3.2) | 当前是用户无法解除的死 blocker |
-| 26 | 补完剩余 JSON codec(§2.4) | `browserTaskCodecs.ts` 已覆盖 3 列;`queryJson` / `resultsJson` / `resultJson` 仍是裸 `parseJson` |
-| 27 | 处理未使用字段(§1.6) | 移除误导性输入,或让数据真正进入成本模型 |
+| 26 | 币种录入入口或收缩多币种声明(§3.2) | 当前是用户无法解除的死 blocker |
+| 27 | 补完剩余 JSON codec(§2.4) | `browserTaskCodecs.ts` 已覆盖 3 列;`queryJson` / `resultsJson` / `resultJson` 仍是裸 `parseJson` |
 | 28 | CORS 收紧(§3.7) | 加固项。新 LLM 路由已刻意不继承开放姿态,可作为收紧时的参照 |
 | 29 | 房型等价性判定交给模型(§4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker——这是剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
 
 第 13–15 项作为一组一起做是对的:它们是同一条日期约定接缝的三个面,第 9 项(`a5af2de`)就是分开修、只修了一半的例子。
 
-**当前状态**:无已知的功能性缺陷;其余(§1.6、§2.4、§3.2、§3.5、§3.7–§3.9)都是数据卫生与加固,没有用户可见症状。
+**当前状态**:无已知的功能性缺陷;其余(§2.4、§3.2、§3.5、§3.7–§3.9)都是数据卫生与加固,没有用户可见症状。
 
 `b1e7be3` 顺带推进了两条既有条目:§3.6 的前端轮询已从硬编码 190s 改为消费服务端 `expiresAt`(**可标记完成**);§2.4 的 codec 覆盖了 3 列,尚余 3 列。
 

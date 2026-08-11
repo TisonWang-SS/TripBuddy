@@ -5,7 +5,6 @@ import type {
   EvidenceQuality,
   InclusionStatus,
   LoginState,
-  PromotionApplicability,
   RoomMatch
 } from "@prisma/client";
 import { calendarDayOf, localInstantDayOf } from "@/lib/dateSemantics";
@@ -48,7 +47,6 @@ export type BuiltEvidence = {
   feesIncluded: InclusionStatus;
   loginState: LoginState;
   loyaltyEligibility: EligibilityStatus;
-  promotionApplicability: PromotionApplicability;
   qualityLevel: EvidenceQuality;
   roomAssessmentSource: AssessmentSource;
   roomMatch: RoomMatch;
@@ -125,7 +123,6 @@ export function buildObservationEvidence(input: EvidenceInput): BuiltEvidence {
     feesIncluded,
     loginState: sourceVerified ? "unknown" : "not_required",
     loyaltyEligibility,
-    promotionApplicability: "unknown",
     qualityLevel: classifyQuality({ blockers, roomMatch, sourceVerified, warnings }),
     roomAssessmentSource,
     roomMatch,
