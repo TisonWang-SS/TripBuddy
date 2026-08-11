@@ -1,7 +1,7 @@
 # TripBuddy 代码审查报告
 
 > 首次审查基线:`b7a55ec`(2026-08-08)
-> 最新复查基线:`b1e7be3`(2026-08-11)
+> 最新复查基线:`30a75ec`(2026-08-11)
 > 门禁状态:`npm test` 29 文件 141 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / DeepSeek V4 Flash 实测 13 fixtures、63/63 断言通过 / TripBuddy Chrome profile + Logs 页真实 replay 成功 / migration 与 Prisma schema 零差异且在全新库干净应用
 > ✅ 套件已时区稳定:外部 `TZ` 设为 -7 / 0 / +14 分别运行全过(`vitest.config.ts` 固定 `TZ: "UTC"`,跨时区用例在测试内显式切换)
 > ✅ PRD、实施计划与代码行为一致
@@ -396,6 +396,24 @@ feesIncluded: finalTaxes && finalTaxes.currency === finalTotal.currency ? true :
 
 review 中的原始攻击样例已变成负向回归:候选仍可作为价格事实入库,但 `taxesIncluded` / `feesIncluded` 均为 `false`,两个 blocker 保留,quality 为 `needs_review`;伪造的 breakfast / loyalty 权益也分别降为 `false` / `null`。另有跨 rate-plan 回归用例确保页面其他位置的税费、早餐或会员 token 不能借给当前候选。数据库集成用例同时确认 raw proposal 与 grounded accepted proposal 分开留档。共享评测允许列表价的安全等价状态 `false | null`,但仍拒绝 `true`;DeepSeek 与确定性抽取器继续保持 13/13 fixtures、63/63 断言。
 
+**复查侧独立验证。** 用仓库内真实函数(`validateLlmEvidenceCandidates` → `buildObservationEvidence`)重跑原攻击样例及四个变体:
+
+| 场景 | tax / fee | blockers | quality |
+|---|---|---|---|
+| 原攻击(页面明写 NOT included) | `false` / `false` | 2 | `needs_review` |
+| 无任何税费证据,仅声明 `true` | `null` / `null` | 2 | `needs_review` |
+| **包含措辞只在页面别处、不在候选引文** | `null` / `null` | 2 | `needs_review` |
+| 早餐 token 属于别的 rate plan | — | 2 | `needs_review`(`breakfastIncluded: null`) |
+| 会员 token 属于别的 rate plan | — | 2 | `needs_review`(`loyaltyEligible: null`) |
+| 合法:引文含 `Taxes & Fees` 分量 | `true` / `true` | 0 | `medium` |
+
+第三行是关键:正向证据被限定在**候选自身的 `evidenceText`** 内,所以在页面其他位置种一句包含性措辞无法生效。反证也确认:把 `groundBooleanClaims` 短路成透传后,4 条用例立刻变红(2 条单元 + 1 条跨 rate-plan + 1 条数据库集成)。
+
+⬜ **两点值得记下,都不是缺陷:**
+
+1. **grounding 的不可约边界。** 若攻击者能让「including all taxes and fees」出现在**总价紧邻处**、进而被模型作为引文摘出,grounding 会接受。此时可见页面本身在说谎,确定性抽取器面对同一页面也会得出同样结论——这是任何抽取器都无法跨越的边界。记录在此,以免日后把 grounding 误当成完整的注入防御。
+2. **`high` 质量会变罕见。** `loyaltyEligible` 现在缺省为 `null` → 触发「Loyalty eligibility is unknown.」warning → 质量封顶 `medium`。上表最后一行的完全合法样例即为 `medium`。这是诚实的结果(页面确实没写),但意味着 LLM replay 产出的观察将比修复前更多地停留在 `medium`,属于预期变化而非回归。
+
 ---
 
 ## 4. 接入 LLM 的设计建议
@@ -483,6 +501,9 @@ review 中的原始攻击样例已变成负向回归:候选仍可作为价格事
 | §4.5 抽取与采集分离 | ✅ replay 针对 `snapshotsJson` 存档快照,不重新爬取;capture 未完成时拒绝执行 |
 | §4.5 保留更多原文 | ✅ 先无长度上限脱敏、再头尾各半采样到 12k,并记 `truncated` 标志;校验用的是模型实际看到的同一份文本 |
 | §4.6 同一套评测、不劣于基线 | ✅ `eval:llm-extractor` 跑同一批 fixtures,门槛 `model.score >= baseline.score`,并在确定性基线或 fixture 集漂移时**主动报错**要求先复核基线——防止悄悄降低门槛 |
+| §4.4 布尔字段 grounding | ✅ 由 `30a75ec` 补齐,见 §3.18 |
+
+⬜ **评测门槛的一个盲区**:baseline 守卫比较的是 `score`、`assertions.total`、`fixtures.total`,不比较断言的**严格程度**。`30a75ec` 把一条 `taxesIncluded: false` 放宽为 `oneOfFields: { taxesIncluded: [false, null] }`——这次放宽是正当的(两个抽取器对「未确立」的表达方式本就不同),且断言总数保持 63 所以守卫未触发。但同样的手法可以在总数不变的前提下悄悄放松断言。若将来评测集继续增长,值得给 `oneOfFields` 之类的宽松断言单独计数或标注。
 | §4.7 不做多智能体 | ✅ 单抽取器 + 确定性算术 |
 
 另外两个值得记的判断:
