@@ -40,4 +40,17 @@ describe("text evidence extractor evaluation", () => {
     expect(report.score).toBe(1);
     expect(report.failures).toEqual([]);
   });
+
+  it("accepts semantically equivalent safe alternatives in shared fixtures", () => {
+    const fixtures = [{
+      expectedCandidates: [{ fields: {}, oneOfFields: { taxesIncluded: [false, null] } }],
+      id: "safe-alternatives",
+      pageText: "Average nightly rate without a final total",
+      sourceUrl: "https://example.com"
+    }] satisfies readonly ExtractionFixture<{ taxesIncluded: boolean | null }>[];
+
+    expect(evaluateTextEvidenceExtractor(fixtures, () => [{ taxesIncluded: false }]).score).toBe(1);
+    expect(evaluateTextEvidenceExtractor(fixtures, () => [{ taxesIncluded: null }]).score).toBe(1);
+    expect(evaluateTextEvidenceExtractor(fixtures, () => [{ taxesIncluded: true }]).score).toBe(0);
+  });
 });

@@ -147,7 +147,10 @@ export const hyattEvidenceFixtures = [
       "SELECT & BOOK 1 King Bed Hyatt Place Kuala Lumpur Bukit Jalil Award Category 1 Choose Your Rate Showing rates for Mon, Jul 27, 2026 - Mon, Aug 3, 2026 Member Rate MYR 401 Standard Rate MYR 438 Member Bed and Breakfast MYR 431 Bed and Breakfast MYR 453 See more MYR 401 Avg/Night 7 Night Stay Cancellation Policy Free cancellation before arrival JOIN WHILE YOU BOOK SIGN IN & BOOK",
     sourceUrl: "https://www.hyatt.com/booking",
     expectedCandidates: [
-      { fields: { basePrice: 401, ratePlanName: "Member Rate", taxesIncluded: false, totalPrice: 2807 } },
+      {
+        fields: { basePrice: 401, ratePlanName: "Member Rate", totalPrice: 2807 },
+        oneOfFields: { taxesIncluded: [false, null] }
+      },
       {
         fields: {
           basePrice: 431,

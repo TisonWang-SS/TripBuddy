@@ -281,7 +281,7 @@ describe("persistent browser price-check flow", () => {
     ]);
     const candidate = {
       averageNightlyRate: null,
-      breakfastIncluded: false,
+      breakfastIncluded: null,
       cancellationPolicyRaw: "2 DAYS BFR ARRV OR PAY 1 NIGHT FEE",
       cashCopay: null,
       cashFees: { amount: 100, currency: "USD" },
@@ -329,6 +329,107 @@ describe("persistent browser price-check flow", () => {
     expect(replay).toMatchObject({ corroboratedCandidates: 1, observationsCreated: 0 });
     expect(await prisma.priceObservation.count({ where: { bookingId: booking.id } })).toBe(1);
     expect(await prisma.evidenceExtractionRun.count({ where: { priceCheckRunId: task.runId } })).toBe(2);
+  });
+
+  it("persists grounded booleans instead of model assertions during LLM replay", async () => {
+    const booking = await prisma.hotelBooking.create({
+      data: {
+        baselineCashTotal: 1200,
+        baselineType: "cash",
+        bookingChannel: "direct",
+        cancellationDeadline: new Date("2032-09-08T00:00:00.000Z"),
+        checkIn: new Date("2032-09-10T00:00:00.000Z"),
+        checkOut: new Date("2032-09-13T00:00:00.000Z"),
+        city: "Tokyo",
+        currency: "USD",
+        guests: 2,
+        hotelGroup: "Hyatt",
+        hotelName: "Grand Hyatt Tokyo",
+        loyaltyEligible: true,
+        roomType: "1 King Bed",
+        watchPlan: { create: { awardEnabled: false, cashEnabled: true, enabled: true } }
+      }
+    });
+    const task = await new BrowserCompanionPriceCheckRunner().run({ bookingId: booking.id, trigger: "manual" });
+    const pageText =
+      "Price Summary Total Cash USD 900.00 1 King Bed Cancellation Policy 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE. Taxes and fees are NOT included and will be collected at the hotel. Room only.";
+    await appendBrowserSnapshot(task.taskId, {
+      capturedAt: "2032-08-11T10:00:00.000Z",
+      controls: [],
+      pageText,
+      pageTitle: "Hyatt payment summary with excluded taxes",
+      sourceUrl: "https://www.hyatt.com/booking/review?checkinDate=2032-09-10&checkoutDate=2032-09-13"
+    });
+    await prisma.$transaction([
+      prisma.browserTask.update({
+        where: { id: task.taskId },
+        data: { errorCode: "deterministic_parse_failed", finishedAt: new Date(), status: "failed" }
+      }),
+      prisma.priceCheckRun.update({
+        where: { id: task.runId },
+        data: { errorCode: "deterministic_parse_failed", finishedAt: new Date(), status: "failed" }
+      })
+    ]);
+    const candidate = {
+      averageNightlyRate: null,
+      breakfastIncluded: true,
+      cancellationPolicyRaw: "2 DAYS BFR ARRV OR PAY 1 NIGHT FEE",
+      cashCopay: null,
+      cashFees: null,
+      cashTaxes: null,
+      cashTotal: { amount: 900, currency: "USD" },
+      evidenceText: pageText,
+      feesIncluded: true,
+      inventoryType: "cash",
+      loyaltyEligible: true,
+      points: null,
+      ratePlanName: null,
+      rawRateName: null,
+      roomTypeRaw: "1 King Bed",
+      staySubtotal: null,
+      taxesIncluded: true
+    } satisfies LlmEvidenceCandidate;
+
+    const replay = await runLlmExtractionForPriceCheck(task.runId, {
+      extractor: {
+        extract: async () => [candidate],
+        model: "fixture-model",
+        name: "fixture-llm-extractor",
+        version: "test-grounding"
+      }
+    });
+
+    expect(replay).toMatchObject({ acceptedCandidates: 1, observationsCreated: 1, status: "partial" });
+    expect(replay.issues.join(" ")).toMatch(/taxesIncluded=true was replaced with false/);
+    const observation = await prisma.priceObservation.findFirstOrThrow({
+      where: { bookingId: booking.id, extractionSource: "model" },
+      include: { evidence: true, extractionRun: true }
+    });
+    expect(observation).toMatchObject({
+      breakfastIncluded: false,
+      loyaltyEligible: null,
+      evidence: { feesIncluded: "no", qualityLevel: "needs_review", taxesIncluded: "no" },
+      extractionRun: { status: "partial" }
+    });
+    expect(JSON.parse(observation.evidence!.blockersJson)).toEqual(expect.arrayContaining([
+      "Final tax inclusion is not verified.",
+      "Final fee inclusion is not verified."
+    ]));
+    const extractionRun = await prisma.evidenceExtractionRun.findUniqueOrThrow({
+      where: { id: observation.extractionRunId! }
+    });
+    expect(JSON.parse(extractionRun.proposedCandidatesJson)[0]).toMatchObject({
+      breakfastIncluded: true,
+      feesIncluded: true,
+      loyaltyEligible: true,
+      taxesIncluded: true
+    });
+    expect(JSON.parse(extractionRun.acceptedCandidatesJson)[0].proposal).toMatchObject({
+      breakfastIncluded: false,
+      feesIncluded: false,
+      loyaltyEligible: null,
+      taxesIncluded: false
+    });
   });
 
   it("imports active Hyatt cash, points, and certificate baselines but skips an already-started stay", async () => {

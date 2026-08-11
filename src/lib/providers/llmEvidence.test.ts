@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { buildObservationEvidence } from "@/lib/evidence";
 import {
   DeepSeekChatCompletionsEvidenceExtractor,
   LLM_EVIDENCE_SCHEMA,
@@ -12,7 +13,7 @@ const pageText =
 
 const candidate = {
   averageNightlyRate: null,
-  breakfastIncluded: false,
+  breakfastIncluded: null,
   cancellationPolicyRaw: "Free cancellation before arrival",
   cashCopay: null,
   cashFees: { amount: 90, currency: "USD" },
@@ -21,7 +22,7 @@ const candidate = {
   evidenceText: pageText,
   feesIncluded: true,
   inventoryType: "cash",
-  loyaltyEligible: true,
+  loyaltyEligible: null,
   points: null,
   ratePlanName: null,
   rawRateName: null,
@@ -167,6 +168,114 @@ describe("LLM evidence deterministic validation", () => {
       cashTotal: 990,
       inventoryType: "cash"
     });
+  });
+
+  it("downgrades unsupported boolean claims before they can clear blockers or inflate benefits", () => {
+    const negativePageText =
+      "Price Summary Total Cash USD 990.00 1 King Bed Cancellation Policy Free cancellation before arrival. Taxes and fees are NOT included and will be collected at the hotel. Room only.";
+    const sourceUrl = "https://www.hyatt.com/booking/summary";
+    const result = validateLlmEvidenceCandidates([{
+      ...candidate,
+      breakfastIncluded: true,
+      cashFees: null,
+      evidenceText: negativePageText,
+      feesIncluded: true,
+      loyaltyEligible: true,
+      staySubtotal: null,
+      taxesIncluded: true
+    }], {
+      nights: 3,
+      pageText: negativePageText,
+      sourceUrl
+    });
+
+    expect(result.accepted).toHaveLength(1);
+    expect(result.issues.join(" ")).toMatch(/breakfastIncluded=true was replaced with false/);
+    expect(result.issues.join(" ")).toMatch(/feesIncluded=true was replaced with false/);
+    expect(result.issues.join(" ")).toMatch(/loyaltyEligible=true was replaced with null/);
+    expect(result.issues.join(" ")).toMatch(/taxesIncluded=true was replaced with false/);
+    expect(result.accepted[0].draft).toMatchObject({
+      breakfastIncluded: false,
+      feesIncluded: false,
+      loyaltyEligible: null,
+      taxesIncluded: false
+    });
+
+    const draft = result.accepted[0].draft;
+    const evidence = buildObservationEvidence({
+      bookingCancellationDeadline: new Date("2030-09-08T12:00:00.000Z"),
+      bookingCheckIn: new Date("2030-09-10T00:00:00.000Z"),
+      bookingCurrency: "USD",
+      bookingRoomType: "1 King Bed",
+      cancellationPolicyRaw: draft.cancellationPolicyRaw,
+      cashCurrency: draft.cashCurrency,
+      collectionMethod: "browser_companion",
+      conversionAvailable: true,
+      feesIncluded: draft.feesIncluded,
+      inventoryType: draft.inventoryType,
+      loyaltyEligible: draft.loyaltyEligible,
+      pageText: negativePageText,
+      roomTypeRaw: draft.roomTypeRaw,
+      sourceType: "direct",
+      sourceUrl,
+      taxesIncluded: draft.taxesIncluded
+    });
+
+    expect(evidence.blockers).toContain("Final tax inclusion is not verified.");
+    expect(evidence.blockers).toContain("Final fee inclusion is not verified.");
+    expect(evidence.qualityLevel).toBe("needs_review");
+  });
+
+  it("derives breakfast and loyalty benefits only from candidate-local visible tokens", () => {
+    const supportedPageText =
+      `${pageText} Member Bed and Breakfast Eligible to earn World of Hyatt points`;
+    const result = validateLlmEvidenceCandidates([{
+      ...candidate,
+      breakfastIncluded: false,
+      evidenceText: supportedPageText,
+      loyaltyEligible: false,
+      ratePlanName: "Member Bed and Breakfast"
+    }], {
+      nights: 3,
+      pageText: supportedPageText,
+      sourceUrl: "https://www.hyatt.com/booking/summary"
+    });
+
+    expect(result.accepted).toHaveLength(1);
+    expect(result.accepted[0].draft).toMatchObject({ breakfastIncluded: true, loyaltyEligible: true });
+    expect(result.issues.join(" ")).toMatch(/breakfastIncluded=false was replaced with true/);
+    expect(result.issues.join(" ")).toMatch(/loyaltyEligible=false was replaced with true/);
+  });
+
+  it("does not borrow benefit evidence from an unrelated rate elsewhere on the page", () => {
+    const mixedRatePageText =
+      `${pageText} Member Bed and Breakfast Eligible to earn World of Hyatt points`;
+    const result = validateLlmEvidenceCandidates([{
+      ...candidate,
+      breakfastIncluded: true,
+      evidenceText: "Total Cash USD 990.00",
+      feesIncluded: true,
+      loyaltyEligible: true,
+      ratePlanName: "Member Bed and Breakfast",
+      staySubtotal: null,
+      taxesIncluded: true
+    }], {
+      nights: 3,
+      pageText: mixedRatePageText,
+      sourceUrl: "https://www.hyatt.com/booking/summary"
+    });
+
+    expect(result.accepted).toHaveLength(1);
+    expect(result.accepted[0].draft).toMatchObject({
+      breakfastIncluded: null,
+      feesIncluded: null,
+      loyaltyEligible: null,
+      taxesIncluded: null
+    });
+    expect(result.issues.join(" ")).toMatch(/breakfastIncluded=true was replaced with null/);
+    expect(result.issues.join(" ")).toMatch(/feesIncluded=true was replaced with null/);
+    expect(result.issues.join(" ")).toMatch(/loyaltyEligible=true was replaced with null/);
+    expect(result.issues.join(" ")).toMatch(/taxesIncluded=true was replaced with null/);
   });
 
   it("does not mix a list-page nightly rate into a final-total observation", () => {

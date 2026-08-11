@@ -2,7 +2,7 @@ import type { ParsedObservationDraft } from "@/lib/providers/types";
 import { selectEvidenceTextSample } from "@/lib/json";
 
 export const LLM_EVIDENCE_EXTRACTOR_NAME = "deepseek-chat-completions-evidence";
-export const LLM_EVIDENCE_EXTRACTOR_VERSION = "2026-08-11.6";
+export const LLM_EVIDENCE_EXTRACTOR_VERSION = "2026-08-11.7";
 export const DEFAULT_LLM_BASE_URL = "https://api.deepseek.com";
 export const DEFAULT_LLM_MODEL = "deepseek-v4-flash";
 
@@ -133,6 +133,7 @@ export function validateLlmEvidenceCandidates(
   input: { nights: number; pageText: string; sourceUrl: string }
 ) {
   const accepted: ValidatedLlmEvidenceCandidate[] = [];
+  const groundingIssues = new Map<ValidatedLlmEvidenceCandidate, string[]>();
   const issues: string[] = [];
   candidates.forEach((candidate, index) => {
     const candidateIssues = validateCandidate(candidate, input.pageText, input.nights);
@@ -140,17 +141,22 @@ export function validateLlmEvidenceCandidates(
       issues.push(...candidateIssues.map((issue) => `Candidate ${index + 1}: ${issue}`));
       return;
     }
-    accepted.push({ proposal: candidate, draft: toObservationDraft(candidate, input.sourceUrl) });
+    const grounded = groundBooleanClaims(candidate, input.pageText);
+    const validated = {
+      proposal: grounded.candidate,
+      draft: toObservationDraft(grounded.candidate, input.sourceUrl)
+    };
+    accepted.push(validated);
+    groundingIssues.set(validated, grounded.issues.map((issue) => `Candidate ${index + 1}: ${issue}`));
   });
   const hasFinalCashTotal = accepted.some(
     ({ proposal }) => proposal.inventoryType === "cash" && proposal.cashTotal !== null
   );
-  return {
-    accepted: hasFinalCashTotal
-      ? accepted.filter(({ proposal }) => proposal.inventoryType === "award" || proposal.cashTotal !== null)
-      : accepted,
-    issues
-  };
+  const effectiveAccepted = hasFinalCashTotal
+    ? accepted.filter(({ proposal }) => proposal.inventoryType === "award" || proposal.cashTotal !== null)
+    : accepted;
+  issues.push(...effectiveAccepted.flatMap((candidate) => groundingIssues.get(candidate) ?? []));
+  return { accepted: effectiveAccepted, issues };
 }
 
 const moneySchema = {
@@ -375,6 +381,136 @@ function validateCandidate(candidate: LlmEvidenceCandidate, pageText: string, ni
     issues.push("an award candidate may contain only points and an optional cash copay.");
   }
   return [...new Set(issues)];
+}
+
+function groundBooleanClaims(candidate: LlmEvidenceCandidate, pageText: string) {
+  const grounded = {
+    breakfastIncluded: groundBreakfastInclusion(candidate),
+    feesIncluded: groundPriceInclusion("fees", candidate, pageText),
+    loyaltyEligible: groundLoyaltyEligibility(candidate),
+    taxesIncluded: groundPriceInclusion("taxes", candidate, pageText)
+  };
+  const issues: string[] = [];
+  for (const field of [
+    "breakfastIncluded",
+    "feesIncluded",
+    "loyaltyEligible",
+    "taxesIncluded"
+  ] as const) {
+    if (candidate[field] !== grounded[field]) {
+      issues.push(
+        `${field}=${String(candidate[field])} was replaced with ${String(grounded[field])} because boolean claims are derived from visible evidence.`
+      );
+    }
+  }
+  return { candidate: { ...candidate, ...grounded }, issues };
+}
+
+function groundPriceInclusion(
+  component: "fees" | "taxes",
+  candidate: LlmEvidenceCandidate,
+  pageText: string
+): boolean | null {
+  if (candidate.inventoryType !== "cash") {
+    return null;
+  }
+  if (hasExplicitPriceExclusion(component, pageText)) {
+    return false;
+  }
+  if (hasExplicitPriceInclusion(component, candidate.evidenceText)) {
+    return true;
+  }
+  const hasCombinedSummary = /(?:^|[^a-z])taxes?\s*(?:&|and)\s*fees?\b/i.test(
+    candidate.evidenceText
+  );
+  const hasGroundedComponent = component === "fees"
+    ? candidate.cashFees !== null
+    : candidate.cashTaxes !== null || (candidate.cashFees !== null && hasCombinedSummary);
+  if (
+    candidate.cashTotal !== null &&
+    hasGroundedComponent &&
+    (hasCombinedSummary || priceComponentsReconcile(candidate))
+  ) {
+    return true;
+  }
+  return null;
+}
+
+function hasExplicitPriceExclusion(component: "fees" | "taxes", pageText: string) {
+  const subject = component === "fees" ? "fees?" : "tax(?:es)?";
+  const combined = "tax(?:es)?\\s*(?:&|and)\\s*fees?";
+  return new RegExp(
+    `(?:\\b(?:${subject}|${combined})\\b[^.]{0,80}\\b(?:not included|excluded|extra|additional|collected|payable)\\b|\\b(?:excluding|excludes?)\\s+(?:${subject}|${combined})\\b)`,
+    "i"
+  ).test(pageText);
+}
+
+function hasExplicitPriceInclusion(component: "fees" | "taxes", pageText: string) {
+  const subject = component === "fees" ? "fees?" : "tax(?:es)?";
+  const combined = "tax(?:es)?\\s*(?:&|and)\\s*fees?";
+  return new RegExp(
+    `(?:\\b(?:including|includes?|inclusive of)\\s+(?:all\\s+)?(?:${subject}|${combined})\\b|\\b(?:${subject}|${combined})\\b[^.]{0,40}\\b(?:is|are)?\\s*included\\b|\\btotal\\s+including\\s+(?:${subject}|${combined})\\b)`,
+    "i"
+  ).test(pageText);
+}
+
+function priceComponentsReconcile(candidate: LlmEvidenceCandidate) {
+  if (!candidate.staySubtotal || !candidate.cashTotal) {
+    return false;
+  }
+  const components = [candidate.cashTaxes?.amount, candidate.cashFees?.amount].filter(
+    (value): value is number => value !== undefined
+  );
+  return components.length > 0 && approximatelyEqual(
+    candidate.staySubtotal.amount + components.reduce((sum, value) => sum + value, 0),
+    candidate.cashTotal.amount
+  );
+}
+
+function groundBreakfastInclusion(candidate: LlmEvidenceCandidate): boolean | null {
+  const rateNames = candidateLocalRateNames(candidate);
+  const candidateEvidence = `${rateNames} ${candidate.evidenceText}`;
+  if (/\b(?:breakfast\s+(?:is\s+)?not included|without breakfast|excludes? breakfast|room only)\b/i.test(candidateEvidence)) {
+    return false;
+  }
+  if (
+    /\bbreakfast\b/i.test(rateNames) ||
+    /\b(?:breakfast\s+(?:is\s+)?included|includes? breakfast|with breakfast)\b/i.test(candidate.evidenceText)
+  ) {
+    return true;
+  }
+  return null;
+}
+
+function groundLoyaltyEligibility(candidate: LlmEvidenceCandidate): boolean | null {
+  const rateNames = candidateLocalRateNames(candidate);
+  const candidateEvidence = `${rateNames} ${candidate.evidenceText}`;
+  if (
+    /\b(?:not eligible|ineligible|non-qualifying|does not earn|no)\b[^.]{0,40}\b(?:loyalty|points?|credit)\b/i.test(
+      candidateEvidence
+    )
+  ) {
+    return false;
+  }
+  if (
+    /\b(?:eligible to earn|earns?|qualifying)\b[^.]{0,40}\b(?:World of Hyatt\s+)?(?:points?|credit)\b/i.test(
+      candidate.evidenceText
+    ) ||
+    /\b(?:member rate|members save|World of Hyatt member)\b/i.test(rateNames)
+  ) {
+    return true;
+  }
+  return null;
+}
+
+function candidateLocalRateNames(candidate: LlmEvidenceCandidate) {
+  const normalizedEvidence = normalizeText(candidate.evidenceText);
+  return [candidate.ratePlanName, candidate.rawRateName]
+    .filter(
+      (value): value is string =>
+        typeof value === "string" && normalizedEvidence.includes(normalizeText(value))
+    )
+    .join(" ");
 }
 
 function toObservationDraft(candidate: LlmEvidenceCandidate, sourceUrl: string): ParsedObservationDraft {

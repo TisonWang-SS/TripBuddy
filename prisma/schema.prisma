@@ -293,14 +293,14 @@ model HotelSearchSession {
 }
 
 model PriceCheckRun {
-  id                    String             @id @default(cuid())
+  id                    String                  @id @default(cuid())
   bookingId             String
   watchPlanId           String?
-  browserTaskId         String             @unique
-  startedAt             DateTime           @default(now())
+  browserTaskId         String                  @unique
+  startedAt             DateTime                @default(now())
   finishedAt            DateTime?
   expiresAt             DateTime
-  status                PriceCheckStatus   @default(running)
+  status                PriceCheckStatus        @default(running)
   trigger               PriceCheckTrigger
   inventoryTypesJson    String
   providerName          String
@@ -308,10 +308,10 @@ model PriceCheckRun {
   summary               String?
   errorCode             String?
   errorMessage          String?
-  inventoryEvidenceJson String             @default("[]")
-  booking               HotelBooking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  watchPlan             WatchPlan?         @relation(fields: [watchPlanId], references: [id], onDelete: SetNull)
-  browserTask           BrowserTask        @relation(fields: [browserTaskId], references: [id], onDelete: Cascade)
+  inventoryEvidenceJson String                  @default("[]")
+  booking               HotelBooking            @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  watchPlan             WatchPlan?              @relation(fields: [watchPlanId], references: [id], onDelete: SetNull)
+  browserTask           BrowserTask             @relation(fields: [browserTaskId], references: [id], onDelete: Cascade)
   observations          PriceObservation[]
   extractionRuns        EvidenceExtractionRun[]
 
@@ -320,15 +320,15 @@ model PriceCheckRun {
 }
 
 model PriceObservation {
-  id                    String               @id @default(cuid())
+  id                    String                 @id @default(cuid())
   bookingId             String
   priceCheckRunId       String?
-  observedAt            DateTime             @default(now())
-  collectionMethod      CollectionMethod     @default(manual)
+  observedAt            DateTime               @default(now())
+  collectionMethod      CollectionMethod       @default(manual)
   sourceName            String
   sourceType            SourceType
   providerName          String?
-  inventoryType         InventoryType        @default(cash)
+  inventoryType         InventoryType          @default(cash)
   cashBase              Float?
   cashTaxes             Float?
   cashFees              Float?
@@ -346,17 +346,17 @@ model PriceObservation {
   loyaltyEligible       Boolean?
   sourceUrl             String?
   notes                 String?
-  extractionSource      ExtractionSource   @default(manual)
-  extractorName         String             @default("manual-form")
-  extractorVersion      String             @default("1")
+  extractionSource      ExtractionSource       @default(manual)
+  extractorName         String                 @default("manual-form")
+  extractorVersion      String                 @default("1")
   extractionRunId       String?
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
-  booking               HotelBooking         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  priceCheckRun         PriceCheckRun?       @relation(fields: [priceCheckRunId], references: [id], onDelete: SetNull)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  booking               HotelBooking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  priceCheckRun         PriceCheckRun?         @relation(fields: [priceCheckRunId], references: [id], onDelete: SetNull)
   extractionRun         EvidenceExtractionRun? @relation(fields: [extractionRunId], references: [id], onDelete: SetNull)
   evidence              ObservationEvidence?
-  recommendations       Recommendation[]     @relation("RecommendationCandidate")
+  recommendations       Recommendation[]       @relation("RecommendationCandidate")
 
   @@index([bookingId, observedAt])
   @@index([extractionRunId])
@@ -367,15 +367,15 @@ model EvidenceExtractionRun {
   priceCheckRunId        String
   extractorName          String
   extractorVersion       String
-  modelName               String
-  status                  EvidenceExtractionStatus
-  snapshotCount           Int
+  modelName              String
+  status                 EvidenceExtractionStatus
+  snapshotCount          Int
   proposedCandidatesJson String                   @default("[]")
   acceptedCandidatesJson String                   @default("[]")
-  issuesJson              String                   @default("[]")
-  createdAt               DateTime                 @default(now())
-  priceCheckRun           PriceCheckRun            @relation(fields: [priceCheckRunId], references: [id], onDelete: Cascade)
-  observations            PriceObservation[]
+  issuesJson             String                   @default("[]")
+  createdAt              DateTime                 @default(now())
+  priceCheckRun          PriceCheckRun            @relation(fields: [priceCheckRunId], references: [id], onDelete: Cascade)
+  observations           PriceObservation[]
 
   @@index([priceCheckRunId, createdAt])
 }

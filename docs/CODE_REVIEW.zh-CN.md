@@ -1,8 +1,8 @@
 # TripBuddy 代码审查报告
 
 > 首次审查基线:`b7a55ec`(2026-08-08)
-> 最新复查基线:`2890fe1`(2026-08-10)
-> 门禁状态:`npm test` 29 文件 136 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / DeepSeek V4 Flash 实测 13 fixtures、63/63 断言通过 / TripBuddy Chrome profile + Logs 页真实 replay 成功 / migration 与 Prisma schema 零差异且在全新库干净应用
+> 最新复查基线:`b1e7be3`(2026-08-11)
+> 门禁状态:`npm test` 29 文件 141 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / DeepSeek V4 Flash 实测 13 fixtures、63/63 断言通过 / TripBuddy Chrome profile + Logs 页真实 replay 成功 / migration 与 Prisma schema 零差异且在全新库干净应用
 > ✅ 套件已时区稳定:外部 `TZ` 设为 -7 / 0 / +14 分别运行全过(`vitest.config.ts` 固定 `TZ: "UTC"`,跨时区用例在测试内显式切换)
 > ✅ PRD、实施计划与代码行为一致
 
@@ -27,12 +27,14 @@
 
 - **「较弱取消政策」成为一条贯穿全栈的显式概念。** 从 `worse` 判定 → 非阻断 warning → 界面上的 `notice caution` → 落到 `Recommendation` 行,由一条端到端用例守着,PRD 与实施计划同步描述(`e6d6cd2`、`dcc6710`、`d3ab9c4`、`2890fe1`)。
 
+- **LLM 抽取器落地,且是以「提议者」而非「权威」的方式接入的。** 每个模型输出的字符串和数字都必须在存档页面文本里逐字出现,四个安全相关布尔值再从可见 token 与已校验价格分量推导,算术交叉校验,provenance 落库,replay 针对存档快照而非重新爬取,评测门槛为「不劣于确定性基线」(`b1e7be3` 及本次修复)。
+
 当前剩余问题分两类:
 
 1. **写了没人读的数据**——§1.5、§1.6。
-2. **尚未动工的加固项**——§2.4、§3.2、§3.5、§3.6–§3.9。
+2. **尚未动工的加固项**——§2.4、§3.2、§3.5、§3.7–§3.9。
 
-**已无已知的用户可见缺陷。** §3.10–§3.16 全部关闭,且每一条都做了反证验证(还原修复 → 对应用例变红),不是只靠读 diff 判断。三轮反证的失败信息与最初报告的症状逐字对应:`retry in 8.866666666666667 hours`、`Sep 9, 2026`、`2026-02-30 → 1772409600000`。
+**已无已知的用户可见缺陷。** §3.10–§3.18 全部关闭,关键安全修复均有负向复现或端到端用例守卫,不是只靠读 diff 判断。
 
 ---
 
@@ -183,16 +185,13 @@
 
 `evidence.ts:124` 是 `sourceVerified ? "unknown" : "not_required"`,语义上是反的(**已验证**的来源反而是"未知"),且 `member` / `anonymous` 永不产生。扩展在账户导入时已经能识别登录态(`Sign Out` / `Upcoming Stays`),这个信号从未流到证据层。
 
-### 3.6 三个超时散在三处 — ⬜ 待办
+### 3.6 三个超时散在三处 — ✅ 已完成(`b1e7be3`)
 
-| 位置 | 值 |
-|---|---|
-| `content.js` `TASK_TIMEOUT_MS` | 120s |
-| `browserTasks.ts` `BROWSER_TASK_TTL_MS` | 180s |
-| `browserTaskClient.ts` 客户端轮询默认 | 190s |
-| 账户导入:客户端 310s / 服务端 TTL 300s | **顺序已经反了** |
+原问题:客户端轮询默认 190s、账户导入 310s,而服务端 TTL 分别是 180s / 300s——**账户导入的顺序已经反了**,且三个数字散在三个文件里靠人工保持有序。
 
-任务响应里已经带了 `expiresAt`。让客户端轮询到 `expiresAt` 为止,而不是各写一个硬编码数字。
+修复:`waitForBrowserTask` 的第二个参数从 `timeoutMs` 改为 `expiresAt: string`,直接消费服务端在任务响应里返回的过期时间(留 5s 宽限),`expiresAt` 不可解析时立即抛错。硬编码的 190000 / 310000 全部消失,调用点无法再自己编一个数字。
+
+⬜ **遗留**:扩展侧的 `TASK_TIMEOUT_MS`(120s)仍是独立常量。它是扩展自己的放弃阈值、不参与服务端契约,可以保留;但若将来 `BROWSER_TASK_TTL_MS` 调小到 120s 以下,两者会再次失序——值得在 `taskProtocol.js` 里一并暴露。
 
 ### 3.7 CORS 全开 — ⬜ 待办
 
@@ -347,6 +346,56 @@
 
 ⬜ **小观察**:`isEvidenceCaution` 对**持久化的展示字符串**做全等匹配。共享常量让代码级重命名是安全的,但若将来改动这句**文案措辞**,历史 `Recommendation` 行会静默失去 caution 样式。`ObservationEvidence` 上其实已有结构化的 `cancellationMatch` 枚举可用;`Recommendation` 表没有对应列,所以字符串匹配是当前的务实选择——记录在此,便于将来给 `Recommendation` 加结构化字段时一并处理。
 
+### 3.18 LLM 抽取的布尔字段没有 grounding,可越过安全 blocker — ✅ 已完成(本次修改)
+
+`b1e7be3` 的 grounding 设计非常严格:模型输出的**每一个字符串**(evidenceText、房型、政策、rate plan)和**每一个数字**(各价格分量、points)都必须在存档页面文本里逐字出现,否则该候选被拒。
+
+但**四个布尔字段是例外**,它们直接来自模型、没有任何 grounding:
+
+| 字段 | 下游影响 |
+|---|---|
+| `taxesIncluded` | `true` 时移除 blocker「Final tax inclusion is not verified.」 |
+| `feesIncluded` | `true` 时移除 blocker「Final fee inclusion is not verified.」 |
+| `breakfastIncluded` | 计入 `benefitValue`,直接抬高 estimated savings |
+| `loyaltyEligible` | 计入 `earnedPointsValue` / `eliteProgressValue` / 权益,直接抬高 estimated savings |
+
+**已实测复现**。构造一个候选:只有 `cashTotal`、没有任何税费分量、`taxesIncluded: true` + `feesIncluded: true`,页面文本明确写着 `Taxes and fees are NOT included and will be collected at the hotel.`,然后走真实的 `validateLlmEvidenceCandidates` → `buildObservationEvidence`:
+
+```
+validation issues: []
+accepted candidates: 1
+resulting blockers: []
+resulting quality : high
+```
+
+**零 issue、零 blocker、`high` 质量。** 模型仅凭自己的一句断言就清掉了两个安全 blocker 并拿到最高质量档——这正是 §4.3「模型只提议,永不授权」的红线。
+
+值得注意的是:**确定性抽取器没有这个弱点。** `hyattEvidence.ts` 是从「是否真的解析到了 `Taxes & Fees` 行」推导出 `feesIncluded`:
+
+```ts
+feesIncluded: finalTaxes && finalTaxes.currency === finalTotal.currency ? true : null
+```
+
+也就是说,在唯一一个直接决定 blocker 的字段上,LLM 路径**严格弱于**确定性路径。
+
+威胁模型是真实的:页面文本来自 hyatt.com,其上运行着第三方广告脚本,而 §4.4 已经把「页面内容可被注入」列为一类实际威胁。系统提示确实声明了 pageEvidence 不可信,但提示不是强制手段——grounding 才是,而这四个字段恰好绕过了它。
+
+建议(与现有模式一致、改动很小),二选一:
+
+1. 在 `validateCandidate` 里加约束:`taxesIncluded` / `feesIncluded` 为 `true` 时,必须同时存在对应的税费分量且通过求和校验,或页面里出现可见的包含性 token(`Taxes & Fees`、`including taxes`、`inclusive of`)。
+2. 在 `toObservationDraft` 里**推导**而非透传——与确定性路径同构。
+
+`breakfastIncluded` / `loyaltyEligible` 建议同一轮处理:要求页面出现对应可见 token,否则降为 `null`。
+
+✅ **修复方式:推导而非透传。** `proposedCandidatesJson` 保留模型原始声明用于审计;通过字符串、数字和算术校验后,四个布尔值再由确定性代码重建,grounded 后的值才进入 `acceptedCandidatesJson`、observation 和 recommendation:
+
+- `taxesIncluded` / `feesIncluded`:显式排除措辞优先;否则必须在同一候选证据中有可见包含性 token / `Taxes & Fees` summary,或有页面落点的税费分量与 final total 形成可验证的算术关系;证据不足降为 `null`。
+- `breakfastIncluded`:只接受同一候选证据里的 rate-plan 名或明确 breakfast token;证据不足降为 `null`。
+- `loyaltyEligible`:只接受同一候选证据里的 member rate token 或明确的 earn/eligible/qualifying points 文本;证据不足降为 `null`。
+- 原始值与推导值不同时写入 extraction issues,run 标为 `partial`,但不丢弃同一候选中已经通过 grounding 的价格事实。
+
+review 中的原始攻击样例已变成负向回归:候选仍可作为价格事实入库,但 `taxesIncluded` / `feesIncluded` 均为 `false`,两个 blocker 保留,quality 为 `needs_review`;伪造的 breakfast / loyalty 权益也分别降为 `false` / `null`。另有跨 rate-plan 回归用例确保页面其他位置的税费、早餐或会员 token 不能借给当前候选。数据库集成用例同时确认 raw proposal 与 grounded accepted proposal 分开留档。共享评测允许列表价的安全等价状态 `false | null`,但仍拒绝 `true`;DeepSeek 与确定性抽取器继续保持 13/13 fixtures、63/63 断言。
+
 ---
 
 ## 4. 接入 LLM 的设计建议
@@ -419,6 +468,28 @@
 - 现在断言 `score === 1`。对正则是对的,但接模型那天要的是**阈值 + 不劣于基线**,而不是满分。建议把确定性抽取器的报告存成 baseline,模型按 "≥ deterministic" 来卡。
 - `selectBestCandidate` 是贪心配对,候选高度相似时可能错配、报出令人困惑的失败信息。13 个 fixture 无所谓,到 50 个要重新看。
 
+### 4.8 抽取器落地情况 — ✅ 已完成(`b1e7be3`)
+
+`DeepSeekChatCompletionsEvidenceExtractor` + `runLlmExtractionForPriceCheck` 落地。对照 §4.1–§4.7 的设计要求逐条核对:
+
+| 设计要求 | 落地情况 |
+|---|---|
+| §4.2 从抽取而非决策层开始 | ✅ 决策器仍是 deterministic,未接模型 |
+| §4.3 schema 校验 | ✅ `hasOnlyKeys` 拒绝多余键,逐字段类型校验,`finish_reason` 的 length / content_filter 分别报错 |
+| §4.3 确定性交叉校验 | ✅ **超出建议**:不只是算术(subtotal+税费≈total、avgNightly×nights≈stay),还要求每个字符串和数字**逐字出现在存档页面文本**里 |
+| §4.3 provenance 落库 | ✅ `AssessmentSource.model`、新增 `ExtractionSource` 枚举、`extractorName` / `extractorVersion` / `extractionRunId` 落到每条 observation,外加 `EvidenceExtractionRun` 审计表记录 proposed / accepted / issues |
+| §4.4 注入防御 | ✅ pageEvidence 以不可信 JSON 字段传入;字符串/数字逐字落点,四个布尔值由可见 token 与已校验价格分量重新推导(§3.18) |
+| §4.4 模型输出不得成为动作 | ✅ 模型原始 proposal 仅留审计;grounded accepted proposal 才进入 `buildObservationEvidence`,不能凭布尔断言绕过 blockers 或抬高权益 |
+| §4.5 抽取与采集分离 | ✅ replay 针对 `snapshotsJson` 存档快照,不重新爬取;capture 未完成时拒绝执行 |
+| §4.5 保留更多原文 | ✅ 先无长度上限脱敏、再头尾各半采样到 12k,并记 `truncated` 标志;校验用的是模型实际看到的同一份文本 |
+| §4.6 同一套评测、不劣于基线 | ✅ `eval:llm-extractor` 跑同一批 fixtures,门槛 `model.score >= baseline.score`,并在确定性基线或 fixture 集漂移时**主动报错**要求先复核基线——防止悄悄降低门槛 |
+| §4.7 不做多智能体 | ✅ 单抽取器 + 确定性算术 |
+
+另外两个值得记的判断:
+
+- **corroboration 而非重复入库**:与确定性候选或已有 observation 描述同一事实的模型候选被计为 `corroborated` 并跳过,等于把确定性抽取器当成交叉验证器用。
+- **新路由刻意不走 `browserJson`**:`/api/price-checks/[id]/llm-extraction` 用 `NextResponse.json`,不带 CORS 通配头。它由应用自身 UI 触发而非扩展,所以不该继承 §3.7 的开放姿态——这个区分是对的。
+
 ### 4.7 不要做的事
 
 不要搭 planner / critic / executor 的多智能体框架。这是一个单用户本地工具,而确定性守卫层已经在做 critic 的工作——更快、更准、免费。**一个抽取器 + 一个分类器 + 确定性算术**就是正确的规模。
@@ -452,18 +523,23 @@
 | 19 | `worse` 定位决策:回退为 warning,允许 medium-risk 换订(§3.1) | `e6d6cd2` |
 | 20 | 同步 PRD 与实施计划的取消政策表述(§3.1 遗留) | `dcc6710` |
 | 21 | 取消政策降级警告升级为 `caution` 层级 + 端到端用例(§3.17) | `d3ab9c4`、`2890fe1` |
+| 22 | 接 LLM 抽取器:DeepSeek replay + grounding + provenance + 评测门槛(§4.2、§4.8);顺带关闭 §3.6 | `b1e7be3` |
+| 23 | 四个 LLM 布尔字段改为可见证据推导,保留 raw/grounded 双份审计(§3.18) | 本次修改 |
 
 ### 后续建议顺序
 
 | 顺序 | 事项 | 理由 |
 |---|---|---|
-| 22 | 币种录入入口或收缩多币种声明(§3.2) | 当前是用户无法解除的死 blocker |
-| 23 | 处理 write-only 数据(§1.5)与未使用字段(§1.6) | 用户填了系统不用,属于产品失真 |
-| 24 | 超时收敛到 `expiresAt`(§3.6)、CORS 收紧(§3.7)、JSON 列加 codec(§2.4) | 加固项,无用户可见症状 |
-| 25 | 接 LLM 抽取器(§4.2 第 1 项) | ✅ 已完成:独立快照回放、严格 schema、页面数字/币种/算术校验、抽取来源与版本审计、已落库的确定性 baseline + 共享 fixture 异步评测入口 |
+| 24 | 币种录入入口或收缩多币种声明(§3.2) | 当前是用户无法解除的死 blocker |
+| 25 | 补完剩余 JSON codec(§2.4) | `browserTaskCodecs.ts` 已覆盖 3 列;`queryJson` / `resultsJson` / `resultJson` 仍是裸 `parseJson` |
+| 26 | 处理 write-only 数据(§1.5)与未使用字段(§1.6) | (b) `snapshotsJson` 已被 LLM replay 消费,可收窄为「在 Logs 页展示」;(a)(c) 与 §1.6 不变 |
+| 27 | CORS 收紧(§3.7) | 加固项。新 LLM 路由已刻意不继承开放姿态,可作为收紧时的参照 |
+| 28 | 房型等价性判定交给模型(§4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker——这是剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
 
 第 13–15 项作为一组一起做是对的:它们是同一条日期约定接缝的三个面,第 9 项(`a5af2de`)就是分开修、只修了一半的例子。
 
-**当前状态**:无已知的功能性缺陷,也无文档与代码矛盾。剩余 9 条(§1.5、§1.6、§2.4、§3.2、§3.5–§3.9)都是数据卫生与加固,没有用户可见症状。
+**当前状态**:无已知的功能性缺陷;其余(§1.5、§1.6、§2.4、§3.2、§3.5、§3.7–§3.9)都是数据卫生与加固,没有用户可见症状。
+
+`b1e7be3` 顺带推进了两条既有条目:§3.6 的前端轮询已从硬编码 190s 改为消费服务端 `expiresAt`(**可标记完成**);§2.4 的 codec 覆盖了 3 列,尚余 3 列。
 
 **第 25 项已落地**:确定性 provider 抽取继续作为同步快路径;LLM 在日志页对最长 12k 的脱敏快照做独立回放,不占 Browser Companion 交互预算。当前适配 DeepSeek V4 Flash 的 Chat Completions JSON Output 协议(`/chat/completions` + `response_format=json_object`,关闭 thinking);API key、Base URL 和模型名只从服务端环境读取。模型提议必须依次通过本地严格 schema、逐数字页面落点、币种一致性和金额算术校验,失败声明只进审计记录、不写 observation。`ExtractionSource`、抽取器名称/版本、模型名和每次 replay 结果均可追溯。接入中同时消费了原 write-only 的 `snapshotsJson`,为相关 JSON 增加 codec,并把前端轮询超时收敛到服务端 `expiresAt`;第 22–24 项其余部分仍按原顺序推进。

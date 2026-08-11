@@ -2,6 +2,7 @@ export type ExtractionCandidateExpectation<TCandidate extends object> = {
   absentFields?: readonly (keyof TCandidate)[];
   containsFields?: Partial<Record<keyof TCandidate, string>>;
   fields: Partial<TCandidate>;
+  oneOfFields?: Partial<Record<keyof TCandidate, readonly unknown[]>>;
 };
 
 export type ExtractionFixture<TCandidate extends object> = {
@@ -83,6 +84,18 @@ export function evaluateTextEvidenceExtractor<TCandidate extends object>(
         }
       }
 
+      for (const [field, expectedValues] of Object.entries(expected.oneOfFields ?? {})) {
+        totalAssertions += 1;
+        const actualValue = candidate?.[field as keyof TCandidate];
+        if (candidate && Array.isArray(expectedValues) && expectedValues.some((value) => valuesEqual(actualValue, value))) {
+          passedAssertions += 1;
+        } else {
+          failures.push(
+            `${fixture.id} candidate ${expectedIndex + 1}: expected ${field} to be one of ${formatValue(expectedValues)}, received ${formatValue(actualValue)}.`
+          );
+        }
+      }
+
       for (const field of expected.absentFields ?? []) {
         totalAssertions += 1;
         if (candidate && !(field in candidate)) {
@@ -135,6 +148,9 @@ function selectBestCandidate<TCandidate extends object>(
     const score =
       Object.entries(expected.fields).filter(([field, value]) =>
         valuesEqual(candidate[field as keyof TCandidate], value)
+      ).length +
+      Object.entries(expected.oneOfFields ?? {}).filter(([field, values]) =>
+        Array.isArray(values) && values.some((value) => valuesEqual(candidate[field as keyof TCandidate], value))
       ).length +
       (expected.absentFields ?? []).filter((field) => !(field in candidate)).length;
     const containsScore = Object.entries(expected.containsFields ?? {}).filter(([field, text]) => {
