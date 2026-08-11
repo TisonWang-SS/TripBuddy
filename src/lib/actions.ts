@@ -17,7 +17,12 @@ import { prisma } from "@/lib/db";
 import { buildObservationEvidence } from "@/lib/evidence";
 import { toJson } from "@/lib/json";
 import { createRecommendationForBooking } from "@/lib/recommendations";
-import { convertMoneyToSystemCurrency, getCurrencyConversion, getSystemCurrency } from "@/lib/systemSettings";
+import {
+  convertMoneyToSystemCurrency,
+  getCurrencyConversion,
+  getSystemCurrency,
+  setCurrencyConversionRate
+} from "@/lib/systemSettings";
 
 function value(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -448,6 +453,17 @@ export async function createCreditCardBenefit(formData: FormData) {
     }
   });
   revalidatePath("/profile");
+}
+
+export async function saveCurrencyConversionRate(formData: FormData) {
+  await setCurrencyConversionRate({
+    asOf: parseCalendarDate(value(formData, "asOf")),
+    rate: numberValue(formData, "rate", Number.NaN),
+    sourceCurrency: value(formData, "sourceCurrency"),
+    sourceName: optionalValue(formData, "sourceName")
+  });
+  revalidatePath("/settings");
+  revalidatePath("/");
 }
 
 async function buildFormEvidence(

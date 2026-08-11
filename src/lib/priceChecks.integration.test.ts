@@ -18,6 +18,8 @@ let getHotelSearchSession: typeof import("@/lib/hotelSearchSessions")["getHotelS
 let importAccountBookings: typeof import("@/lib/accountBookings")["importAccountBookings"];
 let appendBrowserSnapshot: typeof import("@/lib/browserTasks")["appendBrowserSnapshot"];
 let runLlmExtractionForPriceCheck: typeof import("@/lib/llmExtraction")["runLlmExtractionForPriceCheck"];
+let convertMoneyToSystemCurrency: typeof import("@/lib/systemSettings")["convertMoneyToSystemCurrency"];
+let setCurrencyConversionRate: typeof import("@/lib/systemSettings")["setCurrencyConversionRate"];
 
 describe("persistent browser price-check flow", () => {
   beforeAll(async () => {
@@ -41,6 +43,7 @@ describe("persistent browser price-check flow", () => {
     ({ getHotelSearchSession } = await import("@/lib/hotelSearchSessions"));
     ({ importAccountBookings } = await import("@/lib/accountBookings"));
     ({ runLlmExtractionForPriceCheck } = await import("@/lib/llmExtraction"));
+    ({ convertMoneyToSystemCurrency, setCurrencyConversionRate } = await import("@/lib/systemSettings"));
 
     await prisma.systemSetting.create({ data: { id: "primary", displayCurrency: "USD" } });
     await prisma.userProfile.create({
@@ -536,6 +539,27 @@ describe("persistent browser price-check flow", () => {
         hotelGroup: "Hyatt"
       })
     ).rejects.toMatchObject({ code: "currency_mismatch" });
+  });
+
+  it("persists an observed-currency conversion that removes the dead-end rate lookup", async () => {
+    await setCurrencyConversionRate({
+      asOf: new Date("2030-08-01T00:00:00.000Z"),
+      rate: 0.0067,
+      sourceCurrency: "jpy",
+      sourceName: "Integration fixture"
+    });
+
+    await expect(convertMoneyToSystemCurrency(100_000, "JPY")).resolves.toEqual({
+      amount: 670,
+      currency: "USD",
+      observedCurrency: "JPY",
+      rate: 0.0067
+    });
+    await expect(setCurrencyConversionRate({
+      asOf: new Date("2030-08-01T00:00:00.000Z"),
+      rate: 0,
+      sourceCurrency: "EUR"
+    })).rejects.toThrow("Conversion rate must be greater than zero.");
   });
 
   it("follows a selected city result through Hyatt's safe flow before returning a tax-inclusive total", async () => {

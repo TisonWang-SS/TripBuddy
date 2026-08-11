@@ -2,7 +2,7 @@
 
 > 首次审查基线:`b7a55ec`(2026-08-08)
 > 最新复查基线:`30a75ec`(2026-08-11)
-> 门禁状态:`npm test` 31 文件 145 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / DeepSeek V4 Flash 实测 13 fixtures、63/63 断言通过 / TripBuddy Chrome profile + Logs 页真实 replay 成功 / migration 与 Prisma schema 零差异且在全新库干净应用
+> 门禁状态:`npm test` 32 文件 147 项通过 / `lint` 无告警 / `typecheck` 无错误 / `build` 成功 / DeepSeek V4 Flash 实测 13 fixtures、63/63 断言通过 / TripBuddy Chrome profile + Logs 页真实 replay 成功 / migration 与 Prisma schema 零差异且在全新库干净应用
 > ✅ 套件已时区稳定:外部 `TZ` 设为 -7 / 0 / +14 分别运行全过(`vitest.config.ts` 固定 `TZ: "UTC"`,跨时区用例在测试内显式切换)
 > ✅ PRD、实施计划与代码行为一致
 
@@ -29,7 +29,7 @@
 
 - **LLM 抽取器落地,且是以「提议者」而非「权威」的方式接入的。** 每个模型输出的字符串和数字都必须在存档页面文本里逐字出现,四个安全相关布尔值再从可见 token 与已校验价格分量推导,算术交叉校验,provenance 落库,replay 针对存档快照而非重新爬取,评测门槛为「不劣于确定性基线」(`b1e7be3` 及本次修复)。
 
-当前剩余问题均为尚未动工的加固项:§3.2、§3.5、§3.7–§3.9。
+当前剩余问题均为尚未动工的加固项:§3.5、§3.7–§3.9。
 
 **已无已知的用户可见缺陷。** §3.10–§3.18 全部关闭,关键安全修复均有负向复现或端到端用例守卫,不是只靠读 diff 判断。
 
@@ -166,11 +166,13 @@
 
 一个细节值得记:PRD 现在要求这条 caution「必须在用户确认基线变更**之前**呈现」,而 `bookings/[id]/page.tsx` 里 `EvidenceIssueList` 确实排在「Use candidate as current」按钮之前——文档和界面是对得上的。
 
-### 3.2 币种是个死胡同 — ⬜ 待办
+### 3.2 币种是个死胡同 — ✅ 已完成(本次提交)
 
 `CurrencyConversionRate` 在 `systemSettings.ts` 被读取,但**全仓库没有任何写入方**——没有 UI、没有 seed、没有 action。而解析器支持 10 种币种,`SupportedCurrency` 枚举只有 `USD | CNY`。
 
 结果:任何 JPY / EUR 的观察都会拿到一个**用户永远无法解除的硬 blocker**。要么补一个汇率录入/导入入口,要么就不要宣称支持多币种采集。
+
+✅ **补齐本地汇率入口。** Settings 读取并展示 `CurrencyConversionRate`,可按三字母 observed currency 向当前 system currency 录入正汇率、来源与 as-of 日期;同一 currency pair 走 upsert。服务层拒绝非法代码、零/负数、无效日期和同币种冗余记录。集成测试从空库写入 JPY→USD 后真实调用 `convertMoneyToSystemCurrency`,确认原先返回 `null` 的路径得到可比较金额。既有 observation 仍需 review 或重跑以刷新持久化 evidence,页面已明确提示。
 
 ### 3.3 账户导入会留下部分写入 — ✅ 已完成(`56f81fe`)
 
@@ -551,19 +553,19 @@ review 中的原始攻击样例已变成负向回归:候选仍可作为价格事
 | 23 | 四个 LLM 布尔字段改为可见证据推导,保留 raw/grounded 双份审计(§3.18) | `30a75ec` |
 | 24 | 让搜索 session、浏览器 snapshots 与 recommendation cost breakdown 都有产品读取方(§1.5) | `d715bda` |
 | 25 | 删除不会影响计算的会籍进度、信用卡 elite nights 与 promotion applicability 字段(§1.6) | `5e6d34d` |
-| 26 | 为 BrowserTask、HotelSearchSession 与 Recommendation 的结构 JSON 补齐双向 codec(§2.4) | 本次提交 |
+| 26 | 为 BrowserTask、HotelSearchSession 与 Recommendation 的结构 JSON 补齐双向 codec(§2.4) | `fe7fefb` |
+| 27 | 在 Settings 增加 observed currency 汇率入口与服务层校验(§3.2) | 本次提交 |
 
 ### 后续建议顺序
 
 | 顺序 | 事项 | 理由 |
 |---|---|---|
-| 27 | 币种录入入口或收缩多币种声明(§3.2) | 当前是用户无法解除的死 blocker |
 | 28 | CORS 收紧(§3.7) | 加固项。新 LLM 路由已刻意不继承开放姿态,可作为收紧时的参照 |
 | 29 | 房型等价性判定交给模型(§4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker——这是剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
 
 第 13–15 项作为一组一起做是对的:它们是同一条日期约定接缝的三个面,第 9 项(`a5af2de`)就是分开修、只修了一半的例子。
 
-**当前状态**:无已知的功能性缺陷;其余(§3.2、§3.5、§3.7–§3.9)都是数据卫生与加固,没有用户可见症状。
+**当前状态**:无已知的功能性缺陷;其余(§3.5、§3.7–§3.9)都是数据卫生与加固,没有用户可见症状。
 
 `b1e7be3` 顺带推进了两条既有条目:§3.6 的前端轮询已从硬编码 190s 改为消费服务端 `expiresAt`(**可标记完成**);§2.4 当时先覆盖 3 列,其余结构 JSON 已在本次提交补齐。
 
