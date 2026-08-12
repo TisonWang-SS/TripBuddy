@@ -58,12 +58,15 @@ const recommendation = {
 
 describe("surface ordering contract", () => {
   /*
-   * PRD.md:171. This is the concrete reason composition stays deterministic and
-   * server-owned: a model deciding layout could not be held to this.
+   * The "Presentation" section of docs/PRD.md. This is the concrete reason
+   * composition stays deterministic and server-owned: a model deciding layout
+   * could not be held to this.
    */
   it("rejects a control that would change a baseline before its evidence", () => {
     expect(() => assertEvidencePrecedesActions([action, evidence])).toThrow(SurfaceContractError);
-    expect(() => buildSurface("s1", [action, evidence])).toThrow(/PRD.md:171/);
+    expect(() => buildSurface("s1", [action, evidence])).toThrow(
+      /"Presentation" section of docs\/PRD\.md/
+    );
   });
 
   it("accepts evidence before the control", () => {

@@ -10,8 +10,9 @@
  * Surfaces are composed here, on the server, from capability results. A model
  * chooses which capability runs (ADR 0002); it does not choose what the answer
  * looks like. That distinction is load-bearing rather than stylistic: this
- * product's substance is money comparison and an audit trail, and PRD.md:171
- * requires evidence to be shown before any control that changes a baseline.
+ * product's substance is money comparison and an audit trail, and the
+ * "Presentation" section of docs/PRD.md requires evidence to be shown before
+ * any control that changes a baseline.
  * Composing deterministically is what lets that ordering be enforced in code
  * instead of hoped for.
  *
@@ -86,9 +87,10 @@ export class SurfaceContractError extends Error {
 }
 
 /**
- * PRD.md:171, enforced rather than documented: blockers and warnings render
- * before any control that changes a baseline. Composition is the only place
- * this can be guaranteed, which is precisely why composition is not delegated.
+ * The "Presentation" section of docs/PRD.md, enforced rather than merely
+ * documented: blockers and warnings render before any control that changes a
+ * baseline. Composition is the only place this can be guaranteed, which is
+ * precisely why composition is not delegated.
  */
 export function assertEvidencePrecedesActions(nodes: readonly SurfaceNode[]) {
   const firstAction = nodes.findIndex((node) => ACTION_COMPONENTS.includes(node.component));
@@ -100,7 +102,7 @@ export function assertEvidencePrecedesActions(nodes: readonly SurfaceNode[]) {
     .some((node) => EVIDENCE_COMPONENTS.includes(node.component));
   if (evidenceAfterAction) {
     throw new SurfaceContractError(
-      "Evidence must be composed before any control that changes a baseline; see PRD.md:171."
+      'Evidence must be composed before any control that changes a baseline; see the "Presentation" section of docs/PRD.md.'
     );
   }
   return nodes;
