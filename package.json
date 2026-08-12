@@ -13,6 +13,8 @@
     "test:watch": "vitest",
     "eval:llm-extractor": "node --env-file=.env --import tsx scripts/evaluateLlmEvidenceExtractor.ts",
     "eval:llm-extractor:smoke": "node --env-file=.env --import tsx scripts/evaluateLlmEvidenceExtractor.ts --fixture=final-total-and-taxes",
+    "eval:intent-router": "node --env-file=.env --import tsx scripts/evaluateIntentRouter.ts",
+    "eval:intent-router:smoke": "node --env-file=.env --import tsx scripts/evaluateIntentRouter.ts --fixture=flight",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset --force",
     "db:seed": "tsx prisma/seed.ts"

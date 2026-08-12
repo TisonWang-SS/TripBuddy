@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentEvent } from "./events";
-import { runCapability } from "./run";
+import { runAgentRequest } from "./run";
 
 const mocks = vi.hoisted(() => ({
   createAccountImportTask: vi.fn(),
@@ -33,10 +33,17 @@ vi.mock("@/lib/hotelSearchTasks", () => ({
   supportedHotelSearchGroups: () => ["Hyatt"]
 }));
 
-async function collect(request: Parameters<typeof runCapability>[0]) {
+async function collect(request: Parameters<typeof runAgentRequest>[0]) {
   const events: AgentEvent[] = [];
-  await runCapability(request, (event) => events.push(event), { now: () => 0, runId: "run-1" });
+  await runAgentRequest(request, (event) => events.push(event), { now: () => 0, runId: "run-1" });
   return events;
+}
+
+function saidText(events: AgentEvent[]) {
+  return events
+    .filter((event) => event.type === "TEXT_MESSAGE_CONTENT")
+    .map((event) => ("delta" in event ? event.delta : ""))
+    .join("");
 }
 
 function types(events: AgentEvent[]) {
@@ -45,9 +52,15 @@ function types(events: AgentEvent[]) {
 
 describe("agent run", () => {
   beforeEach(() => {
+    /* No key configured, so routing takes the deterministic path in these tests. */
+    vi.stubEnv("TRIPBUDDY_LLM_API_KEY", "");
     mocks.findManyBookings.mockReset().mockResolvedValue([]);
     mocks.runPriceCheck.mockReset();
     mocks.createAccountImportTask.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("reports a read capability as a complete run", async () => {
@@ -138,5 +151,73 @@ describe("agent run", () => {
     const events = await collect({ capability: "list_bookings" });
     const error = events.at(-1);
     expect(error && "code" in error && error.code).toBe("capability_failed");
+  });
+});
+
+describe("agent run — routing a message", () => {
+  beforeEach(() => {
+    vi.stubEnv("TRIPBUDDY_LLM_API_KEY", "");
+    mocks.findManyBookings.mockReset().mockResolvedValue([]);
+    mocks.runPriceCheck.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /* Routing is a visible step, so the interface can show what was understood. */
+  it("routes a sentence and reports routing as its own step", async () => {
+    const events = await collect({ message: "show me my bookings" });
+    expect(types(events)).toEqual([
+      "RUN_STARTED",
+      "STEP_STARTED",
+      "STEP_FINISHED",
+      "TOOL_CALL_START",
+      "TOOL_CALL_ARGS",
+      "TOOL_CALL_END",
+      "STEP_STARTED",
+      "STEP_FINISHED",
+      "TOOL_CALL_RESULT",
+      "RUN_FINISHED"
+    ]);
+    const call = events.find((event) => event.type === "TOOL_CALL_START");
+    expect(call && "toolCallName" in call && call.toolCallName).toBe("list_bookings");
+  });
+
+  /*
+   * An out-of-scope request ends in words rather than a call, and the words are
+   * product-owned copy — the model never writes what the user reads.
+   */
+  it("answers an out-of-scope request in words, without calling anything", async () => {
+    const events = await collect({ message: "what time is the train to Kyoto" });
+    expect(types(events)).toEqual([
+      "RUN_STARTED",
+      "STEP_STARTED",
+      "STEP_FINISHED",
+      "TEXT_MESSAGE_START",
+      "TEXT_MESSAGE_CONTENT",
+      "TEXT_MESSAGE_END",
+      "RUN_FINISHED"
+    ]);
+    expect(saidText(events)).toContain("only tracks Hyatt hotel bookings");
+    expect(mocks.findManyBookings).not.toHaveBeenCalled();
+  });
+
+  it("refuses an action the product never takes", async () => {
+    const events = await collect({ message: "cancel my reservation for me" });
+    expect(saidText(events)).toContain("never books, cancels");
+    expect(types(events)).not.toContain("TOOL_CALL_START");
+  });
+
+  it("asks for a missing argument instead of running", async () => {
+    const events = await collect({ message: "run a price check" });
+    expect(saidText(events)).toContain("booking identifier");
+    expect(mocks.runPriceCheck).not.toHaveBeenCalled();
+  });
+
+  it("prefers an explicit capability over routing the message", async () => {
+    const events = await collect({ capability: "list_bookings", message: "cancel everything" });
+    expect(types(events)).not.toContain("TEXT_MESSAGE_START");
+    expect(types(events)).toContain("RUN_FINISHED");
   });
 });

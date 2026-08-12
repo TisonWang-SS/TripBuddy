@@ -1,0 +1,9 @@
+{
+  "routerName": "deterministic-keyword-router",
+  "routerVersion": "baseline-2026-08-12",
+  "fixtures": {
+    "passed": 20,
+    "total": 20
+  },
+  "score": 1
+}

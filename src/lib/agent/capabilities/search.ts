@@ -21,6 +21,7 @@ export type SearchHotelsArgs = {
  */
 export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; searchSessionId: string; taskId: string }> = {
   name: "search_hotels",
+  keywords: ["search", "find a hotel", "availability", "look for", "hotels in"],
   summary: "Open a Hyatt tab and collect comparable city rates for a set of dates.",
   effect: "browser_task",
   params: [
@@ -61,6 +62,7 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
 
 export const getSearchSession: Capability<{ sessionId: string }, { session: HotelSearchSessionSnapshot | null }> = {
   name: "get_hotel_search_session",
+  keywords: ["search results", "offers", "search session"],
   summary: "Read the offers already collected for a hotel search session.",
   effect: "read",
   params: [{ description: "The search session identifier.", name: "sessionId", required: true, type: "string" }],

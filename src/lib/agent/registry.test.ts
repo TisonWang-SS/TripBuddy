@@ -76,7 +76,7 @@ describe("capability registry", () => {
     const described = describeCapabilities();
     expect(described).toHaveLength(listCapabilities().length);
     for (const entry of described) {
-      expect(Object.keys(entry).sort()).toEqual(["effect", "name", "params", "summary"]);
+      expect(Object.keys(entry).sort()).toEqual(["effect", "keywords", "name", "params", "summary"]);
     }
     expect(described.find((entry) => entry.name === "search_hotels")?.params.map((param) => param.name).sort())
       .toEqual(["adults", "checkIn", "checkOut", "city", "hotelGroup"]);

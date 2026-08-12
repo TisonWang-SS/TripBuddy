@@ -22,6 +22,7 @@ export type DueCheck = {
 
 export const listDueChecks: Capability<Record<string, never>, { due: DueCheck[] }> = {
   name: "list_due_checks",
+  keywords: ["due", "queue", "overdue", "needs checking", "cadence"],
   summary: "List bookings whose price check is due, with cadence and retry state.",
   effect: "read",
   params: [],
@@ -61,6 +62,7 @@ export const listDueChecks: Capability<Record<string, never>, { due: DueCheck[] 
 
 export const runPriceCheck: Capability<{ bookingId: string; trigger: "manual" | "due_queue" }, BrowserTaskLaunch> = {
   name: "run_price_check",
+  keywords: ["price check", "recheck", "check the price", "run a check", "cheaper"],
   summary: "Open a Hyatt tab and collect current price evidence for one booking.",
   effect: "browser_task",
   params: [
@@ -93,6 +95,7 @@ export const importAccountBookings: Capability<
   { expiresAt: string | null; launchUrl: string; status: string; taskId: string }
 > = {
   name: "import_account_bookings",
+  keywords: ["import", "sync", "hyatt account", "load bookings"],
   summary: "Open a Hyatt tab and import the stays already booked in the signed-in account.",
   effect: "browser_task",
   params: [

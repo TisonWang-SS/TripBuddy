@@ -36,6 +36,12 @@ The extractor uses DeepSeek's OpenAI-compatible Chat Completions endpoint with J
 
 After changing LLM configuration, run `npm run eval:llm-extractor:smoke` for one live fixture. Run the full opt-in shared-fixture comparison with `npm run eval:llm-extractor`; it compares against the checked-in deterministic baseline in `docs/evals/`. Both commands load `.env` explicitly.
 
+### Intent routing
+
+A request typed as a sentence is routed to one capability by the same provider. The model chooses an intent and never an outcome: it sees only the capability catalogue and the sentence, and everything it returns is validated before it runs. See [ADR 0002](docs/decisions/0002-model-influenced-routing.md).
+
+Routing works with no API key, falling back to keyword matching over the same catalogue. Score both paths with `npm run eval:intent-router`; the deterministic router is the checked-in baseline that the model must match.
+
 API references: [Create Chat Completion](https://api-docs.deepseek.com/api/create-chat-completion), [JSON Output](https://api-docs.deepseek.com/guides/json_mode/), and [Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode).
 
 ## Browser Companion
@@ -54,6 +60,7 @@ npm run build
 ## Documentation
 
 - [Product requirements](docs/PRD.md)
+- [Decisions](docs/decisions/)
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
 - [System design and AI-agent interview guide](docs/SYSTEM_DESIGN_AND_AI_AGENT_INTERVIEW_GUIDE.zh-CN.md)
 - [Code review report](docs/CODE_REVIEW.zh-CN.md)

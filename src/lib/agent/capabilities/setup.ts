@@ -20,6 +20,7 @@ export type ProfileValues = {
 
 export const getProfile: Capability<Record<string, never>, { profile: ProfileValues | null }> = {
   name: "get_profile",
+  keywords: ["profile", "loyalty", "tier", "point value", "threshold"],
   summary: "Read the traveler profile that prices loyalty and benefit value.",
   effect: "read",
   params: [],
@@ -58,6 +59,7 @@ export const getSettings: Capability<
   }
 > = {
   name: "get_settings",
+  keywords: ["settings", "currency", "conversion rate", "exchange rate", "configuration"],
   summary: "Read the display currency, stored conversion rates, and whether model extraction is configured.",
   effect: "read",
   params: [],

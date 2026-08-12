@@ -1,10 +1,16 @@
 import type { ParsedObservationDraft } from "@/lib/providers/types";
 import { selectEvidenceTextSample } from "@/lib/json";
+import { isLlmConfigured, LlmError, readLlmConfigFromEnv, requestJsonCompletion } from "@/lib/providers/llmClient";
 
+export { DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL } from "@/lib/providers/llmClient";
+
+/*
+ * The version is not bumped for the move onto the shared client: the request
+ * body, prompt, and schema are unchanged, so observations extracted before and
+ * after are the product of identical behaviour.
+ */
 export const LLM_EVIDENCE_EXTRACTOR_NAME = "deepseek-chat-completions-evidence";
 export const LLM_EVIDENCE_EXTRACTOR_VERSION = "2026-08-11.7";
-export const DEFAULT_LLM_BASE_URL = "https://api.deepseek.com";
-export const DEFAULT_LLM_MODEL = "deepseek-v4-flash";
 
 type MoneyProposal = {
   amount: number;
@@ -65,67 +71,39 @@ export class DeepSeekChatCompletionsEvidenceExtractor {
   }
 
   async extract(input: { hotelGroup: string; nights: number; pageText: string; sourceUrl: string }) {
-    if (!this.apiKey) {
-      throw new LlmEvidenceError(
-        "llm_not_configured",
-        "LLM extraction is not configured. Set TRIPBUDDY_LLM_API_KEY in the environment."
-      );
-    }
-    const response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
-      body: JSON.stringify({
-        messages: [
-          { role: "system", content: EXTRACTION_INSTRUCTIONS },
-          {
-            role: "user",
-            content: JSON.stringify({
-              hotelGroup: input.hotelGroup,
-              nights: input.nights,
-              pageEvidence: selectEvidenceTextSample(input.pageText),
-              sourceUrl: input.sourceUrl
-            })
-          }
-        ],
-        max_tokens: 4_000,
-        model: this.model,
-        response_format: { type: "json_object" },
-        temperature: 0,
-        thinking: { type: "disabled" }
-      }),
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json"
-      },
-      method: "POST",
-      signal: AbortSignal.timeout(60_000)
-    });
-    const payload = await readResponsePayload(response);
-    if (!response.ok) {
-      throw new LlmEvidenceError(
-        "llm_request_failed",
-        `LLM extraction failed with ${response.status}: ${readApiError(payload)}`
-      );
-    }
-    const outputText = readOutputText(payload);
     let parsed: unknown;
     try {
-      parsed = JSON.parse(outputText);
-    } catch {
-      throw new LlmEvidenceError("llm_invalid_json", "The LLM returned output that was not valid JSON.");
+      parsed = await requestJsonCompletion(
+        { apiKey: this.apiKey, baseUrl: this.baseUrl, fetchImpl: this.fetchImpl, model: this.model },
+        {
+          maxTokens: 4_000,
+          system: EXTRACTION_INSTRUCTIONS,
+          user: JSON.stringify({
+            hotelGroup: input.hotelGroup,
+            nights: input.nights,
+            pageEvidence: selectEvidenceTextSample(input.pageText),
+            sourceUrl: input.sourceUrl
+          })
+        }
+      );
+    } catch (error) {
+      /*
+       * Transport failures are re-thrown in this module's own type, with the
+       * code preserved: callers match on `instanceof LlmEvidenceError` and the
+       * API route maps the code to a status.
+       */
+      throw error instanceof LlmError ? new LlmEvidenceError(error.code, error.message) : error;
     }
     return parseLlmEvidenceOutput(parsed);
   }
 }
 
 export function createConfiguredLlmEvidenceExtractor() {
-  return new DeepSeekChatCompletionsEvidenceExtractor({
-    apiKey: process.env.TRIPBUDDY_LLM_API_KEY ?? "",
-    baseUrl: process.env.TRIPBUDDY_LLM_BASE_URL ?? DEFAULT_LLM_BASE_URL,
-    model: process.env.TRIPBUDDY_LLM_MODEL ?? DEFAULT_LLM_MODEL
-  });
+  return new DeepSeekChatCompletionsEvidenceExtractor(readLlmConfigFromEnv());
 }
 
 export function isLlmEvidenceExtractionConfigured() {
-  return Boolean(process.env.TRIPBUDDY_LLM_API_KEY?.trim());
+  return isLlmConfigured();
 }
 
 export function validateLlmEvidenceCandidates(
@@ -541,40 +519,6 @@ function toObservationDraft(candidate: LlmEvidenceCandidate, sourceUrl: string):
     sourceUrl,
     taxesIncluded: candidate.taxesIncluded
   };
-}
-
-async function readResponsePayload(response: Response) {
-  try {
-    return await response.json() as unknown;
-  } catch {
-    return null;
-  }
-}
-
-function readApiError(payload: unknown) {
-  return isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string"
-    ? payload.error.message.slice(0, 500)
-    : "The provider returned an unreadable error.";
-}
-
-function readOutputText(payload: unknown) {
-  if (!isRecord(payload)) {
-    throw new LlmEvidenceError("llm_invalid_response", "The LLM returned an unreadable response.");
-  }
-  if (!Array.isArray(payload.choices) || !isRecord(payload.choices[0])) {
-    throw new LlmEvidenceError("llm_invalid_response", "The LLM response did not contain a completion choice.");
-  }
-  const choice = payload.choices[0];
-  if (choice.finish_reason === "length") {
-    throw new LlmEvidenceError("llm_incomplete_response", "The LLM response exceeded its output limit.");
-  }
-  if (choice.finish_reason === "content_filter") {
-    throw new LlmEvidenceError("llm_refused", "The LLM provider filtered the extraction response.");
-  }
-  if (!isRecord(choice.message) || typeof choice.message.content !== "string" || !choice.message.content.trim()) {
-    throw new LlmEvidenceError("llm_empty_response", "The LLM response did not contain JSON content.");
-  }
-  return choice.message.content;
 }
 
 function parseMoney(value: unknown, index: number): MoneyProposal | null {

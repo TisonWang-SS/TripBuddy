@@ -33,6 +33,7 @@ export type BookingSummary = {
 
 export const listBookings: Capability<{ scope: "upcoming" | "all" }, { bookings: BookingSummary[] }> = {
   name: "list_bookings",
+  keywords: ["bookings", "stays", "reservations", "watchlist", "trips", "my stays"],
   summary: "List tracked hotel bookings with their current verdict and evidence quality.",
   effect: "read",
   params: [
@@ -108,6 +109,7 @@ export type BookingDetail = BookingSummary & {
 
 export const getBooking: Capability<{ bookingId: string }, { booking: BookingDetail | null }> = {
   name: "get_booking",
+  keywords: ["booking", "stay", "reservation", "watch plan"],
   summary: "Read one booking in full, including its watch plan and current verdict.",
   effect: "read",
   params: [{ description: "The booking identifier.", name: "bookingId", required: true, type: "string" }],
@@ -196,6 +198,7 @@ export const getPriceHistory: Capability<
   { observations: ObservationRecord[]; runs: { finishedAt: string | null; runId: string; startedAt: string; status: string; summary: string | null; trigger: string }[] }
 > = {
   name: "get_price_history",
+  keywords: ["history", "observations", "past prices", "logs", "previous checks"],
   summary: "Read the observation and price-check history recorded for one booking.",
   effect: "read",
   params: [{ description: "The booking identifier.", name: "bookingId", required: true, type: "string" }],
@@ -260,6 +263,7 @@ export type RecommendationExplanation = {
 
 export const explainRecommendation: Capability<{ bookingId: string }, { recommendation: RecommendationExplanation | null }> = {
   name: "explain_recommendation",
+  keywords: ["why", "explain", "verdict", "reason", "breakdown", "savings", "recommendation"],
   summary: "Explain the current verdict for a booking, with its cost breakdown, blockers, and warnings.",
   effect: "read",
   params: [{ description: "The booking identifier.", name: "bookingId", required: true, type: "string" }],

@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseAgentEvent, readAgentEventFrames } from "@/lib/agent/events";
 
-const mocks = vi.hoisted(() => ({ runCapability: vi.fn() }));
+const mocks = vi.hoisted(() => ({ runAgentRequest: vi.fn() }));
 
-vi.mock("@/lib/agent/run", () => ({ runCapability: mocks.runCapability }));
+vi.mock("@/lib/agent/run", () => ({ runAgentRequest: mocks.runAgentRequest }));
 
 function post(body: unknown, headers: Record<string, string> = {}) {
   return new Request("http://localhost/api/agent", {
@@ -22,7 +22,7 @@ async function readStream(response: Response) {
 
 describe("agent event stream route", () => {
   beforeEach(() => {
-    mocks.runCapability.mockReset().mockImplementation(async (_request: unknown, emit: (event: unknown) => void) => {
+    mocks.runAgentRequest.mockReset().mockImplementation(async (_request: unknown, emit: (event: unknown) => void) => {
       emit({ runId: "run-1", timestamp: 1, type: "RUN_STARTED" });
       emit({ runId: "run-1", timestamp: 2, type: "RUN_FINISHED" });
     });
@@ -37,7 +37,7 @@ describe("agent event stream route", () => {
     const response = await POST(post({ capability: "list_bookings" }, { Origin: "https://evil.example" }));
 
     expect(response.status).toBe(403);
-    expect(mocks.runCapability).not.toHaveBeenCalled();
+    expect(mocks.runAgentRequest).not.toHaveBeenCalled();
   });
 
   it("accepts a same-origin request", async () => {
@@ -45,7 +45,7 @@ describe("agent event stream route", () => {
     const response = await POST(post({ capability: "list_bookings" }, { Origin: "http://localhost" }));
 
     expect(response.status).toBe(200);
-    expect(mocks.runCapability).toHaveBeenCalled();
+    expect(mocks.runAgentRequest).toHaveBeenCalled();
   });
 
   it("answers a malformed body with a status rather than a stream", async () => {
@@ -54,14 +54,21 @@ describe("agent event stream route", () => {
 
     expect(response.status).toBe(400);
     expect(response.headers.get("Content-Type")).toContain("application/json");
-    expect(mocks.runCapability).not.toHaveBeenCalled();
+    expect(mocks.runAgentRequest).not.toHaveBeenCalled();
   });
 
-  it("requires a capability name", async () => {
+  it("requires either a capability or a message", async () => {
     const { POST } = await import("@/app/api/agent/route");
     expect((await POST(post({}))).status).toBe(400);
     expect((await POST(post({ capability: "   " }))).status).toBe(400);
-    expect(mocks.runCapability).not.toHaveBeenCalled();
+    expect((await POST(post({ message: "  " }))).status).toBe(400);
+    expect(mocks.runAgentRequest).not.toHaveBeenCalled();
+  });
+
+  it("accepts a message with no capability", async () => {
+    const { POST } = await import("@/app/api/agent/route");
+    expect((await POST(post({ message: "show my bookings" }))).status).toBe(200);
+    expect(mocks.runAgentRequest).toHaveBeenCalled();
   });
 
   it("streams events as server-sent events", async () => {
@@ -81,7 +88,7 @@ describe("agent event stream route", () => {
     const { POST } = await import("@/app/api/agent/route");
     await POST(post({ args: { bookingId: "booking-1" }, capability: "run_price_check", confirmed: true }));
 
-    expect(mocks.runCapability).toHaveBeenCalledWith(
+    expect(mocks.runAgentRequest).toHaveBeenCalledWith(
       expect.objectContaining({ args: { bookingId: "booking-1" }, capability: "run_price_check", confirmed: true }),
       expect.any(Function)
     );
@@ -89,7 +96,7 @@ describe("agent event stream route", () => {
 
   /* A failing run still answers 200; the failure is a RUN_ERROR in the stream. */
   it("reports a run failure inside the stream", async () => {
-    mocks.runCapability.mockImplementation(async (_request: unknown, emit: (event: unknown) => void) => {
+    mocks.runAgentRequest.mockImplementation(async (_request: unknown, emit: (event: unknown) => void) => {
       emit({ runId: "run-1", timestamp: 1, type: "RUN_STARTED" });
       emit({ code: "confirmation_required", message: "needs a press", runId: "run-1", timestamp: 2, type: "RUN_ERROR" });
     });

@@ -26,6 +26,12 @@ export type CapabilityParam = {
 type CapabilityBase<TArgs, TResult> = {
   /** One line, written to be read by the router and shown in the command bar. */
   summary: string;
+  /**
+   * The words a person would use for this action. Used by the deterministic
+   * router when no model is configured, and included in the model's catalogue.
+   * Required so a new capability cannot be unreachable by keyword alone.
+   */
+  keywords: readonly string[];
   name: string;
   params: readonly CapabilityParam[];
   /** Strict: rejects unknown keys, missing required values, and wrong types. */

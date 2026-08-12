@@ -56,6 +56,7 @@ export function requireCapability(name: string) {
 
 export type CapabilityDescription = {
   effect: AnyCapability["effect"];
+  keywords: readonly string[];
   name: string;
   params: readonly CapabilityParam[];
   summary: string;
@@ -67,7 +68,7 @@ export type CapabilityDescription = {
  * arguments; it never sees handlers, data, or prices.
  */
 export function describeCapabilities(): CapabilityDescription[] {
-  return CAPABILITIES.map(({ effect, name, params, summary }) => ({ effect, name, params, summary }));
+  return CAPABILITIES.map(({ effect, keywords, name, params, summary }) => ({ effect, keywords, name, params, summary }));
 }
 
 /**

@@ -72,6 +72,13 @@ The application is divided into four boundaries:
 - Split failure reporting by layer: a transport problem answers with a status code, and anything that goes wrong inside a run is a RUN_ERROR event on an otherwise healthy 200 stream, so a client reads outcomes in one place.
 - Pass capability error codes through onto RUN_ERROR unchanged, so a client can tell `confirmation_required` from a failure without matching on message text. Confirmation is a protocol round trip: the client re-sends the same request with `confirmed` after the user presses.
 - Guard the stream with the same `sameOriginRequestError` the task-creation routes use.
+- Route a sentence to a capability in `src/lib/agent/router.ts`. Build the model's catalogue from the registry so a new capability is routable without a prompt edit, and constrain the model to `{capability, args}` with strict key-set validation.
+- Check everything the model returns: an unknown capability name is out of scope, and arguments go through the capability's own parser so an invented parameter or a relative date is rejected rather than coerced.
+- Refuse booking, cancelling, paying, confirming, and modifying deterministically, before either routing path runs, so the refusal does not depend on the model.
+- Keep user-facing copy product-owned: the model signals `unsupported`, and clarifying questions reuse the capability parser's messages.
+- Fall back to keyword matching over the same catalogue when no key is configured or the provider is unreachable, and record which path produced the decision.
+- Share one DeepSeek JSON-completion client (`src/lib/providers/llmClient.ts`) between the extractor and the router rather than duplicating the request shape and finish-reason handling.
+- Score both routing paths against one fixture set with `npm run eval:intent-router`, holding the deterministic router as the checked-in baseline in `docs/evals/`.
 
 ### 6. Verification
 

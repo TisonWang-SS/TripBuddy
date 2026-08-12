@@ -1,15 +1,19 @@
 import type { AgentEvent } from "@/lib/agent/events";
 import { capabilityResultRoute, invokeCapability, parseCapabilityArgs, requireCapability } from "@/lib/agent/registry";
+import { type RouteDecision, routeIntent } from "@/lib/agent/router";
 
 export type AgentRunRequest = {
   args?: unknown;
-  capability: string;
+  /** Set when the caller already knows the capability, such as a pressed button. */
+  capability?: string;
   /**
    * Set only after the user has explicitly agreed to an action that opens a
    * browser tab. The client learns it is needed from a RUN_ERROR carrying
    * `confirmation_required`, and re-sends the same request with this set.
    */
   confirmed?: boolean;
+  /** A person's words, to be routed. Ignored when `capability` is given. */
+  message?: string;
 };
 
 export type AgentEventSink = (event: AgentEvent) => void;
@@ -21,30 +25,45 @@ type RunOptions = {
 };
 
 /**
- * Runs one capability and reports it as an AG-UI event sequence.
+ * Runs one agent request and reports it as an AG-UI event sequence.
  *
  * Deliberately transport-free: the HTTP route turns these events into SSE
- * frames, and nothing here knows that. In P3 the router picks the capability
- * name before this runs; the sequence below does not change.
+ * frames, and nothing here knows that.
+ *
+ * A request either names a capability — a pressed button — or carries a
+ * sentence to route. Routing is a step in the same run, so the interface can
+ * show what was understood before anything executes.
  */
-export async function runCapability(request: AgentRunRequest, emit: AgentEventSink, options: RunOptions = {}) {
+export async function runAgentRequest(request: AgentRunRequest, emit: AgentEventSink, options: RunOptions = {}) {
   const now = options.now ?? (() => Date.now());
-  const runId = options.runId ?? cryptoRandomId();
+  const runId = options.runId ?? globalThis.crypto.randomUUID();
   const toolCallId = `${runId}-1`;
 
   emit({ runId, timestamp: now(), type: "RUN_STARTED" });
 
   try {
-    const capability = requireCapability(request.capability);
+    const resolved = await resolveRequest(request, emit, now);
+    if (resolved.kind !== "capability") {
+      /*
+       * The run ends in words rather than a call. The words are product-owned:
+       * a refusal sentence or the capability parser's own message. The model
+       * never writes what the user reads.
+       */
+      say(emit, now, runId, resolved.kind === "clarify" ? resolved.question : resolved.message);
+      emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
+      return;
+    }
+
+    const capability = requireCapability(resolved.capability);
     emit({ timestamp: now(), toolCallId, toolCallName: capability.name, type: "TOOL_CALL_START" });
 
     /* Announce the arguments the run will actually use, not the raw request. */
-    const args = parseCapabilityArgs(capability.name, request.args);
+    const args = parseCapabilityArgs(capability.name, resolved.args);
     emit({ delta: JSON.stringify(args), timestamp: now(), toolCallId, type: "TOOL_CALL_ARGS" });
     emit({ timestamp: now(), toolCallId, type: "TOOL_CALL_END" });
 
     emit({ stepName: capability.name, timestamp: now(), type: "STEP_STARTED" });
-    const { result } = await invokeCapability(capability.name, request.args, { confirmed: request.confirmed });
+    const { result } = await invokeCapability(capability.name, resolved.args, { confirmed: request.confirmed });
     emit({ stepName: capability.name, timestamp: now(), type: "STEP_FINISHED" });
 
     emit({ content: JSON.stringify(result), timestamp: now(), toolCallId, type: "TOOL_CALL_RESULT" });
@@ -68,7 +87,7 @@ export async function runCapability(request: AgentRunRequest, emit: AgentEventSi
     /* RUN_ERROR terminates the run; RUN_FINISHED must not follow it. */
     emit({
       code: errorCode(error),
-      message: error instanceof Error ? error.message : "The capability could not be run.",
+      message: error instanceof Error ? error.message : "The request could not be run.",
       runId,
       timestamp: now(),
       type: "RUN_ERROR"
@@ -76,10 +95,34 @@ export async function runCapability(request: AgentRunRequest, emit: AgentEventSi
   }
 }
 
+type ResolvedRequest = { args: unknown; capability: string; kind: "capability" } | Exclude<RouteDecision, { kind: "capability" }>;
+
+async function resolveRequest(request: AgentRunRequest, emit: AgentEventSink, now: () => number): Promise<ResolvedRequest> {
+  if (typeof request.capability === "string" && request.capability.trim().length > 0) {
+    return { args: request.args, capability: request.capability.trim(), kind: "capability" };
+  }
+
+  emit({ stepName: "route", timestamp: now(), type: "STEP_STARTED" });
+  const decision = await routeIntent(request.message ?? "");
+  emit({ stepName: "route", timestamp: now(), type: "STEP_FINISHED" });
+
+  return decision.kind === "capability"
+    ? { args: decision.args, capability: decision.capability, kind: "capability" }
+    : decision;
+}
+
+/** One complete assistant message, streamed as the protocol expects. */
+function say(emit: AgentEventSink, now: () => number, runId: string, text: string) {
+  const messageId = `${runId}-m1`;
+  emit({ messageId, role: "assistant", timestamp: now(), type: "TEXT_MESSAGE_START" });
+  emit({ delta: text, messageId, timestamp: now(), type: "TEXT_MESSAGE_CONTENT" });
+  emit({ messageId, timestamp: now(), type: "TEXT_MESSAGE_END" });
+}
+
 /**
- * Capability, registry, and browser-task errors all carry a `code`. Passing it
- * through unchanged is what lets a client tell "you must confirm this" apart
- * from "that failed", rather than string-matching a message.
+ * Capability, registry, router, and browser-task errors all carry a `code`.
+ * Passing it through unchanged is what lets a client tell "you must confirm
+ * this" apart from "that failed", rather than string-matching a message.
  */
 function errorCode(error: unknown) {
   if (error && typeof error === "object" && "code" in error) {
@@ -89,8 +132,4 @@ function errorCode(error: unknown) {
     }
   }
   return "capability_failed";
-}
-
-function cryptoRandomId() {
-  return globalThis.crypto.randomUUID();
 }
