@@ -41,12 +41,26 @@ function decodeQuery(value: unknown): HotelSearchQuery | null {
   const checkIn = calendarDate(value.checkIn);
   const checkOut = calendarDate(value.checkOut);
   const city = requiredString(value.city);
+  const cityAsAsked = value.cityAsAsked === undefined ? city : requiredString(value.cityAsAsked);
   const currency = requiredString(value.currency)?.toUpperCase() ?? null;
   const hotelGroup = requiredString(value.hotelGroup);
-  if (!adults || !checkIn || !checkOut || !city || !currency || !hotelGroup || checkOut <= checkIn) {
+  const maxStayTotal = value.maxStayTotal === undefined || value.maxStayTotal === null
+    ? null
+    : positiveNumber(value.maxStayTotal);
+  if (
+    !adults ||
+    !checkIn ||
+    !checkOut ||
+    !city ||
+    !cityAsAsked ||
+    !currency ||
+    !hotelGroup ||
+    (value.maxStayTotal !== undefined && value.maxStayTotal !== null && maxStayTotal === null) ||
+    checkOut <= checkIn
+  ) {
     return null;
   }
-  return { adults, checkIn, checkOut, city, currency, hotelGroup };
+  return { adults, checkIn, checkOut, city, cityAsAsked, currency, hotelGroup, maxStayTotal };
 }
 
 function decodeResults(value: unknown): HotelSearchSessionResults | null {
@@ -196,6 +210,10 @@ function nullableNumber(value: unknown): number | null | undefined {
 
 function positiveInteger(value: unknown) {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function positiveNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function nullableBoolean(value: unknown): boolean | null | undefined {

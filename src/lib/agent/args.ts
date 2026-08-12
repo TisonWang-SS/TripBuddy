@@ -69,6 +69,19 @@ export function optionalInteger(bag: Record<string, unknown>, key: string) {
   return parsed;
 }
 
+/** Positive finite money-like input. Kept separate from integer counts. */
+export function optionalPositiveNumber(bag: Record<string, unknown>, key: string) {
+  const value = bag[key];
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  const parsed = typeof value === "string" ? Number(value) : value;
+  if (typeof parsed !== "number" || !Number.isFinite(parsed) || parsed <= 0) {
+    return failure(`"${key}" must be a number greater than zero.`);
+  }
+  return parsed;
+}
+
 /**
  * Calendar dates only, never a parsed natural-language phrase. The product
  * stores check-in/check-out at UTC midnight and compares them as calendar days;

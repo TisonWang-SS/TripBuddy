@@ -79,7 +79,7 @@ describe("capability registry", () => {
       expect(Object.keys(entry).sort()).toEqual(["effect", "keywords", "name", "params", "summary"]);
     }
     expect(described.find((entry) => entry.name === "search_hotels")?.params.map((param) => param.name).sort())
-      .toEqual(["adults", "checkIn", "checkOut", "city", "hotelGroup"]);
+      .toEqual(["adults", "checkIn", "checkOut", "city", "cityAsAsked", "currency", "hotelGroup", "maxStayTotal"]);
   });
 
   it("runs a read capability without any confirmation", async () => {

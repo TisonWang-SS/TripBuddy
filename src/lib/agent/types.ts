@@ -12,7 +12,7 @@
  * `@/lib/labels`.
  */
 
-export type CapabilityParamType = "string" | "integer" | "calendar_date" | "enum";
+export type CapabilityParamType = "string" | "integer" | "number" | "calendar_date" | "enum";
 
 export type CapabilityParam = {
   description: string;

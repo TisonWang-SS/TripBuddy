@@ -1,11 +1,19 @@
 import { listSearchableHotelGroups } from "@/lib/providers/registry";
 import { getProfileSearchCurrency } from "@/lib/profilePreferences";
+import { getHotelSearchSession } from "@/lib/hotelSearchSessions";
 import { PageHeader } from "@/ui";
 import { HotelSearchClient } from "./HotelSearchClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function HotelSearchPage() {
+export default async function HotelSearchPage({
+  searchParams
+}: {
+  searchParams: Promise<{ sessionId?: string | string[] }>;
+}) {
+  const params = await searchParams;
+  const sessionId = Array.isArray(params.sessionId) ? params.sessionId[0] : params.sessionId;
+  const initialSession = sessionId ? await getHotelSearchSession(sessionId) : null;
   const currency = await getProfileSearchCurrency();
   return (
     <div className="deskStack">
@@ -14,7 +22,11 @@ export default async function HotelSearchPage() {
         eyebrow="Hotel search"
         title="Official city prices"
       />
-      <HotelSearchClient currency={currency} hotelGroups={listSearchableHotelGroups()} />
+      <HotelSearchClient
+        currency={currency}
+        hotelGroups={listSearchableHotelGroups()}
+        initialSession={initialSession}
+      />
     </div>
   );
 }

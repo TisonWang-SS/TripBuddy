@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { Surface, SurfaceNode } from "@/lib/agent/surface";
+import type { HotelSearchSessionSnapshot } from "@/lib/hotelSearchSessions";
 import { SurfaceRenderer } from "./SurfaceRenderer";
 
 function surfaceOf(...nodes: SurfaceNode[]): Surface {
@@ -28,6 +29,66 @@ const booking = {
   watchEnabled: true
 };
 
+const searchSession: HotelSearchSessionSnapshot = {
+  createdAt: "2030-08-01T00:00:00.000Z",
+  expiresAt: "2030-08-02T00:00:00.000Z",
+  id: "session-1",
+  profileId: "primary",
+  query: {
+    adults: 2,
+    checkIn: "2030-09-10",
+    checkOut: "2030-09-12",
+    city: "Tokyo",
+    cityAsAsked: "东京",
+    currency: "CNY",
+    hotelGroup: "Hyatt",
+    maxStayTotal: 1000
+  },
+  results: {
+    capturedAt: "2030-08-01T00:00:00.000Z",
+    hotels: [{
+      availabilityLabel: "Available",
+      hotelGroup: "Hyatt",
+      hotelKey: "hyatt:tokyo:grand-hyatt-tokyo",
+      hotelName: "Grand Hyatt Tokyo",
+      locationLabel: "Tokyo, Japan",
+      offers: [{
+        breakfastIncluded: null,
+        cancellationPolicy: null,
+        capturedAt: "2030-08-01T00:00:00.000Z",
+        comparisonWarnings: [],
+        currency: "CNY",
+        displayedAmount: 450,
+        displayedPriceBasis: "tax_exclusive",
+        displayedPriceUnit: "avg_nightly",
+        eliteNightEligible: true,
+        evidenceLevel: "starting_price",
+        feesAmount: null,
+        feesIncluded: "excluded",
+        hotelGroup: "Hyatt",
+        loyaltyEligible: true,
+        nights: 2,
+        offerKey: "starting",
+        providerName: "Hyatt",
+        ratePlanName: null,
+        roomType: null,
+        sourceName: "Hyatt official",
+        sourceType: "direct",
+        sourceUrl: "https://www.hyatt.com/search",
+        startingAvgNightlyRate: 450,
+        staySubtotal: 900,
+        stayTotal: null,
+        taxesAmount: null,
+        taxesAndFeesAmount: null,
+        taxesIncluded: "excluded"
+      }]
+    }],
+    summary: "One visible official rate.",
+    warning: null
+  },
+  updatedAt: "2030-08-01T00:00:00.000Z"
+};
+
 describe("surface renderer", () => {
   it("renders a booking list with resolved labels, not stored enums", () => {
     render(<SurfaceRenderer surface={surfaceOf({ component: "BookingList", key: "b", props: { bookings: [booking], title: "Stays" } })} />);
@@ -41,6 +102,20 @@ describe("surface renderer", () => {
   it("renders a message with its tone", () => {
     render(<SurfaceRenderer surface={surfaceOf({ component: "Message", key: "m", props: { text: "Nothing is due.", tone: "positive" } })} />);
     expect(screen.getByText("Nothing is due.")).toHaveAttribute("data-tone", "positive");
+  });
+
+  it("renders a saved hotel-search surface with its safe budget basis and upgrade path", () => {
+    render(
+      <SurfaceRenderer
+        surface={surfaceOf({ component: "HotelSearchResults", key: "search", props: { session: searchSession } })}
+      />
+    );
+
+    expect(screen.getByText(/东京 · 1 to review/)).toBeInTheDocument();
+    expect(screen.getByText(/Starting Avg\/Night prices never qualify/)).toBeInTheDocument();
+    expect(screen.getByText(/still need a tax-inclusive total/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Verify tax-inclusive total" }))
+      .toHaveAttribute("href", "/hotel-search?sessionId=session-1");
   });
 
   it("separates blockers from warnings by tone", () => {

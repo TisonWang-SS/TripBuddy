@@ -104,9 +104,14 @@ export type HotelSearchQuery = {
   adults: number;
   checkIn: string;
   checkOut: string;
+  /** Provider-facing Latin-letter destination. */
   city: string;
+  /** The destination wording the user supplied, retained for display. */
+  cityAsAsked: string;
   currency: string;
   hotelGroup: string;
+  /** Tax-inclusive total-stay ceiling in `currency`; null means no budget filter. */
+  maxStayTotal: number | null;
 };
 
 export type HotelSearchResult = {

@@ -75,6 +75,21 @@ describe("intent router — model path", () => {
     expect(decision).toMatchObject({ args: { scope: "all" }, capability: "list_bookings", kind: "capability" });
   });
 
+  it("accepts a Latin provider city while retaining the Chinese wording and budget", async () => {
+    const args = {
+      checkIn: "2030-09-10",
+      checkOut: "2030-09-12",
+      city: "Tokyo",
+      cityAsAsked: "东京",
+      currency: "CNY",
+      maxStayTotal: 1000
+    };
+    const fetchImpl = vi.fn().mockResolvedValue(completion({ args, capability: "search_hotels" }));
+    const decision = await routeIntent("查东京酒店，整段预算 1000 人民币", modelConfig(fetchImpl));
+
+    expect(decision).toMatchObject({ args, capability: "search_hotels", kind: "capability", source: "model" });
+  });
+
   /*
    * The boundary that matters: the model is given the catalogue and the user's
    * sentence, and nothing else. No booking, no price, no verdict.
@@ -208,5 +223,13 @@ describe("router instructions", () => {
     const instructions = buildRouterInstructions();
     expect(instructions).toContain("every part of one must come from the request itself");
     expect(instructions).toContain("Omit the parameter instead of computing or completing a date");
+  });
+
+  it("owns the Chinese-city and budget normalization contract", () => {
+    const instructions = buildRouterInstructions();
+    expect(instructions).toContain('Latin letters as "city"');
+    expect(instructions).toContain('exact destination wording from the request as "cityAsAsked"');
+    expect(instructions).toContain('whole-stay budget as "maxStayTotal"');
+    expect(instructions).toContain("never convert the amount");
   });
 });

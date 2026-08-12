@@ -4,6 +4,7 @@ import {
   CapabilityArgsError,
   optionalEnum,
   optionalInteger,
+  optionalPositiveNumber,
   optionalString,
   requireCalendarDate,
   requireString,
@@ -47,6 +48,14 @@ describe("capability arguments", () => {
     expect(optionalInteger({ adults: 2 }, "adults")).toBe(2);
     expect(() => optionalInteger({ adults: 2.5 }, "adults")).toThrow(CapabilityArgsError);
     expect(() => optionalInteger({ adults: "two" }, "adults")).toThrow(CapabilityArgsError);
+  });
+
+  it("accepts a positive decimal amount and rejects zero or non-numbers", () => {
+    expect(optionalPositiveNumber({ maxStayTotal: "1000.50" }, "maxStayTotal")).toBe(1000.5);
+    expect(optionalPositiveNumber({}, "maxStayTotal")).toBeUndefined();
+    expect(() => optionalPositiveNumber({ maxStayTotal: 0 }, "maxStayTotal")).toThrow(CapabilityArgsError);
+    expect(() => optionalPositiveNumber({ maxStayTotal: "about a thousand" }, "maxStayTotal"))
+      .toThrow(/greater than zero/);
   });
 
   /*

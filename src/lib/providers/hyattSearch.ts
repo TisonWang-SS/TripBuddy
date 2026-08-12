@@ -5,17 +5,27 @@ type HyattCitySearchQuery = Omit<HotelSearchQuery, "hotelGroup">;
 
 export function normalizeHyattCitySearchQuery(input: Partial<HyattCitySearchQuery>) {
   const adults = Number(input.adults ?? 2);
+  const city = String(input.city ?? "").trim();
+  const rawMaxStayTotal: unknown = input.maxStayTotal;
+  const maxStayTotal = rawMaxStayTotal === undefined || rawMaxStayTotal === null || rawMaxStayTotal === ""
+    ? null
+    : Number(rawMaxStayTotal);
   const query = {
     adults: Number.isInteger(adults) && adults > 0 ? adults : 2,
     checkIn: String(input.checkIn ?? "").trim(),
     checkOut: String(input.checkOut ?? "").trim(),
-    city: String(input.city ?? "").trim(),
-    currency: normalizeHyattCurrency(String(input.currency ?? "USD"))
+    city,
+    cityAsAsked: String(input.cityAsAsked ?? city).trim() || city,
+    currency: normalizeHyattCurrency(String(input.currency ?? "USD")),
+    maxStayTotal
   };
 
   const errors: string[] = [];
   if (!query.city) {
     errors.push("City is required.");
+  }
+  if (query.maxStayTotal !== null && (!Number.isFinite(query.maxStayTotal) || query.maxStayTotal <= 0)) {
+    errors.push("Maximum tax-inclusive stay-total budget must be greater than zero.");
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(query.checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(query.checkOut)) {
     errors.push("Check-in and check-out dates are required.");

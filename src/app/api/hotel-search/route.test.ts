@@ -54,12 +54,26 @@ describe("hotel search API", () => {
     });
     const { POST } = await import("@/app/api/hotel-search/route");
     const response = await POST(new Request("http://localhost/api/hotel-search", {
-      body: JSON.stringify({ adults: 2, checkIn: "2026-09-10", checkOut: "2026-09-12", city: "Tokyo", currency: "JPY", hotelGroup: "Hyatt" }),
+      body: JSON.stringify({
+        adults: 2,
+        checkIn: "2026-09-10",
+        checkOut: "2026-09-12",
+        city: "Tokyo",
+        cityAsAsked: "东京",
+        currency: "JPY",
+        hotelGroup: "Hyatt",
+        maxStayTotal: 1000
+      }),
       headers: { "Content-Type": "application/json" },
       method: "POST"
     }));
     expect(response.status).toBe(201);
-    expect(createHotelSearchTask).toHaveBeenCalledWith(expect.objectContaining({ hotelGroup: "Hyatt" }));
+    expect(createHotelSearchTask).toHaveBeenCalledWith(expect.objectContaining({
+      city: "Tokyo",
+      cityAsAsked: "东京",
+      hotelGroup: "Hyatt",
+      maxStayTotal: 1000
+    }));
     await expect(response.json()).resolves.toMatchObject({ searchSessionId: "session-1" });
   });
 

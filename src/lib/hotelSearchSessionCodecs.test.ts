@@ -11,8 +11,10 @@ const query = {
   checkIn: "2030-09-10",
   checkOut: "2030-09-13",
   city: "Tokyo",
+  cityAsAsked: "东京",
   currency: "USD",
-  hotelGroup: "Hyatt"
+  hotelGroup: "Hyatt",
+  maxStayTotal: 1500
 };
 
 const emptyResults = { capturedAt: null, hotels: [], summary: null, warning: null };
@@ -71,5 +73,26 @@ describe("hotel search session JSON codecs", () => {
       ...results,
       hotels: [{ ...results.hotels[0], offers: [{ ...results.hotels[0].offers[0], stayTotal: "500" }] }]
     }), emptyResults)).toEqual(emptyResults);
+  });
+
+  it("keeps pre-feature sessions readable with safe display and budget defaults", () => {
+    const legacy = JSON.stringify({
+      adults: 2,
+      checkIn: "2030-09-10",
+      checkOut: "2030-09-13",
+      city: "Tokyo",
+      currency: "USD",
+      hotelGroup: "Hyatt"
+    });
+    expect(parseHotelSearchQuery(legacy, query)).toEqual({
+      adults: 2,
+      checkIn: "2030-09-10",
+      checkOut: "2030-09-13",
+      city: "Tokyo",
+      cityAsAsked: "Tokyo",
+      currency: "USD",
+      hotelGroup: "Hyatt",
+      maxStayTotal: null
+    });
   });
 });

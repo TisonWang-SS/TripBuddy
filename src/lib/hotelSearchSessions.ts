@@ -310,5 +310,14 @@ function roundMoney(value: number) {
 }
 
 function emptyQuery(): HotelSearchQuery {
-  return { adults: 1, checkIn: "", checkOut: "", city: "", currency: "USD", hotelGroup: "" };
+  return {
+    adults: 1,
+    checkIn: "",
+    checkOut: "",
+    city: "",
+    cityAsAsked: "",
+    currency: "USD",
+    hotelGroup: "",
+    maxStayTotal: null
+  };
 }

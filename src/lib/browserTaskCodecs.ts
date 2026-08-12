@@ -60,16 +60,21 @@ export function parseBookingPriceContext(value: string): BookingPriceInput | nul
 
 export function parseHotelSearchTaskContext(value: string): HotelSearchTaskContext | null {
   const parsed = parseJson<unknown>(value, null);
-  if (isHotelSearchQuery(parsed)) {
-    return { hotelName: null, mode: "city_results", query: parsed, searchSessionId: null };
+  const legacyQuery = decodeHotelSearchQuery(parsed);
+  if (legacyQuery) {
+    return { hotelName: null, mode: "city_results", query: legacyQuery, searchSessionId: null };
   }
-  if (!isRecord(parsed) || !isHotelSearchQuery(parsed.query)) {
+  if (!isRecord(parsed)) {
+    return null;
+  }
+  const query = decodeHotelSearchQuery(parsed.query);
+  if (!query) {
     return null;
   }
   return {
     hotelName: nullableTrimmedString(parsed.hotelName),
     mode: parsed.mode === "tax_inclusive_total" ? "tax_inclusive_total" : "city_results",
-    query: parsed.query,
+    query,
     searchSessionId: nullableTrimmedString(parsed.searchSessionId)
   };
 }
@@ -223,16 +228,33 @@ function isTaxInclusiveTotalResult(value: Record<string, unknown>) {
   );
 }
 
-function isHotelSearchQuery(value: unknown): value is HotelSearchQuery {
+function decodeHotelSearchQuery(value: unknown): HotelSearchQuery | null {
   if (!isRecord(value)) {
-    return false;
+    return null;
   }
-  return (
-    positiveInteger(value.adults) !== null &&
-    [value.checkIn, value.checkOut, value.city, value.currency, value.hotelGroup].every(
-      (item) => Boolean(stringValue(item).trim())
-    )
-  );
+  const adults = positiveInteger(value.adults);
+  const checkIn = stringValue(value.checkIn).trim();
+  const checkOut = stringValue(value.checkOut).trim();
+  const city = stringValue(value.city).trim();
+  const cityAsAsked = value.cityAsAsked === undefined ? city : stringValue(value.cityAsAsked).trim();
+  const currency = stringValue(value.currency).trim();
+  const hotelGroup = stringValue(value.hotelGroup).trim();
+  const maxStayTotal = value.maxStayTotal === undefined || value.maxStayTotal === null
+    ? null
+    : positiveFiniteNumber(value.maxStayTotal);
+  if (
+    adults === null ||
+    !checkIn ||
+    !checkOut ||
+    !city ||
+    !cityAsAsked ||
+    !currency ||
+    !hotelGroup ||
+    (value.maxStayTotal !== undefined && value.maxStayTotal !== null && maxStayTotal === null)
+  ) {
+    return null;
+  }
+  return { adults, checkIn, checkOut, city, cityAsAsked, currency, hotelGroup, maxStayTotal };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -253,6 +275,10 @@ function nonNegativeInteger(value: unknown) {
 
 function positiveInteger(value: unknown) {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function positiveFiniteNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function nullableFiniteNumber(value: unknown) {

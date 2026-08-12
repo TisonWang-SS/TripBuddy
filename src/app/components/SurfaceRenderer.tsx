@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { HotelSearchResults } from "@/app/hotel-search/HotelSearchResults";
 import type { Surface, SurfaceNode } from "@/lib/agent/surface";
 import { formatCalendarDate, formatLocalInstant, formatMoney } from "@/lib/format";
 import {
@@ -178,6 +179,9 @@ function SurfaceNodeView({ node }: { node: SurfaceNode }) {
           </Link>
         </Card>
       );
+
+    case "HotelSearchResults":
+      return <HotelSearchResults session={node.props.session} />;
 
     case "Facts":
       return (
