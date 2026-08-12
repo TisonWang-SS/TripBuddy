@@ -138,6 +138,8 @@ Capability arguments are validated strictly and rejected rather than coerced. Da
 
 ## Documentation and Validation Rule
 
-Every behavior, data-model, architecture, or assumption change updates this PRD and `docs/IMPLEMENTATION_PLAN.md` in the same change.
+Every behavior, data-model, architecture, or assumption change updates this PRD in the same change. A change that alters what the product can do, or what has been verified, also updates `docs/STATUS.zh-CN.md`; a change that rests on a new decision adds an ADR under `docs/decisions/`.
+
+Each document owns one tense and must not take on another: this PRD is what the product should be, `docs/decisions/` is why, `docs/SYSTEM_DESIGN_AND_AI_AGENT_INTERVIEW_GUIDE.zh-CN.md` is how it works now, `docs/CODE_REVIEW.zh-CN.md` is what was found and fixed, and `docs/STATUS.zh-CN.md` is the only description of the present. Figures that go stale — test counts, gate results — belong in `STATUS.zh-CN.md` anchored to the commit that produced them, never restated elsewhere.
 
 Any Hyatt extraction behavior change requires unit/integration checks plus one real Hyatt validation through the app and normal Chrome with Browser Companion. Booking price validation uses the booking page/API, city search uses `/hotel-search`, and account import uses the dashboard action. If a real page cannot be validated, report that limitation and do not describe the extraction as verified.

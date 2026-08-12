@@ -390,50 +390,15 @@ Agent 不等于“必须调用 LLM”。当前系统已经有：
 
 ## 9. 当前不足与优先级
 
-以下不是泛泛而谈的 roadmap，而是基于当前代码的具体审查结果。
+已迁出。**当前的能力、验收状态与下一阶段由 [`STATUS.zh-CN.md`](./STATUS.zh-CN.md) 拥有。**
 
-### P0：下一次真实演示前
-
-| 问题 | 当前影响 | 建议 |
-|---|---|---|
-| 城市搜索扩展存在 `task` 作用域错误 | `runHotelSearchTask()` 读取 `task.hotelSearchMode`，但 `task` 只定义在 `runCurrentTask()` 的局部作用域；请求指定币种时可能直接 `ReferenceError` | 显式把完整 task 或 `hotelSearchMode` 传入函数；为扩展流程写可执行单测，而不是只做 source-string assertion |
-| Dashboard 的动态数据缓存策略需要验证 | production build 把 `/` 标为 static；账户导入通过 Route Handler 写 DB，只调用 `router.refresh()`，没有显式 `revalidatePath("/")` | 把依赖实时 DB 的页面明确设为 dynamic，或在 API 完成后统一 revalidate；用真实导入流程验证 UI 立即刷新 |
-| 缺少本次代码基线的真实 Hyatt acceptance 证据 | 单测和 build 通过不等于第三方动态页面仍然可用 | 严格按仓库约束，用正常 Chrome + Companion 从 app 页面验证 booking check、city currency + tax total、account import |
-
-### P1：可靠性与安全性
-
-| 问题 | 风险 | 建议 |
-|---|---|---|
-| Task API 使用 `Access-Control-Allow-Origin: *`，没有 task capability secret | 当前只适合可信 localhost；一旦服务监听范围扩大，任意页面可能探测或提交任务数据 | 每个 task 使用一次性 capability token，限制 Origin/endpoint，校验 payload size 和 source hostname |
-| 并发创建和并发 capture 缺少强 idempotency | 两个并发请求可能绕过“查找 active run 后再创建”的应用层检查，或重复完成任务 | 引入原子状态转换、version/compare-and-swap、dedupe key 和数据库约束 |
-| BrowserTask context/result/snapshot 大量使用 JSON string | 快速，但 schema evolution、查询和类型安全较弱 | 给 JSON payload 增加 `schemaVersion`，用运行时 schema 校验；稳定字段逐步正规化 |
-| 轮询是固定 1 秒 | 本地阶段简单有效，规模化后浪费请求且难处理断线恢复 | 本地可做指数退避；云化后用 SSE/WebSocket 或 durable job notification |
-| 第三方 DOM 解析缺少可观测性 | 页面变化时只能看到 summary/error，难快速定位 parser drift | 保存 parser/version、阶段耗时、action trace、脱敏 fixture ID 和结构化错误指标 |
-| 扩展测试主要是源码字符串断言 | 能防止关键字符串被删除，但发现不了闭包、DOM 和异步流程错误 | 抽出纯函数和 task runner，注入 DOM/fetch/chrome adapter 做运行单测；真实 Hyatt 仍用正常 Chrome 手工验收 |
-
-### P1：业务正确性
-
-| 问题 | 当前表现 | 建议 |
-|---|---|---|
-| 促销资格建模不完整 | `requiresRegistration` 被保存，但成本引擎没有确认注册状态 | 增加用户注册状态、适用 rate/channel/stay rules；未确认促销不能自动计入 savings |
-| 会籍进度模型较粗 | 当前只按用户配置的每晚 elite-night value 估值，不声称计算 tier/milestone | 若未来重新引入账户进度，必须计算“这次 stay 是否跨过 tier/milestone”的 marginal value |
-| 免房券机会成本未建模 | certificate baseline 的稀缺性、类别和到期日没有进入成本 | 建模 certificate category、expiry、替代使用价值，避免把“现金为 0”当成完整经济成本 |
-| FX 数据有模型但缺少完整管理闭环 | parser 能识别多币种，但 profile 只支持 USD/CNY，转换率无明显 UI/自动更新入口 | 增加汇率管理页、source/asOf、过期策略；继续保留原始 observed currency |
-| 自动取消政策判断始终保守为 unknown | 安全，但浏览器 observation 很容易落到 needs_review | 用规则 + 可引用文本的 LLM classifier 给出 tentative assessment；高风险结论仍要求用户确认 |
-| Planner 优先点最低可见价格 | 不一定先探索与当前房型最接近的 rate | 将 room match、rate plan、refundability 纳入候选评分，并允许采集多个候选后再决定 |
-
-### P2：Agent 与产品成熟度
-
-- 接入真正的 LLM semantic assessor / decider，但继续让 deterministic engine 掌握金额和 guardrail；
-- 完善当前前台到期队列的批次体验、重试、backoff 和 deadline priority，但每个检查仍由用户启动；
-- 扩展其他酒店 provider 与 OTA reference collector；
-- 增加任务时间线、失败原因、用户纠正入口和 extension onboarding；
-- 建立离线评测集和线上指标，而不是只看“测试是否通过”；
-- 云化时迁移到 Postgres + durable queue + worker，并增加 auth、tenant isolation 和 secrets 管理。
+此前这一节列过一份基于当时代码的 P0/P1 清单,后来其中数项已修——例如扩展的 `task` 作用域错误(`content.js` 现在显式传 `hotelSearchMode`)与 Dashboard 被标为 static(`/` 现在是 `ƒ` dynamic)——但清单本身没有跟着更新。一份把已修缺陷列为「下次演示前必须解决」的文档,比列错优先级更有害,所以这一节不再承担 roadmap。
 
 ---
 
-## 10. 推荐的下一阶段目标架构
+## 10. 规模化时的目标架构(示意)
+
+> 这是讲解用的架构草图,**不是已承诺的计划**。当前实际的下一阶段排序见 [`STATUS.zh-CN.md`](./STATUS.zh-CN.md)。
 
 ```mermaid
 flowchart TB
@@ -585,8 +550,9 @@ flowchart TB
 
 ## 14. 代码导航
 
+- 当前状态与下一阶段：[`STATUS.zh-CN.md`](./STATUS.zh-CN.md)
 - 产品边界：[`PRD.md`](./PRD.md)
-- 实施计划：[`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md)
+- 决策记录：[`decisions/`](./decisions/)
 - 数据模型：[`schema.prisma`](../prisma/schema.prisma)
 - Browser Task 生命周期：[`browserTasks.ts`](../src/lib/browserTasks.ts)
 - 价格检查 orchestrator：[`priceChecks.ts`](../src/lib/priceChecks.ts)
@@ -604,13 +570,8 @@ flowchart TB
 
 ---
 
-## 15. 本次审查验证记录
+## 15. 验证记录
 
-```text
-npm test          -> 18 files, 83 tests passed
-npm run lint      -> passed, 0 warnings
-npm run typecheck -> passed
-npm run build     -> passed
-```
+已迁出。**当前的验收状态由 [`STATUS.zh-CN.md`](./STATUS.zh-CN.md) 拥有**,并且区分「本轮已验证」与「上次验证于某 commit、本轮未复验」。
 
-注意：这些门禁验证了本地代码与测试，不等同于第三方 Hyatt 页面在 2026-08-02 仍通过真实 Chrome 完成了端到端验收。真实浏览器验收应作为下一个里程碑单独记录。
+此前这里硬编码过一组门禁数字,它们随代码演进静默过期,和 `CODE_REVIEW.zh-CN.md` 头部的另一组数字长期不一致——这正是把「现在」收敛到单一文档的原因。

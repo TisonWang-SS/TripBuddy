@@ -59,8 +59,10 @@ npm run build
 
 ## Documentation
 
-- [Product requirements](docs/PRD.md)
-- [Decisions](docs/decisions/)
-- [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
-- [System design and AI-agent interview guide](docs/SYSTEM_DESIGN_AND_AI_AGENT_INTERVIEW_GUIDE.zh-CN.md)
-- [Code review report](docs/CODE_REVIEW.zh-CN.md)
+Each document owns one tense, so none of them has to be read against the others.
+
+- [Current status](docs/STATUS.zh-CN.md) — what works today, what is verified, what is next. **Start here.**
+- [Product requirements](docs/PRD.md) — what the product should be, and the rules each feature follows.
+- [Decisions](docs/decisions/) — why it is built this way. Append-only.
+- [System design and AI-agent interview guide](docs/SYSTEM_DESIGN_AND_AI_AGENT_INTERVIEW_GUIDE.zh-CN.md) — how the system works now.
+- [Code review report](docs/CODE_REVIEW.zh-CN.md) — what was found and fixed, round by round. A historical record, not current state.

@@ -3,6 +3,7 @@
 ## Browser Testing
 
 - Hyatt browser work must use normal Chrome with the TripBuddy Browser Companion extension. Do not add an automated or copied-profile fallback.
+- The user's own Chrome profiles outside this repository are outside reset and cleanup scope — never touch them. Copied or CDP profiles under the repo's `data/` are prohibited artifacts and must not be created or preserved. Stating this as one vague sentence about "cleanup scope" is what let those directories survive once already (see `CODE_REVIEW.zh-CN.md` §1.1).
 - Browser validation must select the connected Chrome instance whose profile name is `TripBuddy`; never use the user's personal active Chrome profile.
 - Browser-backed Hyatt tasks are initiated by TripBuddy, carried in URL fragments and tab session storage, and completed by posting visible evidence back to the local app.
 - When validating Hyatt city search pricing, do not trust the `currency` URL parameter by itself. Hyatt can still render `Hotel Currency`; switch the page currency selector to the requested currency before scraping `Avg/Night` text or following a selected `View Rates` path. A tax-inclusive result requires a visible final total plus `Taxes & Fees` evidence.
