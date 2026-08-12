@@ -5,10 +5,11 @@ const mocks = vi.hoisted(() => ({ runAgentRequest: vi.fn() }));
 
 vi.mock("@/lib/agent/run", () => ({ runAgentRequest: mocks.runAgentRequest }));
 
+/* Host is set because real requests always carry it, and the origin guard reads it. */
 function post(body: unknown, headers: Record<string, string> = {}) {
   return new Request("http://localhost/api/agent", {
     body: typeof body === "string" ? body : JSON.stringify(body),
-    headers: { "Content-Type": "application/json", ...headers },
+    headers: { "Content-Type": "application/json", Host: "localhost", ...headers },
     method: "POST"
   });
 }

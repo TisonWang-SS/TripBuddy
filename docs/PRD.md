@@ -47,6 +47,7 @@ The v0.2 release does not include:
 - It must never activate payment, purchase, booking confirmation, place-order, complete-reservation, or equivalent final actions.
 - The provider planner and Browser Companion enforce the same shared unsafe-control rules independently. Browser task fragment and storage keys also come from one shared protocol module. The extension fails closed if either shared module is unavailable.
 - Hyatt work uses normal Chrome with the installed Browser Companion. There is no automated or copied-profile fallback.
+- Application routes accept a browser request only when its origin is the address the request was actually sent to, and that address is loopback or a private IPv4 literal. Agreement between origin and address is not sufficient on its own: a public name pointed at this machine produces that agreement and is refused. A host outside those ranges is named explicitly in the environment or not accepted.
 - An empty Hyatt DOM, E6020 response, KPSDK challenge, missing rate evidence, or task timeout is an unreadable/failed result, not valid no-availability evidence.
 - Booking context persists across same-tab Hyatt navigation.
 

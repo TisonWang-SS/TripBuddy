@@ -89,6 +89,8 @@ The application is divided into four boundaries:
 - Publish task changes on an in-process bus from `captureBrowserTask`, the single funnel every extension-driven change passes through, rather than from each write beneath it. The bus carries only a task id; a watcher re-reads, so the database stays the one source of truth.
 - Pair the bus with a slow poll in the watcher. Delivery is best-effort on purpose — the process can restart mid-task — so a missed notification costs latency, never correctness. The lazy expiry transition has no capture to announce it and is caught by the poll.
 - Keep `GET /api/browser-tasks/[id]`: the Browser Companion reads task state through it.
+- Derive the served origin from the `Host` header, never from `request.url`. Next builds `request.url` from the bound address, so it reads `http://localhost:3000` — or `http://0.0.0.0:3000` under `--hostname 0.0.0.0` — whichever address the browser used, and comparing against it refuses every request from a LAN address.
+- Require the served host to be loopback or a private IPv4 literal, so origin agreeing with host is not enough to pass. Allow one more host through `TRIPBUDDY_APP_ORIGIN`.
 
 ### 6. Verification
 
