@@ -117,7 +117,9 @@ Colour, spacing, type, radius, shadow, and motion come only from design tokens. 
 
 Shared interface primitives live in `src/ui` and carry the states the product actually needs: hover, focus-visible, disabled, and busy. Dense tables scroll within their own container so a page never scrolls sideways.
 
-Evidence ordering is a contract, not a layout preference: blockers and warnings render before any control that changes a baseline. Composition stays deterministic and server-owned so this ordering cannot be renegotiated per render.
+Evidence ordering is a contract, not a layout preference: blockers and warnings render before any control that changes a baseline. Composition stays deterministic and server-owned so this ordering cannot be renegotiated per render, and the rule is checked when a surface is built rather than trusted to whoever assembles one.
+
+An answer to a typed question is described as data, not markup. The server composes an ordered list of nodes, each naming a component from a fixed catalogue and carrying its values; the client renders them with its own components. A node never carries markup, a template, or a module path, and a name the client does not recognise renders nothing rather than being resolved — an interface that can be described remotely must not be executable remotely. Because the description is data, the same answer can later be rendered by a different client without the server changing.
 
 ## Capability Boundary
 

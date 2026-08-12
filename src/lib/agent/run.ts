@@ -1,6 +1,7 @@
 import type { AgentEvent } from "@/lib/agent/events";
 import { capabilityResultRoute, invokeCapability, parseCapabilityArgs, requireCapability } from "@/lib/agent/registry";
 import { type RouteDecision, routeIntent } from "@/lib/agent/router";
+import { composeCapabilitySurface, composeMessageSurface } from "@/lib/agent/surface";
 
 export type AgentRunRequest = {
   args?: unknown;
@@ -49,7 +50,14 @@ export async function runAgentRequest(request: AgentRunRequest, emit: AgentEvent
        * a refusal sentence or the capability parser's own message. The model
        * never writes what the user reads.
        */
-      say(emit, now, runId, resolved.kind === "clarify" ? resolved.question : resolved.message);
+      const text = resolved.kind === "clarify" ? resolved.question : resolved.message;
+      say(emit, now, runId, text);
+      emit({
+        name: "surface",
+        timestamp: now(),
+        type: "CUSTOM",
+        value: composeMessageSurface(runId, text, resolved.kind === "clarify" ? "neutral" : "caution")
+      });
       emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
       return;
     }
@@ -67,6 +75,16 @@ export async function runAgentRequest(request: AgentRunRequest, emit: AgentEvent
     emit({ stepName: capability.name, timestamp: now(), type: "STEP_FINISHED" });
 
     emit({ content: JSON.stringify(result), timestamp: now(), toolCallId, type: "TOOL_CALL_RESULT" });
+
+    /*
+     * The rendered form of the result, composed here from the same deterministic
+     * data. A capability with no surface yet emits none, so a caller can fall
+     * through to its own presentation rather than this inventing one.
+     */
+    const surface = composeCapabilitySurface(capability.name, result, runId);
+    if (surface) {
+      emit({ name: "surface", timestamp: now(), type: "CUSTOM", value: surface });
+    }
 
     /*
      * A browser task's result renders on the route that owns it, which the

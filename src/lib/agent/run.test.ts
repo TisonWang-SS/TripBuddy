@@ -73,8 +73,19 @@ describe("agent run", () => {
       "STEP_STARTED",
       "STEP_FINISHED",
       "TOOL_CALL_RESULT",
+      /* The rendered form of the same result. */
+      "CUSTOM",
       "RUN_FINISHED"
     ]);
+  });
+
+  it("emits the surface composed from the result", async () => {
+    const events = await collect({ capability: "list_bookings" });
+    const surface = events.find((event) => event.type === "CUSTOM" && event.name === "surface");
+    expect(surface && "value" in surface && surface.value).toMatchObject({
+      nodes: [{ component: "Message", props: { text: "Nothing on the desk yet." } }],
+      version: "tripbuddy-surface-1"
+    });
   });
 
   it("carries the result as the tool call result", async () => {
@@ -135,7 +146,8 @@ describe("agent run", () => {
 
   it("does not emit a launch target for a read capability", async () => {
     const events = await collect({ capability: "list_bookings" });
-    expect(types(events)).not.toContain("CUSTOM");
+    const names = events.filter((event) => event.type === "CUSTOM").map((event) => ("name" in event ? event.name : ""));
+    expect(names).not.toContain("browser_task_launch");
   });
 
   it("passes a capability failure through with its own code", async () => {
@@ -178,6 +190,7 @@ describe("agent run — routing a message", () => {
       "STEP_STARTED",
       "STEP_FINISHED",
       "TOOL_CALL_RESULT",
+      "CUSTOM",
       "RUN_FINISHED"
     ]);
     const call = events.find((event) => event.type === "TOOL_CALL_START");
@@ -197,6 +210,7 @@ describe("agent run — routing a message", () => {
       "TEXT_MESSAGE_START",
       "TEXT_MESSAGE_CONTENT",
       "TEXT_MESSAGE_END",
+      "CUSTOM",
       "RUN_FINISHED"
     ]);
     expect(saidText(events)).toContain("only tracks Hyatt hotel bookings");

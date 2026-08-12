@@ -79,6 +79,12 @@ The application is divided into four boundaries:
 - Fall back to keyword matching over the same catalogue when no key is configured or the provider is unreachable, and record which path produced the decision.
 - Share one DeepSeek JSON-completion client (`src/lib/providers/llmClient.ts`) between the extractor and the router rather than duplicating the request shape and finish-reason handling.
 - Score both routing paths against one fixture set with `npm run eval:intent-router`, holding the deterministic router as the checked-in baseline in `docs/evals/`.
+- Compose an answer as a surface in `src/lib/agent/surface.ts`: an ordered, flat list of nodes naming components from a fixed catalogue. Keep it flat — ordering rules stay simple to state and there is no recursion to bound.
+- Enforce PRD.md:171 in `assertEvidencePrecedesActions`, called by every surface build, so evidence cannot be composed after a control that changes a baseline.
+- Render with a closed switch in `app/components/SurfaceRenderer.tsx`. No `dangerouslySetInnerHTML`, no dynamic import, and an unknown component name renders nothing rather than resolving.
+- Emit the surface as a `CUSTOM` event named `surface` alongside the tool result, so a client can use either the data or its rendered form.
+- Read the stream in `src/lib/agent/client.ts`, buffering across chunk boundaries so one event cannot be read as two, and dropping a malformed frame rather than ending the run.
+- Keep the command bar's rule intact: reads answer inside the palette, and a browser task returns a surface pointing at the route that owns its progress and result. A run needing a press reports `confirmation_required` and is re-sent only after the user agrees.
 
 ### 6. Verification
 

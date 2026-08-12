@@ -253,3 +253,43 @@
     animation: none;
   }
 }
+
+/* The answer a typed question produced, rendered above the command list. */
+.answer {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: var(--desk-rule-slab) solid var(--desk-ink);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.answerQuestion {
+  margin: 0;
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.answerError {
+  margin: 0;
+  color: var(--desk-alert);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-sm);
+}
+
+.answerConfirm {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+
+.answerConfirm p {
+  margin: 0;
+  color: var(--desk-ink-2);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-sm);
+  line-height: var(--desk-leading-body);
+}

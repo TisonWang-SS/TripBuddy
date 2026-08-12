@@ -1,0 +1,63 @@
+.surface {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: var(--desk-rule-hair) dashed var(--desk-rule);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.name {
+  color: var(--desk-ink);
+  font-family: var(--desk-font-display);
+  font-size: var(--desk-text-md);
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+
+.where {
+  margin: var(--space-1) 0 0;
+  color: var(--desk-muted);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-sm);
+}
+
+.amount {
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-base);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.end {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: end;
+}
+
+.explanation {
+  margin: 0 0 var(--space-3);
+  color: var(--desk-ink-2);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-base);
+  line-height: var(--desk-leading-body);
+}
+
+.issues {
+  display: grid;
+  gap: var(--space-2);
+}

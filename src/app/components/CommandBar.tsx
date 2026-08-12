@@ -2,7 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { streamAgentRun } from "@/lib/agent/client";
+import type { Surface } from "@/lib/agent/surface";
+import { buttonClassName } from "@/ui";
 import styles from "./CommandBar.module.css";
+import { SurfaceRenderer } from "./SurfaceRenderer";
 
 export type Command = {
   /** Extra words the query should match, beyond the visible label. */
@@ -34,11 +38,23 @@ function matches(command: Command, query: string) {
  * are also where their progress and error notices render; firing them from a
  * palette that then closes would leave the result nowhere to land.
  */
+/**
+ * What a typed question produced. A run that needs a press is held here rather
+ * than acted on: the protocol reports `confirmation_required`, and the same
+ * request is sent again only after the user agrees.
+ */
+type Answer =
+  | { kind: "running"; question: string }
+  | { args: unknown; capability: string; kind: "confirm"; message: string; question: string }
+  | { kind: "answered"; question: string; surface: Surface | null }
+  | { kind: "failed"; message: string; question: string };
+
 export function CommandBar({ commands }: { commands: readonly Command[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const [answer, setAnswer] = useState<Answer | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
   const listId = useId();
@@ -49,6 +65,7 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
     setOpen(false);
     setQuery("");
     setActive(0);
+    setAnswer(null);
     restoreRef.current?.focus();
     restoreRef.current = null;
   }, []);
@@ -100,6 +117,62 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
     router.push(command.href);
   }
 
+  /**
+   * Sends the typed words to be routed, and renders whatever surface comes back
+   * in place. Reads land here; anything that opens a Hyatt tab comes back as a
+   * surface pointing at the page that owns its progress and result.
+   */
+  async function ask(request: { args?: unknown; capability?: string; confirmed?: boolean; message?: string }, question: string) {
+    setAnswer({ kind: "running", question });
+    let surface: Surface | null = null;
+    let capability = "";
+    let args: unknown = {};
+    let failure: { code: string; message: string } | null = null;
+
+    try {
+      await streamAgentRun(request, (event) => {
+        if (event.type === "TOOL_CALL_START") {
+          capability = event.toolCallName;
+        } else if (event.type === "TOOL_CALL_ARGS") {
+          args = JSON.parse(event.delta) as unknown;
+        } else if (event.type === "CUSTOM" && event.name === "surface") {
+          surface = event.value as Surface;
+        } else if (event.type === "RUN_ERROR") {
+          failure = { code: event.code, message: event.message };
+        }
+      });
+    } catch (error) {
+      setAnswer({ kind: "failed", message: error instanceof Error ? error.message : "That request failed.", question });
+      return;
+    }
+
+    if (failure) {
+      const { code, message } = failure;
+      setAnswer(
+        code === "confirmation_required"
+          ? { args, capability, kind: "confirm", message, question }
+          : { kind: "failed", message, question }
+      );
+      return;
+    }
+    setAnswer({ kind: "answered", question, surface });
+  }
+
+  const askable = query.trim().length > 0;
+  /* The ask row sits after the commands so one flat index still drives the keyboard. */
+  const optionCount = results.length + (askable ? 1 : 0);
+
+  function choose(index: number) {
+    const command = results[index];
+    if (command) {
+      run(command);
+      return;
+    }
+    if (askable) {
+      void ask({ message: query.trim() }, query.trim());
+    }
+  }
+
   function onFieldKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -108,20 +181,17 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActive((index) => (results.length === 0 ? 0 : (index + 1) % results.length));
+      setActive((index) => (optionCount === 0 ? 0 : (index + 1) % optionCount));
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActive((index) => (results.length === 0 ? 0 : (index - 1 + results.length) % results.length));
+      setActive((index) => (optionCount === 0 ? 0 : (index - 1 + optionCount) % optionCount));
       return;
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      const command = results[active];
-      if (command) {
-        run(command);
-      }
+      choose(active);
     }
   }
 
@@ -160,9 +230,10 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
                 onChange={(event) => {
                   setQuery(event.target.value);
                   setActive(0);
+                  setAnswer(null);
                 }}
                 onKeyDown={onFieldKeyDown}
-                placeholder="Type a command…"
+                placeholder="Type a command, or ask…"
                 ref={inputRef}
                 role="combobox"
                 value={query}
@@ -170,8 +241,29 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
               <kbd>esc</kbd>
             </div>
 
+            {answer ? (
+              <div className={styles.answer}>
+                <p className={styles.answerQuestion}>{answer.question}</p>
+                {answer.kind === "running" ? <p className={styles.empty}>Working…</p> : null}
+                {answer.kind === "failed" ? <p className={styles.answerError}>{answer.message}</p> : null}
+                {answer.kind === "confirm" ? (
+                  <div className={styles.answerConfirm}>
+                    <p>{answer.message}</p>
+                    <button
+                      className={buttonClassName({ size: "sm" })}
+                      onClick={() => void ask({ args: answer.args, capability: answer.capability, confirmed: true }, answer.question)}
+                      type="button"
+                    >
+                      Open the Hyatt tab
+                    </button>
+                  </div>
+                ) : null}
+                {answer.kind === "answered" && answer.surface ? <SurfaceRenderer surface={answer.surface} /> : null}
+              </div>
+            ) : null}
+
             <div className={styles.results} id={listId} role="listbox">
-              {results.length === 0 ? (
+              {results.length === 0 && !askable ? (
                 <p className={styles.empty}>Nothing matches “{query}”.</p>
               ) : (
                 results.map((command, index) => {
@@ -196,6 +288,21 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
                   );
                 })
               )}
+
+              {askable ? (
+                <button
+                  aria-selected={active === results.length}
+                  className={active === results.length ? `${styles.item} ${styles.itemActive}` : styles.item}
+                  id={`${listId}-${results.length}`}
+                  onClick={() => choose(results.length)}
+                  onMouseMove={() => setActive(results.length)}
+                  role="option"
+                  type="button"
+                >
+                  <span className={styles.itemNo}>ask</span>
+                  <span className={styles.itemLabel}>“{query.trim()}”</span>
+                </button>
+              ) : null}
             </div>
 
             <div className={styles.foot}>
