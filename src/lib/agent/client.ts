@@ -35,13 +35,19 @@ export async function streamAgentRun(
     throw new Error("The agent response carried no stream.");
   }
 
-  const reader = response.body.getReader();
+  await readEventStream(response.body, onEvent);
+}
+
+/**
+ * Reads an SSE body into events.
+ *
+ * A frame ends on a blank line, and a chunk boundary can fall anywhere — even
+ * mid-token. Everything after the last frame terminator is held back until the
+ * rest of it arrives, so one event is never read as two broken ones.
+ */
+export async function readEventStream(body: ReadableStream<Uint8Array>, onEvent: (event: AgentEvent) => void) {
+  const reader = body.getReader();
   const decoder = new TextDecoder();
-  /*
-   * A frame ends on a blank line, and a chunk boundary can fall anywhere — even
-   * mid-token. Everything after the last frame terminator is held back until the
-   * rest of it arrives.
-   */
   let buffer = "";
 
   for (;;) {

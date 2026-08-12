@@ -85,6 +85,10 @@ The application is divided into four boundaries:
 - Emit the surface as a `CUSTOM` event named `surface` alongside the tool result, so a client can use either the data or its rendered form.
 - Read the stream in `src/lib/agent/client.ts`, buffering across chunk boundaries so one event cannot be read as two, and dropping a malformed frame rather than ending the run.
 - Keep the command bar's rule intact: reads answer inside the palette, and a browser task returns a surface pointing at the route that owns its progress and result. A run needing a press reports `confirmation_required` and is re-sent only after the user agrees.
+- Stream browser-task progress from `GET /api/browser-tasks/[id]/events` instead of polling it once a second from the browser. The server owns the deadline and ends the stream itself.
+- Publish task changes on an in-process bus from `captureBrowserTask`, the single funnel every extension-driven change passes through, rather than from each write beneath it. The bus carries only a task id; a watcher re-reads, so the database stays the one source of truth.
+- Pair the bus with a slow poll in the watcher. Delivery is best-effort on purpose — the process can restart mid-task — so a missed notification costs latency, never correctness. The lazy expiry transition has no capture to announce it and is caught by the poll.
+- Keep `GET /api/browser-tasks/[id]`: the Browser Companion reads task state through it.
 
 ### 6. Verification
 
