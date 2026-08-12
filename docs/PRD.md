@@ -17,7 +17,8 @@ The v0.2 release includes:
 - A foreground due-check queue calculated when the Dashboard opens; every queued check still requires a user click.
 - Structured observations, evidence quality, deterministic cost calculations, and recommendation history.
 - Opt-in LLM evidence replay over bounded, sanitized Browser Companion snapshots.
-- An auxiliary official hotel city search. Hyatt is the first provider; other hotel groups plug into the same provider contract later.
+- Official hotel discovery by city, with a saved whole-stay budget and an explicit upgrade from starting prices to verified tax-inclusive totals. Hyatt is the first provider; other hotel groups plug into the same provider contract later.
+- A typed capability registry, model-influenced natural-language routing, explicit confirmation for browser-opening actions, streamed browser-task progress, and server-composed result surfaces.
 - User correction of uncertain room and cancellation assessments.
 
 The v0.2 release does not include:
@@ -99,10 +100,12 @@ The decision boundary is a replaceable `RecommendationDecider`. It receives only
 
 ## City Search and Account Import
 
-- Official city search remains an auxiliary workflow, separate from booking recommendations.
+- Official city search is the discovery path for candidate stays. It remains separate from booking recommendations until a user creates or updates a booking baseline.
 - Search dispatches through a hotel-group provider registry. The UI lists only providers that actually implement city search.
+- A natural-language search preserves the destination exactly as asked for display and sends a separate Latin-letter destination accepted by the provider. Hyatt's visible location labels, location mismatches, and zero-result state remain visible grounding evidence; normalization alone never claims that the destination matched.
 - City-search currency is the profile's single primary calculation currency. A search opens one normal-Chrome Hyatt task, visibly switches the selector to that currency, and shows only results in that rendered currency. It neither trusts a URL parameter nor silently applies FX conversion.
-- City listings may show Hyatt's `Avg/Night` starting price, explicitly marked as excluding taxes and fees. A user can request a tax-inclusive total for one listed hotel. The same task safely follows that hotel's `View Rates` path toward Hyatt's pre-payment summary and returns a total only when visible `Taxes & Fees` and final-total evidence confirm inclusion. City-search totals remain transient search facts, not booking observations.
+- A search may save a maximum tax-inclusive total for the whole stay. Page and agent surfaces apply one deterministic comparison rule: an `Avg/Night` starting price is an explicitly tax-exclusive discovery hint and can never qualify a hotel against that budget. Unknown totals stay visible with an upgrade action; only a same-currency final total with visible `Taxes & Fees` evidence can be marked within budget or hidden as over budget.
+- A user can request that tax-inclusive total for one listed hotel. The same task safely follows that hotel's `View Rates` path toward Hyatt's pre-payment summary and returns a total only when visible `Taxes & Fees` and final-total evidence confirm inclusion. City-search totals remain transient search facts, not booking observations.
 - Hyatt account import starts from `My Stays`, collects visible `Stay Details` URLs, then opens each detail URL directly in the same tab.
 - Account-import task handling parses browser evidence; booking creation and updates are owned by a separate account-booking domain service.
 - Cash, points, and free-night certificate baselines are represented explicitly.
