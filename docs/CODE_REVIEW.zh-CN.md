@@ -654,6 +654,45 @@ launchUrl  = https://www.hyatt.com/search/hotels/en-US/%E4%B8%9C%E4%BA%AC?...
 
 这次补丁的方式值得记一句:`c698434` 是把这条记录 amend 进了写下它的同一个 commit,而不是另开一次提交。结果是这条记录曾经有几分钟自相矛盾——正文说两处「漏了」、一处「不属于本次」,而 diff 里已经把前两处改完了。这正是本节的主题,在记录自身上又发生了一次,只是这次窗口短到没有第二个人看见。
 
+### 3.24 PR 1(ADR 0003-A)审查 — ✅ 通过(`codex/adr-0003-a`)
+
+在独立 worktree 上跑,不是读 diff:323 项测试、typecheck、lint、8 个 migration 在全新 SQLite 库上依次应用、`prisma migrate diff` 报零差异。
+
+STATUS §3.1 要求同批上线的五件全部到齐,并逐条核过:五个主观估值字段连同表单/`actions.ts`/seed/`get_settings` 全部消失(源码零残留);`CostBreakdown` 去掉两项且 `effectiveCost` 不再减它们;权益丢失 warning 与未确认促销 warning 都进了 `DecisionCandidate.warnings` 并写入 `warningsJson`;四个 `caresAbout*` 开关到位。⚠️ 那条明确写进 STATUS 的「不要顺手修 `appliesToExistingBookings`」也守住了——baseline 仍然过滤、候选仍然传全量。
+
+两条新断言用还原法验过非空转:去掉 `!promotion.requiresRegistration` → 促销用例立刻失败;把偏好过滤从 `entitlementLossWarnings` 里拿掉 → 抑制用例立刻失败。
+
+**最值得记的一点是结构而不是测试。** `calculateStayCost` 的签名里 `profile` 和 `breakfastIncluded` 被整个删掉了,于是「偏好不得改动 `CostBreakdown` 里任何数字」不再靠断言守,而是**类型上不可能**。相应地,那条 `expect(candidateCost.effectiveCost).toBe(baselineCost.effectiveCost)` 其实比读起来弱——两边本来就恒等。这不是缺陷,但要知道真正承重的是签名。
+
+历史保全也做对了:migration 只 DROP 两列,`costBreakdownJson` 快照原样留着,订单页对旧快照条件性渲染「(historical)」两行。
+
+### 3.25 PR 2(发现路径)审查 — ⬜ 两处未关闭(`agent/discovery-path`)
+
+330 项测试 / typecheck / lint / build 全过,与 PR 1 `git merge-tree` 干净(源码零重叠,只有三份文档相邻章节)。比较规则本身**写得对**:`findComparableFinalOffer` 要求 `final_total` + 同币种 + 税费均 `included`,起价永远不能判定预算内;只隐藏已证实超预算的,未升级的保持可见并给升级路径。放弃 §4 那条张力也是合法的——两处 "auxiliary" 都真改了,v0.2 边界的滞后也一并补了。真实 Hyatt 东京搜索 10 个结果全部正确标成等待含税总价,单酒店升级超时且如实记为未通过。
+
+⬜ **缺陷一:模型在做算术,而算术结果直接进用户可见的筛选。** 用真实模型探测(`.env` 配置,`routeIntent` 直调):
+
+| 请求 | 返回的 `maxStayTotal` |
+|---|---|
+| 每晚预算 1000,9/1→9/5(4 晚) | **4000** |
+| max 500 USD per night,9/1→9/4(3 晚) | **1500** |
+| max 200 USD a night,9/1→9/8(7 晚) | **1400** |
+| total budget 800 for the whole stay,9/1→9/3 | 800 ✅ |
+
+模型把「每晚 × 晚数」乘出来了。**4000 这个数字在请求里根本不存在。** 这正面违反 ADR 0003 自己写的 "no language model produces any of these numbers",也是 §3.22 那条教训的同一形状:一个语法完美、来源不明的数字通过了所有校验。而且没有任何地方标记它是推导来的,session 存下来就当成用户说过。退房日差一天(LLM 最典型的日期错误)会让预算静默偏 1/N,下游无从察觉。
+
+根因是**能力层没有 basis 参数**,模型只好用算术补位。STATUS 定的是 `basis: per_night | stay_total | 未给`,未给时按每晚并在答案里写明;PR 只实现了整段总额。连带两个后果:「预算 1000 人民币左右」(未给 basis)被当成 4 晚总额 ≈ 每晚 250,结果会被筛空;「左右」的容差整个丢了,`stayTotal <= maxStayTotal` 是硬上限。
+
+⬜ **缺陷二:该模块最核心的保证没有被任何测试守住。** 逐条还原 `findComparableFinalOffer` 的守卫,跑**全量 330 项**:
+
+| 还原掉 | 结果 |
+|---|---|
+| `evidenceLevel === "final_total"` | **330 全过** |
+| `taxesIncluded / feesIncluded === "included"` | **330 全过** |
+| `offer.currency === currency` | 1 失败 ✅ |
+
+也就是说,那句已经写进 `PRD.md`、也写在模块头注释里的「起价永远不能让一家酒店满足预算」,**删掉它没有任何断言会响**。只有同币种那条被守住。真实 Hyatt 那次跑通,是因为代码本来就对,不是因为有东西拦着它变坏。这与 §3.19(用例比真实请求宽松)、§3.22(mock 盖住了真实产出)是同一类:断言没有落到真正要紧的行为上。
+
 ---
 
 ## 4. 接入 LLM 的设计建议
