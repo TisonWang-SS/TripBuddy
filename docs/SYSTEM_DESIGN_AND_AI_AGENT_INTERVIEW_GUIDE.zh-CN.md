@@ -295,11 +295,13 @@ effectiveCost
 - earnedPointsValue
 - promotionValue
 - creditCardValue
-- eliteProgressValue
-- benefitValue
 ```
 
-其中权益价值来自用户 profile，例如早餐、lounge、late checkout、upgrade 和 elite night 的主观估值。现金与积分不是直接比数字，而是统一投影到 profile 的主要计算币种。
+现金与积分不是直接比数字，而是统一投影到 profile 的主要计算币种。早餐、lounge、late checkout、upgrade 和固定的 elite night 主观估值不进入成本；基线有而候选没有的权益改为 warning。Profile 中四个结构化偏好只决定对应 warning 是否出现，不能改变 `CostBreakdown` 或 verdict。
+
+`requiresRegistration` 的促销在系统尚不能确认注册状态时 fail-closed，不进入 `promotionValue`，同时在推荐 warning 中点名。既有订单基线仍只读取 `appliesToExistingBookings` 的促销，新候选仍读取全量促销；这个不对称对应「既有订单」与「新订单」的不同适用条件。
+
+新推荐由 deterministic decider v3 生成，只写新的六项成本组成。v2 及更早推荐的 JSON 快照仍可读取并在详情页标成 historical；迁移不重算旧行。
 
 ### 6.4 可替换 Decider 与不可替换 Guardrails
 

@@ -5,7 +5,6 @@ import { RunPriceCheckButton } from "@/app/components/RunPriceCheckButton";
 import { promoteObservationToBooking } from "@/lib/actions";
 import { formatBookingBaseline } from "@/lib/bookingPrice";
 import { prisma } from "@/lib/db";
-import type { CostBreakdown } from "@/lib/decision";
 import { formatCalendarDate, formatLocalInstant, formatMoney } from "@/lib/format";
 import { stringList } from "@/lib/json";
 import {
@@ -217,16 +216,28 @@ function RecommendationCostBreakdown({ currency, value }: { currency: string; va
   if (!breakdown) {
     return null;
   }
-  const rows: Array<[string, keyof CostBreakdown]> = [
-    ["Cash price", "cashPrice"],
-    ["Redeemed points value", "redemptionPointsValue"],
-    ["Earned points value", "earnedPointsValue"],
-    ["Promotion value", "promotionValue"],
-    ["Credit-card value", "creditCardValue"],
-    ["Elite progress value", "eliteProgressValue"],
-    ["Included benefits value", "benefitValue"],
-    ["Effective cost", "effectiveCost"]
+  const rows: Array<[string, number, number]> = [
+    ["Cash price", breakdown.baseline.cashPrice, breakdown.candidate.cashPrice],
+    ["Redeemed points value", breakdown.baseline.redemptionPointsValue, breakdown.candidate.redemptionPointsValue],
+    ["Earned points value", breakdown.baseline.earnedPointsValue, breakdown.candidate.earnedPointsValue],
+    ["Promotion value", breakdown.baseline.promotionValue, breakdown.candidate.promotionValue],
+    ["Credit-card value", breakdown.baseline.creditCardValue, breakdown.candidate.creditCardValue]
   ];
+  if (breakdown.baseline.eliteProgressValue !== undefined && breakdown.candidate.eliteProgressValue !== undefined) {
+    rows.push([
+      "Elite progress value (historical)",
+      breakdown.baseline.eliteProgressValue,
+      breakdown.candidate.eliteProgressValue
+    ]);
+  }
+  if (breakdown.baseline.benefitValue !== undefined && breakdown.candidate.benefitValue !== undefined) {
+    rows.push([
+      "Included benefits value (historical)",
+      breakdown.baseline.benefitValue,
+      breakdown.candidate.benefitValue
+    ]);
+  }
+  rows.push(["Effective cost", breakdown.baseline.effectiveCost, breakdown.candidate.effectiveCost]);
   return (
     <details className={styles.breakdown}>
       <summary>Cost breakdown</summary>
@@ -239,11 +250,11 @@ function RecommendationCostBreakdown({ currency, value }: { currency: string; va
           </tr>
         </thead>
         <tbody>
-          {rows.map(([label, field]) => (
-            <tr key={field}>
+          {rows.map(([label, baselineValue, candidateValue]) => (
+            <tr key={label}>
               <td>{label}</td>
-              <td className={styles.money}>{formatMoney(breakdown.baseline[field], currency)}</td>
-              <td className={styles.money}>{formatMoney(breakdown.candidate[field], currency)}</td>
+              <td className={styles.money}>{formatMoney(baselineValue, currency)}</td>
+              <td className={styles.money}>{formatMoney(candidateValue, currency)}</td>
             </tr>
           ))}
         </tbody>

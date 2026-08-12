@@ -2,11 +2,13 @@ import type { RecommendationDecider } from "@/lib/decision";
 import {
   calculateStayCost,
   decideWithGuardrails,
-  DeterministicRecommendationDecider
+  DeterministicRecommendationDecider,
+  entitlementLossWarnings,
+  unconfirmedPromotionWarnings
 } from "@/lib/decision";
 import { DEFAULT_PROFILE_ID } from "@/lib/constants";
 import { prisma } from "@/lib/db";
-import { stringList } from "@/lib/json";
+import { stringList, toJson } from "@/lib/json";
 import { serializeRecommendationCostBreakdown } from "@/lib/recommendationCodecs";
 import { getCurrencyConversion } from "@/lib/systemSettings";
 
@@ -39,14 +41,17 @@ export async function createRecommendationForBooking(
     : null;
   const baselineCost = calculateStayCost({
     booking,
-    breakfastIncluded: booking.breakfastIncluded,
     cashPrice: booking.baselineCashTotal ?? 0,
     creditCards: profile.creditCardBenefits,
     loyaltyAccount,
     loyaltyEligible: booking.loyaltyEligible,
     loyaltyRule,
     points: booking.baselinePoints ?? 0,
-    profile,
+    promotions: promotions.filter((promotion) => promotion.appliesToExistingBookings)
+  });
+  const baselinePromotionWarnings = unconfirmedPromotionWarnings({
+    booking,
+    loyaltyEligible: booking.loyaltyEligible,
     promotions: promotions.filter((promotion) => promotion.appliesToExistingBookings)
   });
   const candidates = await Promise.all(
@@ -68,16 +73,36 @@ export async function createRecommendationForBooking(
               : copay ?? baselineCost.cashPrice;
         const cost = calculateStayCost({
           booking,
-          breakfastIncluded: observation.breakfastIncluded === true,
           cashPrice: comparableCashPrice,
           creditCards: profile.creditCardBenefits,
           loyaltyAccount,
           loyaltyEligible: observation.loyaltyEligible === true,
           loyaltyRule,
           points: observation.points ?? 0,
-          profile,
           promotions
         });
+        const warnings = [
+          ...stringList(evidence.warningsJson),
+          ...entitlementLossWarnings({
+            baseline: {
+              breakfastIncluded: booking.breakfastIncluded,
+              loyaltyEligible: booking.loyaltyEligible,
+              loyaltyRule
+            },
+            candidate: {
+              breakfastIncluded: observation.breakfastIncluded === true,
+              loyaltyEligible: observation.loyaltyEligible === true,
+              loyaltyRule
+            },
+            profile
+          }),
+          ...baselinePromotionWarnings,
+          ...unconfirmedPromotionWarnings({
+            booking,
+            loyaltyEligible: observation.loyaltyEligible === true,
+            promotions
+          })
+        ];
         return {
           blockers: stringList(evidence.blockersJson),
           breakfastIncluded: observation.breakfastIncluded === true,
@@ -88,7 +113,7 @@ export async function createRecommendationForBooking(
           qualityLevel: evidence.qualityLevel,
           roomType: observation.roomTypeRaw ?? "Room not captured",
           sourceType: observation.sourceType,
-          warnings: stringList(evidence.warningsJson)
+          warnings: [...new Set(warnings)]
         };
       })
   );
@@ -108,7 +133,6 @@ export async function createRecommendationForBooking(
 
   return prisma.recommendation.create({
     data: {
-      benefitValueDifference: selected.cost.benefitValue - baselineCost.benefitValue,
       blockersJson: selectedEvidence.blockersJson,
       bookingId,
       candidateObservationId: selected.id,
@@ -118,7 +142,6 @@ export async function createRecommendationForBooking(
       currency: booking.currency,
       decisionProvider: decider.name,
       decisionVersion: decider.version,
-      eliteProgressDifference: selected.cost.eliteProgressValue - baselineCost.eliteProgressValue,
       estimatedSavings: output.estimatedSavings,
       explanation: output.explanation,
       pointsValueDifference: baselineCost.redemptionPointsValue - selected.cost.redemptionPointsValue,
@@ -126,7 +149,7 @@ export async function createRecommendationForBooking(
       qualityLevel: selectedEvidence.qualityLevel,
       riskLevel: output.riskLevel,
       verdict: output.verdict,
-      warningsJson: selectedEvidence.warningsJson
+      warningsJson: toJson(selected.warnings)
     }
   });
 }

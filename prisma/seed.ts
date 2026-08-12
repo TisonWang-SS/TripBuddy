@@ -82,12 +82,7 @@ async function main() {
       name: "Primary Traveler",
       defaultCurrency: "USD",
       savingsThreshold: 50,
-      urgentWindowHours: 24,
-      breakfastValue: 25,
-      loungeValue: 35,
-      lateCheckoutValue: 15,
-      upgradeValue: 40,
-      eliteNightValue: 10
+      urgentWindowHours: 24
     }
   });
 

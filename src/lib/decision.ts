@@ -1,13 +1,11 @@
 import type { EvidenceQuality, RecommendationVerdict, RiskLevel, SourceType } from "@prisma/client";
-import { nightsBetween } from "@/lib/format";
 
 export type DecisionProfile = {
-  breakfastValue: number;
-  eliteNightValue: number;
-  lateCheckoutValue: number;
-  loungeValue: number;
+  caresAboutBreakfast: boolean;
+  caresAboutLateCheckout: boolean;
+  caresAboutLounge: boolean;
+  caresAboutUpgrade: boolean;
   savingsThreshold: number;
-  upgradeValue: number;
   urgentWindowHours: number;
 };
 
@@ -58,15 +56,15 @@ export type DecisionPromotion = {
   endDate: Date | null;
   flatValue: number;
   hotelGroup: string;
+  requiresRegistration: boolean;
   startDate: Date | null;
+  title: string;
 };
 
 export type CostBreakdown = {
-  benefitValue: number;
   cashPrice: number;
   creditCardValue: number;
   effectiveCost: number;
-  eliteProgressValue: number;
   earnedPointsValue: number;
   promotionValue: number;
   redemptionPointsValue: number;
@@ -109,7 +107,7 @@ export interface RecommendationDecider {
 
 export class DeterministicRecommendationDecider implements RecommendationDecider {
   name = "deterministic";
-  version = "2";
+  version = "3";
 
   async decide(input: DecisionInput): Promise<DecisionOutput> {
     const candidate = selectCandidate(input.candidates, input.baselineCost);
@@ -149,7 +147,7 @@ export class DeterministicRecommendationDecider implements RecommendationDecider
       return {
         candidateObservationId: candidate.id,
         estimatedSavings,
-        explanation: "The verified direct candidate is meaningfully cheaper after deterministic loyalty and benefit adjustments.",
+        explanation: "The verified direct candidate is meaningfully cheaper after deterministic price and loyalty calculations.",
         riskLevel: candidate.qualityLevel === "high" ? "low" : "medium",
         verdict: "rebook_direct"
       };
@@ -218,17 +216,14 @@ function validateDecisionOutput(value: unknown, providerName: string): DecisionO
 
 export function calculateStayCost(input: {
   booking: DecisionBooking;
-  breakfastIncluded: boolean;
   cashPrice: number;
   creditCards: DecisionCreditCardBenefit[];
   loyaltyAccount?: DecisionLoyaltyAccount | null;
   loyaltyEligible: boolean;
   loyaltyRule?: DecisionLoyaltyRule | null;
   points: number;
-  profile: DecisionProfile;
   promotions: DecisionPromotion[];
 }) {
-  const nights = nightsBetween(input.booking.checkIn, input.booking.checkOut);
   const pointValue = input.loyaltyAccount?.pointValue ?? 0;
   const basePoints = input.loyaltyRule?.basePointsPerUsd ?? 0;
   const bonusRate = input.loyaltyRule?.bonusRate ?? 0;
@@ -237,12 +232,7 @@ export function calculateStayCost(input: {
     : 0;
   const redemptionPointsValue = input.points * pointValue;
   const activePromotions = input.promotions.filter((promotion) => {
-    return (
-      promotion.hotelGroup === input.booking.hotelGroup &&
-      (!promotion.startDate || promotion.startDate <= input.booking.checkOut) &&
-      (!promotion.endDate || promotion.endDate >= input.booking.checkIn) &&
-      input.loyaltyEligible
-    );
+    return promotionAppliesToStay(promotion, input.booking, input.loyaltyEligible) && !promotion.requiresRegistration;
   });
   const promotionValue = activePromotions.reduce((total, promotion) => {
     return total + input.cashPrice * basePoints * promotion.bonusMultiplier * pointValue + promotion.flatValue;
@@ -253,32 +243,79 @@ export function calculateStayCost(input: {
       .filter((card) => !card.hotelGroup || card.hotelGroup === input.booking.hotelGroup)
       .map((card) => input.cashPrice * card.cashBackRate + input.cashPrice * card.pointMultiplier * pointValue)
   );
-  const eliteProgressValue = input.loyaltyEligible ? nights * input.profile.eliteNightValue : 0;
-  const benefitValue =
-    (input.breakfastIncluded || (input.loyaltyEligible && input.loyaltyRule?.breakfastBenefit)
-      ? input.profile.breakfastValue * nights
-      : 0) +
-    (input.loyaltyEligible && input.loyaltyRule?.loungeBenefit ? input.profile.loungeValue * nights : 0) +
-    (input.loyaltyEligible && input.loyaltyRule?.lateCheckoutBenefit ? input.profile.lateCheckoutValue : 0) +
-    (input.loyaltyEligible && input.loyaltyRule?.upgradeBenefit ? input.profile.upgradeValue * nights : 0);
-
   return {
-    benefitValue,
     cashPrice: input.cashPrice,
     creditCardValue,
-    effectiveCost:
-      input.cashPrice +
-      redemptionPointsValue -
-      earnedPointsValue -
-      promotionValue -
-      creditCardValue -
-      eliteProgressValue -
-      benefitValue,
-    eliteProgressValue,
+    effectiveCost: input.cashPrice + redemptionPointsValue - earnedPointsValue - promotionValue - creditCardValue,
     earnedPointsValue,
     promotionValue,
     redemptionPointsValue
   } satisfies CostBreakdown;
+}
+
+type EntitlementInput = {
+  breakfastIncluded: boolean;
+  loyaltyEligible: boolean;
+  loyaltyRule?: DecisionLoyaltyRule | null;
+};
+
+const ENTITLEMENTS = [
+  {
+    label: "breakfast",
+    preference: "caresAboutBreakfast",
+    present: (input: EntitlementInput) =>
+      input.breakfastIncluded || (input.loyaltyEligible && input.loyaltyRule?.breakfastBenefit === true)
+  },
+  {
+    label: "lounge access",
+    preference: "caresAboutLounge",
+    present: (input: EntitlementInput) => input.loyaltyEligible && input.loyaltyRule?.loungeBenefit === true
+  },
+  {
+    label: "late checkout",
+    preference: "caresAboutLateCheckout",
+    present: (input: EntitlementInput) => input.loyaltyEligible && input.loyaltyRule?.lateCheckoutBenefit === true
+  },
+  {
+    label: "room upgrades",
+    preference: "caresAboutUpgrade",
+    present: (input: EntitlementInput) => input.loyaltyEligible && input.loyaltyRule?.upgradeBenefit === true
+  }
+] as const;
+
+export function entitlementLossWarnings(input: {
+  baseline: EntitlementInput;
+  candidate: EntitlementInput;
+  profile: DecisionProfile;
+}) {
+  return ENTITLEMENTS.filter((entitlement) => {
+    return input.profile[entitlement.preference] && entitlement.present(input.baseline) && !entitlement.present(input.candidate);
+  }).map((entitlement) => `The candidate drops ${entitlement.label} available with the current booking.`);
+}
+
+export function unconfirmedPromotionWarnings(input: {
+  booking: DecisionBooking;
+  loyaltyEligible: boolean;
+  promotions: DecisionPromotion[];
+}) {
+  return input.promotions
+    .filter((promotion) => {
+      return promotion.requiresRegistration && promotionAppliesToStay(promotion, input.booking, input.loyaltyEligible);
+    })
+    .map((promotion) => `Promotion “${promotion.title}” requires registration and is excluded until registration can be confirmed.`);
+}
+
+function promotionAppliesToStay(
+  promotion: DecisionPromotion,
+  booking: DecisionBooking,
+  loyaltyEligible: boolean
+) {
+  return (
+    promotion.hotelGroup === booking.hotelGroup &&
+    (!promotion.startDate || promotion.startDate <= booking.checkOut) &&
+    (!promotion.endDate || promotion.endDate >= booking.checkIn) &&
+    loyaltyEligible
+  );
 }
 
 function selectCandidate(candidates: DecisionCandidate[], baselineCost: CostBreakdown) {

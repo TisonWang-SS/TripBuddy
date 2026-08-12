@@ -154,21 +154,20 @@ model CurrencyConversionRate {
 }
 
 model UserProfile {
-  id                  String               @id @default(cuid())
-  name                String               @default("Primary Traveler")
-  defaultCurrency     SupportedCurrency    @default(USD)
-  savingsThreshold    Float                @default(50)
-  urgentWindowHours   Int                  @default(24)
-  breakfastValue      Float                @default(25)
-  loungeValue         Float                @default(35)
-  lateCheckoutValue   Float                @default(15)
-  upgradeValue        Float                @default(40)
-  eliteNightValue     Float                @default(10)
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  loyaltyAccounts     LoyaltyAccount[]
-  creditCardBenefits  CreditCardBenefit[]
-  hotelSearchSessions HotelSearchSession[]
+  id                     String               @id @default(cuid())
+  name                   String               @default("Primary Traveler")
+  defaultCurrency        SupportedCurrency    @default(USD)
+  savingsThreshold       Float                @default(50)
+  urgentWindowHours      Int                  @default(24)
+  caresAboutBreakfast    Boolean              @default(true)
+  caresAboutLounge       Boolean              @default(true)
+  caresAboutLateCheckout Boolean              @default(true)
+  caresAboutUpgrade      Boolean              @default(true)
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  loyaltyAccounts        LoyaltyAccount[]
+  creditCardBenefits     CreditCardBenefit[]
+  hotelSearchSessions    HotelSearchSession[]
 }
 
 model LoyaltyAccount {
@@ -428,8 +427,6 @@ model Recommendation {
   pointsValueDifference     Float
   promotionValueDifference  Float
   creditCardValueDifference Float
-  eliteProgressDifference   Float
-  benefitValueDifference    Float
   explanation               String
   blockersJson              String                @default("[]")
   warningsJson              String                @default("[]")

@@ -20,6 +20,7 @@ let appendBrowserSnapshot: typeof import("@/lib/browserTasks")["appendBrowserSna
 let runLlmExtractionForPriceCheck: typeof import("@/lib/llmExtraction")["runLlmExtractionForPriceCheck"];
 let convertMoneyToSystemCurrency: typeof import("@/lib/systemSettings")["convertMoneyToSystemCurrency"];
 let setCurrencyConversionRate: typeof import("@/lib/systemSettings")["setCurrencyConversionRate"];
+let createRecommendationForBooking: typeof import("@/lib/recommendations")["createRecommendationForBooking"];
 
 describe("persistent browser price-check flow", () => {
   beforeAll(async () => {
@@ -43,6 +44,7 @@ describe("persistent browser price-check flow", () => {
     ({ getHotelSearchSession } = await import("@/lib/hotelSearchSessions"));
     ({ importAccountBookings } = await import("@/lib/accountBookings"));
     ({ runLlmExtractionForPriceCheck } = await import("@/lib/llmExtraction"));
+    ({ createRecommendationForBooking } = await import("@/lib/recommendations"));
     ({ convertMoneyToSystemCurrency, setCurrencyConversionRate } = await import("@/lib/systemSettings"));
 
     await prisma.systemSetting.create({ data: { id: "primary", displayCurrency: "USD" } });
@@ -270,6 +272,82 @@ describe("persistent browser price-check flow", () => {
       verdict: "rebook_direct"
     });
     expect(JSON.parse(recommendation.warningsJson)).toContain(WEAKER_CANCELLATION_WARNING);
+  });
+
+  it("persists entitlement-loss and unconfirmed-registration warnings without pricing either one", async () => {
+    const booking = await prisma.hotelBooking.create({
+      data: {
+        baselineCashTotal: 1200,
+        baselineType: "cash",
+        bookingChannel: "direct",
+        breakfastIncluded: true,
+        checkIn: new Date("2033-09-10T00:00:00.000Z"),
+        checkOut: new Date("2033-09-13T00:00:00.000Z"),
+        city: "Tokyo",
+        currency: "USD",
+        guests: 2,
+        hotelGroup: "Test Group",
+        hotelName: "Test Group Tokyo",
+        loyaltyEligible: true,
+        roomType: "1 King Bed"
+      }
+    });
+    await prisma.promotion.create({
+      data: {
+        appliesToExistingBookings: false,
+        flatValue: 500,
+        hotelGroup: "Test Group",
+        requiresRegistration: true,
+        title: "Register Before Your Stay"
+      }
+    });
+    const observation = await prisma.priceObservation.create({
+      data: {
+        bookingId: booking.id,
+        breakfastIncluded: false,
+        cashCurrency: "USD",
+        cashTotal: 900,
+        inventoryType: "cash",
+        loyaltyEligible: true,
+        roomTypeRaw: "1 King Bed",
+        sourceName: "Test Group official site",
+        sourceType: "direct",
+        evidence: {
+          create: {
+            blockersJson: "[]",
+            cancellationMatch: "same_or_better",
+            cancellationMatchReason: "Same test policy.",
+            currencyComparable: true,
+            feesIncluded: "yes",
+            loyaltyEligibility: "eligible",
+            qualityLevel: "high",
+            roomMatch: "exact",
+            roomMatchReason: "Exact test room.",
+            sourceVerified: true,
+            taxesIncluded: "yes",
+            warningsJson: "[]"
+          }
+        }
+      }
+    });
+
+    const recommendation = await createRecommendationForBooking(booking.id);
+    const warnings = JSON.parse(recommendation!.warningsJson);
+    const breakdown = JSON.parse(recommendation!.costBreakdownJson);
+
+    expect(recommendation).toMatchObject({
+      candidateObservationId: observation.id,
+      decisionVersion: "3",
+      estimatedSavings: 300,
+      verdict: "rebook_direct"
+    });
+    expect(warnings).toEqual([
+      "The candidate drops breakfast available with the current booking.",
+      "Promotion “Register Before Your Stay” requires registration and is excluded until registration can be confirmed."
+    ]);
+    expect(breakdown.baseline).not.toHaveProperty("benefitValue");
+    expect(breakdown.baseline).not.toHaveProperty("eliteProgressValue");
+    expect(breakdown.candidate.promotionValue).toBe(0);
   });
 
   it("replays stored snapshots through the LLM extractor without duplicating corroborated facts", async () => {
