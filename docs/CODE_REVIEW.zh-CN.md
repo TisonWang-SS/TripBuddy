@@ -635,7 +635,7 @@ launchUrl  = https://www.hyatt.com/search/hotels/en-US/%E4%B8%9C%E4%BA%AC?...
 
 **测试方法上的一点**:`CommandBar.test.tsx` 原有的确认用例在点击确认后统一 mock 一个 `Message` surface,于是「`search_hotels` 根本不产出 surface」这件事被 mock 盖住了。断言的是「请求发对了」,没断言「用户看见了什么」。同 §3.19 一样,是构造的输入比真实情况更宽松导致整类缺陷落在断言之外。
 
-### 3.23 文档行号引用会在**写下的那一刻**就是错的 — ⬜ 修复正确但不完整(`58fde01`)
+### 3.23 文档行号引用会在**写下的那一刻**就是错的 — ✅ 已完成(`58fde01`、`c698434`)
 
 `58fde01` 把 `surface.ts` 的两处注释、`SurfaceContractError` 的消息与 `surface.test.ts` 的断言,从 `PRD.md:171` 改成引用 **Presentation** 章节名。**这部分是对的**:`## Presentation` 在 `PRD.md:113`,规则在 121 行、确实落在该章节内;断言正则与抛出的字符串匹配;把源码消息还原成旧字符串后该用例立即失败,证明断言真的在守。
 
@@ -649,6 +649,10 @@ launchUrl  = https://www.hyatt.com/search/hotels/en-US/%E4%B8%9C%E4%BA%AC?...
 第二条比原始缺陷更能说明问题。对着 `0891419` 核过:**那个行号在写下的那一刻就是错的**,不是后来漂移的。所以「行号引用会过期」这个描述还不够狠 —— 它可能**从来没有对过**,而且没有任何东西会告诉你。章节名至少写错了会一眼看出来。
 
 ⬜ 顺带一条,不属于本次:`PRD.md` 里 "auxiliary" 出现**两处**(第 20 行的 v0.2 边界、第 102 行的 City Search 章节)。`STATUS.zh-CN.md` §4 只记了一处,按当前记录去改的人会只改一半。
+
+✅ **两处已在 `c698434` 补上,已核对。** `decisions/0003-loyalty-valuation.md:111` 改成「the evidence-ordering rule in the PRD's Presentation section」,不再依赖行号;`PRD.md:113` 的 `## Presentation` 章节确实包含该规则(121 行)。`STATUS.zh-CN.md` §4 改成直接点名 `v0.2 Product Boundary`(`PRD.md:9`)与 `City Search and Account Import`(`PRD.md:100`)两个章节标题,两处均已核对确实含 "auxiliary";上面那条「顺带一条」提的两处并存问题也一并写清了——「两处必须同批修改,只改一处会让 PRD 自相矛盾」。
+
+这次补丁的方式值得记一句:`c698434` 是把这条记录 amend 进了写下它的同一个 commit,而不是另开一次提交。结果是这条记录曾经有几分钟自相矛盾——正文说两处「漏了」、一处「不属于本次」,而 diff 里已经把前两处改完了。这正是本节的主题,在记录自身上又发生了一次,只是这次窗口短到没有第二个人看见。
 
 ---
 
