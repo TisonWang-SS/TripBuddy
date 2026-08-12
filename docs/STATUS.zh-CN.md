@@ -163,6 +163,6 @@
 
 ## 4. 已知张力,尚未决定
 
-- **`PRD.md:22` 把城市搜索写成 "An auxiliary official hotel city search"**,与「帮常旅客找到最划算方案」的定位冲突。改 PRD 是产品决策,不在文档整理范围内,留待第 2 项一起处理。
+- **PRD 的 `v0.2 Product Boundary` 与 `City Search and Account Import` 两个章节都把城市搜索定位为 auxiliary workflow**,与「帮常旅客找到最划算方案」的定位冲突。两处必须在第 2 项中同批修改;只改一处会让 PRD 自相矛盾。
 - **`PRD.md` 的 v0.2 边界表述滞后**:命令栏、agent 路由、surface 组装、browser task 事件流都已落地但未写入边界章节。
 - ~~`PRD.md:171` 行号失效~~ —— 已在 §3.0 清理,改为引用 **Presentation** 章节名称。

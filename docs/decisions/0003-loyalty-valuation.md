@@ -108,7 +108,7 @@ Spending a certificate on a stay is a cost. Earning one is a benefit. Both are p
 
 Taking breakfast out of the arithmetic must not make it disappear from the decision. A candidate that is $40 cheaper because it drops an entitlement the current booking has would otherwise read as $40 of savings.
 
-So an entitlement the baseline holds and a candidate does not becomes a **warning on that candidate**, in the same machinery that already carries the cancellation-policy downgrade (§3.1, §3.17): `DecisionCandidate.warnings`, rendered through `EvidenceIssues` before any control that changes a baseline, as `PRD.md:121` requires.
+So an entitlement the baseline holds and a candidate does not becomes a **warning on that candidate**, in the same machinery that already carries the cancellation-policy downgrade (§3.1, §3.17): `DecisionCandidate.warnings`, rendered through `EvidenceIssues` before any control that changes a baseline, as the evidence-ordering rule in the PRD's **Presentation** section requires.
 
 The traveler decides whether losing breakfast is worth $40. The product's job is to make sure they are never asked to decide it without being told.
 
