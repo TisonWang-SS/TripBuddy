@@ -115,10 +115,42 @@ export function buildSurface(surfaceId: string, nodes: readonly SurfaceNode[]): 
  *
  * Returns null when a capability has no rendered form yet, so the caller can
  * fall through to its own presentation rather than this inventing one.
+ *
+ * `resultRoute` is set only for a capability that opens a browser tab, and it is
+ * what makes one renderable at all: the launch itself is the whole result, so
+ * without it a confirmed run answers with a blank panel.
  */
-export function composeCapabilitySurface(capability: string, result: unknown, surfaceId: string): Surface | null {
-  const nodes = composeNodes(capability, result);
+export function composeCapabilitySurface(
+  capability: string,
+  result: unknown,
+  surfaceId: string,
+  resultRoute: string | null = null
+): Surface | null {
+  const nodes = resultRoute === null ? composeNodes(capability, result) : composeLaunchNodes(capability, result, resultRoute);
   return nodes === null ? null : buildSurface(surfaceId, nodes);
+}
+
+/**
+ * Every browser task returns a launch, whatever else it returns, so this is
+ * composed from the shape all three share rather than per capability.
+ */
+function composeLaunchNodes(capability: string, result: unknown, resultRoute: string): SurfaceNode[] {
+  const launchUrl = result && typeof result === "object" ? (result as { launchUrl?: unknown }).launchUrl : undefined;
+  return [
+    {
+      component: "TaskLaunch",
+      key: "launch",
+      props: { capability, launchUrl: typeof launchUrl === "string" ? launchUrl : null, resultRoute }
+    }
+  ];
+}
+
+/** The Hyatt URL a surface says was launched, for a client holding a tab open for it. */
+export function launchUrlOf(surface: Surface | null) {
+  const launch = surface?.nodes.find(
+    (node): node is Extract<SurfaceNode, { component: "TaskLaunch" }> => node.component === "TaskLaunch"
+  );
+  return launch?.props.launchUrl ?? null;
 }
 
 export function composeMessageSurface(surfaceId: string, text: string, tone: Tone = "neutral"): Surface {

@@ -32,6 +32,30 @@ const surfaceEvent: AgentEvent = {
   }
 };
 
+const launchEvent: AgentEvent = {
+  name: "surface",
+  timestamp: 1,
+  type: "CUSTOM",
+  value: {
+    nodes: [
+      {
+        component: "TaskLaunch",
+        key: "launch",
+        props: { capability: "run_price_check", launchUrl: "https://www.hyatt.com/shop", resultRoute: "/bookings/booking-1" }
+      }
+    ],
+    surfaceId: "s2",
+    version: "tripbuddy-surface-1"
+  }
+};
+
+/* What the server answers while a browser task is still waiting for its press. */
+const heldForConfirmation = emitting(
+  { timestamp: 1, toolCallId: "t", toolCallName: "run_price_check", type: "TOOL_CALL_START" },
+  { delta: JSON.stringify({ bookingId: "booking-1" }), timestamp: 2, toolCallId: "t", type: "TOOL_CALL_ARGS" },
+  { code: "confirmation_required", message: "This opens a Hyatt tab.", runId: "r", timestamp: 3, type: "RUN_ERROR" }
+);
+
 /* fireEvent rather than user-event: this repo keeps its dependency surface small. */
 function openBar() {
   render(<CommandBar commands={commands} />);
@@ -44,6 +68,7 @@ function typeQuery(value: string) {
 
 describe("command bar", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     mocks.push.mockReset();
     mocks.streamAgentRun.mockReset().mockImplementation(emitting(surfaceEvent));
   });
@@ -77,13 +102,9 @@ describe("command bar", () => {
    * confirmation_required, and the request is only re-sent after a press.
    */
   it("holds a browser task until it is confirmed", async () => {
-    mocks.streamAgentRun.mockImplementation(
-      emitting(
-        { timestamp: 1, toolCallId: "t", toolCallName: "run_price_check", type: "TOOL_CALL_START" },
-        { delta: JSON.stringify({ bookingId: "booking-1" }), timestamp: 2, toolCallId: "t", type: "TOOL_CALL_ARGS" },
-        { code: "confirmation_required", message: "This opens a Hyatt tab.", runId: "r", timestamp: 3, type: "RUN_ERROR" }
-      )
-    );
+    const browserTab = { close: vi.fn(), location: { href: "" } };
+    vi.spyOn(window, "open").mockReturnValue(browserTab as unknown as Window);
+    mocks.streamAgentRun.mockImplementation(heldForConfirmation);
 
     openBar();
     typeQuery("check booking-1");
@@ -91,8 +112,9 @@ describe("command bar", () => {
 
     await waitFor(() => expect(screen.getByText("This opens a Hyatt tab.")).toBeInTheDocument());
     expect(mocks.streamAgentRun).toHaveBeenCalledTimes(1);
+    expect(window.open).not.toHaveBeenCalled();
 
-    mocks.streamAgentRun.mockImplementation(emitting(surfaceEvent));
+    mocks.streamAgentRun.mockImplementation(emitting(launchEvent));
     fireEvent.click(screen.getByRole("button", { name: /Open the Hyatt tab/i }));
 
     await waitFor(() =>
@@ -101,6 +123,48 @@ describe("command bar", () => {
         expect.any(Function)
       )
     );
+    /* The press is what opens the tab, and the run is what points it at Hyatt. */
+    await waitFor(() => expect(browserTab.location.href).toBe("https://www.hyatt.com/shop"));
+    expect(browserTab.close).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The reported bug: the confirmation appeared, Enter was pressed to accept it,
+   * and the same sentence was routed again — repainting an identical panel, so
+   * nothing looked like it had happened.
+   */
+  it("puts the next keystroke on the confirmation rather than re-routing", async () => {
+    const browserTab = { close: vi.fn(), location: { href: "" } };
+    vi.spyOn(window, "open").mockReturnValue(browserTab as unknown as Window);
+    mocks.streamAgentRun.mockImplementation(heldForConfirmation);
+
+    openBar();
+    typeQuery("check booking-1");
+    fireEvent.click(screen.getByRole("option", { name: /check booking-1/ }));
+
+    const confirm = await screen.findByRole("button", { name: /Open the Hyatt tab/i });
+    await waitFor(() => expect(confirm).toHaveFocus());
+
+    mocks.streamAgentRun.mockImplementation(emitting(launchEvent));
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(mocks.streamAgentRun).toHaveBeenCalledTimes(2));
+    expect(mocks.streamAgentRun).not.toHaveBeenLastCalledWith({ message: "check booking-1" }, expect.any(Function));
+  });
+
+  /* A blocked pop-up is reported rather than leaving a run with nowhere to land. */
+  it("says so when the browser refuses the tab", async () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    mocks.streamAgentRun.mockImplementation(heldForConfirmation);
+
+    openBar();
+    typeQuery("check booking-1");
+    fireEvent.click(screen.getByRole("option", { name: /check booking-1/ }));
+
+    fireEvent.click(await screen.findByRole("button", { name: /Open the Hyatt tab/i }));
+
+    await waitFor(() => expect(screen.getByText(/Allow pop-ups for TripBuddy/)).toBeInTheDocument());
+    expect(mocks.streamAgentRun).toHaveBeenCalledTimes(1);
   });
 
   it("reports a failed run without closing the palette", async () => {

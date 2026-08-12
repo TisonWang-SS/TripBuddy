@@ -1,4 +1,11 @@
-import { argsBag, optionalEnum, optionalInteger, requireCalendarDate, requireString } from "@/lib/agent/args";
+import {
+  argsBag,
+  CapabilityArgsError,
+  optionalEnum,
+  optionalInteger,
+  requireString,
+  requireUpcomingCalendarDate
+} from "@/lib/agent/args";
 import type { Capability } from "@/lib/agent/types";
 import { createHotelSearchTask, supportedHotelSearchGroups } from "@/lib/hotelSearchTasks";
 import { getHotelSearchSession, type HotelSearchSessionSnapshot } from "@/lib/hotelSearchSessions";
@@ -42,10 +49,19 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
   },
   parseArgs(raw) {
     const bag = argsBag(raw, ["adults", "checkIn", "checkOut", "city", "hotelGroup"]);
+    const checkIn = requireUpcomingCalendarDate(bag, "checkIn");
+    const checkOut = requireUpcomingCalendarDate(bag, "checkOut");
+    /*
+     * The provider rejects this too, but only once the task is being created —
+     * after the confirmation press. Refusing it here makes it a question.
+     */
+    if (checkOut <= checkIn) {
+      throw new CapabilityArgsError(`"checkOut" must be after "checkIn"; received ${checkIn} to ${checkOut}.`);
+    }
     return {
       adults: optionalInteger(bag, "adults"),
-      checkIn: requireCalendarDate(bag, "checkIn"),
-      checkOut: requireCalendarDate(bag, "checkOut"),
+      checkIn,
+      checkOut,
       city: requireString(bag, "city"),
       hotelGroup: optionalEnum(bag, "hotelGroup", SEARCHABLE_GROUPS) ?? SEARCHABLE_GROUPS[0]
     };

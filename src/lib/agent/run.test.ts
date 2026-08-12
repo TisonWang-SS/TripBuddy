@@ -137,10 +137,34 @@ describe("agent run", () => {
     const events = await collect({ args: { bookingId: "booking-1" }, capability: "run_price_check", confirmed: true });
 
     expect(types(events)).toContain("RUN_FINISHED");
-    const custom = events.find((event) => event.type === "CUSTOM");
-    expect(custom && "value" in custom && custom.value).toEqual({
+    const launch = events.find((event) => event.type === "CUSTOM" && event.name === "browser_task_launch");
+    expect(launch && "value" in launch && launch.value).toEqual({
       capability: "run_price_check",
       resultRoute: "/bookings/booking-1"
+    });
+  });
+
+  /*
+   * The launch is the whole result of a browser task, so it has to be renderable
+   * on its own. Without this the confirmed run answers with an empty panel and
+   * the client has no launch URL for the tab it opened.
+   */
+  it("composes the launch as the surface for a confirmed browser task", async () => {
+    mocks.runPriceCheck.mockResolvedValue({ launchUrl: "https://www.hyatt.com/", taskId: "task-1" });
+    const events = await collect({ args: { bookingId: "booking-1" }, capability: "run_price_check", confirmed: true });
+
+    const surface = events.find((event) => event.type === "CUSTOM" && event.name === "surface");
+    expect(surface && "value" in surface && surface.value).toMatchObject({
+      nodes: [
+        {
+          component: "TaskLaunch",
+          props: {
+            capability: "run_price_check",
+            launchUrl: "https://www.hyatt.com/",
+            resultRoute: "/bookings/booking-1"
+          }
+        }
+      ]
     });
   });
 

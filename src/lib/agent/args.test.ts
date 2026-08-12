@@ -6,7 +6,8 @@ import {
   optionalInteger,
   optionalString,
   requireCalendarDate,
-  requireString
+  requireString,
+  requireUpcomingCalendarDate
 } from "./args";
 
 describe("capability arguments", () => {
@@ -62,6 +63,20 @@ describe("capability arguments", () => {
 
   it("rejects a well-formed date that is not real", () => {
     expect(() => requireCalendarDate({ checkIn: "2026-13-45" }, "checkIn")).toThrow(CapabilityArgsError);
+  });
+
+  /*
+   * A model with no date anchor answers "early September" with a syntactically
+   * perfect year it made up. Nothing downstream can tell that apart from a date
+   * the user typed, so the stay being in the past is the only signal left.
+   */
+  it("refuses a stay that has already happened", () => {
+    const now = new Date("2026-08-12T09:00:00.000Z");
+    expect(requireUpcomingCalendarDate({ checkIn: "2026-09-01" }, "checkIn", now)).toBe("2026-09-01");
+    /* Today still counts: a same-day search is a real thing to ask for. */
+    expect(requireUpcomingCalendarDate({ checkIn: "2026-08-12" }, "checkIn", now)).toBe("2026-08-12");
+    expect(() => requireUpcomingCalendarDate({ checkIn: "2023-09-01" }, "checkIn", now)).toThrow(/already passed/);
+    expect(() => requireUpcomingCalendarDate({ checkIn: "2026-08-11" }, "checkIn", now)).toThrow(CapabilityArgsError);
   });
 
   it("constrains enums to the declared values", () => {

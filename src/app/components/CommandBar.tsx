@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { streamAgentRun } from "@/lib/agent/client";
 import type { Surface } from "@/lib/agent/surface";
+import { launchUrlOf } from "@/lib/agent/surface";
 import { buttonClassName } from "@/ui";
 import styles from "./CommandBar.module.css";
 import { SurfaceRenderer } from "./SurfaceRenderer";
@@ -56,6 +57,7 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
   const [active, setActive] = useState(0);
   const [answer, setAnswer] = useState<Answer | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
   const listId = useId();
 
@@ -112,6 +114,22 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
     };
   }, [open]);
 
+  /*
+   * A pending confirmation takes the focus, so the next keystroke reaches the
+   * decision being asked about. Without this the field keeps focus and Enter
+   * re-routes the same sentence, which repaints the identical panel — the
+   * question looks unanswered and the press looks ignored.
+   *
+   * Moving focus rather than teaching the field to confirm is deliberate: the
+   * guard in `invokeCapability` wants a press on the control that opens the tab,
+   * not a second press of whatever key happened to be under a finger.
+   */
+  useEffect(() => {
+    if (answer?.kind === "confirm") {
+      confirmRef.current?.focus();
+    }
+  }, [answer?.kind]);
+
   function run(command: Command) {
     close();
     router.push(command.href);
@@ -121,8 +139,17 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
    * Sends the typed words to be routed, and renders whatever surface comes back
    * in place. Reads land here; anything that opens a Hyatt tab comes back as a
    * surface pointing at the page that owns its progress and result.
+   *
+   * `browserTab` is a tab the caller already opened inside the click that
+   * started this, because Chrome only allows `window.open` during a gesture and
+   * the launch URL is not known until the run answers. Same arrangement as
+   * `RunPriceCheckButton`; it is closed again if the run produces no launch.
    */
-  async function ask(request: { args?: unknown; capability?: string; confirmed?: boolean; message?: string }, question: string) {
+  async function ask(
+    request: { args?: unknown; capability?: string; confirmed?: boolean; message?: string },
+    question: string,
+    browserTab: Window | null = null
+  ) {
     setAnswer({ kind: "running", question });
     let surface: Surface | null = null;
     let capability = "";
@@ -142,11 +169,13 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
         }
       });
     } catch (error) {
+      browserTab?.close();
       setAnswer({ kind: "failed", message: error instanceof Error ? error.message : "That request failed.", question });
       return;
     }
 
     if (failure) {
+      browserTab?.close();
       const { code, message } = failure;
       setAnswer(
         code === "confirmation_required"
@@ -155,7 +184,33 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
       );
       return;
     }
+
+    const launchUrl = launchUrlOf(surface);
+    if (browserTab) {
+      if (launchUrl) {
+        browserTab.location.href = launchUrl;
+      } else {
+        browserTab.close();
+      }
+    }
     setAnswer({ kind: "answered", question, surface });
+  }
+
+  /**
+   * The press the confirmation guard is waiting for. The tab is opened here,
+   * empty, because this is the last moment Chrome still counts as a gesture.
+   */
+  function confirmLaunch(pending: Extract<Answer, { kind: "confirm" }>) {
+    const browserTab = window.open("about:blank", "_blank");
+    if (!browserTab) {
+      setAnswer({
+        kind: "failed",
+        message: "Chrome blocked the Hyatt tab. Allow pop-ups for TripBuddy and try again.",
+        question: pending.question
+      });
+      return;
+    }
+    void ask({ args: pending.args, capability: pending.capability, confirmed: true }, pending.question, browserTab);
   }
 
   const askable = query.trim().length > 0;
@@ -251,7 +306,8 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
                     <p>{answer.message}</p>
                     <button
                       className={buttonClassName({ size: "sm" })}
-                      onClick={() => void ask({ args: answer.args, capability: answer.capability, confirmed: true }, answer.question)}
+                      onClick={() => confirmLaunch(answer)}
+                      ref={confirmRef}
                       type="button"
                     >
                       Open the Hyatt tab

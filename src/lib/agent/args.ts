@@ -8,6 +8,8 @@
  * looks right. Everything unexpected raises instead.
  */
 
+import { localInstantDayOf, parseCalendarDate } from "@/lib/dateSemantics";
+
 export class CapabilityArgsError extends Error {
   readonly code = "invalid_args";
 
@@ -79,6 +81,24 @@ export function requireCalendarDate(bag: Record<string, unknown>, key: string) {
   }
   if (Number.isNaN(new Date(`${value}T00:00:00.000Z`).getTime())) {
     return failure(`"${key}" is not a real date.`);
+  }
+  return value;
+}
+
+/**
+ * A calendar date that has not already passed.
+ *
+ * `requireCalendarDate` is purely syntactic, and a fabricated year is
+ * syntactically perfect: a model asked for "early September" with no anchor
+ * answers "2023-09-01", which parses, stores, and searches — a wrong answer that
+ * looks right. A stay cannot be searched after it has happened, so refusing the
+ * past here is the one server-side check that catches it, and ADR 0002 requires
+ * a model mistake to become a question rather than an outcome.
+ */
+export function requireUpcomingCalendarDate(bag: Record<string, unknown>, key: string, now = new Date()) {
+  const value = requireCalendarDate(bag, key);
+  if (parseCalendarDate(value).getTime() < localInstantDayOf(now)) {
+    return failure(`"${key}" is ${value}, which has already passed. Give the dates you want, including the year.`);
   }
   return value;
 }

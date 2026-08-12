@@ -136,4 +136,33 @@ describe("capability registry", () => {
     ).rejects.toThrow(CapabilityArgsError);
     expect(mocks.createHotelSearchTask).not.toHaveBeenCalled();
   });
+
+  /*
+   * The dates a model invents are well-formed, so they pass every syntactic
+   * check and reach Hyatt as a real search of a stay that already happened.
+   */
+  it("refuses a search of dates that have already passed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-12T09:00:00.000Z"));
+    mocks.createHotelSearchTask.mockClear();
+    try {
+      await expect(
+        invokeCapability(
+          "search_hotels",
+          { checkIn: "2023-09-01", checkOut: "2023-09-10", city: "东京" },
+          { confirmed: true }
+        )
+      ).rejects.toThrow(/already passed/);
+      await expect(
+        invokeCapability(
+          "search_hotels",
+          { checkIn: "2026-09-10", checkOut: "2026-09-01", city: "Tokyo" },
+          { confirmed: true }
+        )
+      ).rejects.toThrow(/must be after/);
+      expect(mocks.createHotelSearchTask).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

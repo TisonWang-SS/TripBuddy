@@ -77,20 +77,21 @@ export async function runAgentRequest(request: AgentRunRequest, emit: AgentEvent
     emit({ content: JSON.stringify(result), timestamp: now(), toolCallId, type: "TOOL_CALL_RESULT" });
 
     /*
+     * A browser task's progress and result render on the route that owns it,
+     * which the client cannot derive from the result alone.
+     */
+    const resultRoute = capabilityResultRoute(capability, args);
+
+    /*
      * The rendered form of the result, composed here from the same deterministic
      * data. A capability with no surface yet emits none, so a caller can fall
      * through to its own presentation rather than this inventing one.
      */
-    const surface = composeCapabilitySurface(capability.name, result, runId);
+    const surface = composeCapabilitySurface(capability.name, result, runId, resultRoute);
     if (surface) {
       emit({ name: "surface", timestamp: now(), type: "CUSTOM", value: surface });
     }
 
-    /*
-     * A browser task's result renders on the route that owns it, which the
-     * client cannot derive from the result alone.
-     */
-    const resultRoute = capabilityResultRoute(capability, args);
     if (resultRoute) {
       emit({
         name: "browser_task_launch",
