@@ -96,6 +96,10 @@
 
 ✅ **选择收缩产品声明。** 在没有“本次 stay 是否跨过 tier/milestone、跨级价值是多少”的明确模型前,这些字段不能诚实地进入单次住宿成本。migration 删除旧列,UI 不再向用户收集不会影响推荐的数据;现有每晚 elite-night value 明确保持为用户主观估值,不冒充会籍门槛计算。
 
+📌 **当时留的条件已经满足,见 ADR 0003(`docs/decisions/0003-loyalty-valuation.md`,Accepted)。** 跨级模型的形状是:跨过门槛**释放的是有二级市场价的券**,所以跨级价值 = Σ(所发券 × 有出处的市价 × 兑现率),不需要任何主观输入。被删的资格进度字段随着消费它们的计算一起回来。
+
+同一份 ADR 把 §1.6 的标准**反向也用了一次**:早餐 / lounge / 延迟退房 / 升房 的每晚主观估值当初没有被这条标准审视过,按同样的尺子它们不该进 `effectiveCost`——千人千面,不吃早餐的人价值就是 0。它们改为只列出、不计价,而「基线有、候选没有」变成 warning 而非价格调整。`UserProfile` 的 5 个估值字段、`CostBreakdown.benefitValue` / `eliteProgressValue`、`Recommendation.benefitValueDifference` / `eliteProgressDifference` 一并退场(历史行迁移保留,不重算)。
+
 ### 1.7 重复实现 — ✅ 已完成(`d41dee6`)
 
 | 重复项 | 收敛结果 |
@@ -536,6 +540,96 @@ review 中的原始攻击样例已变成负向回归:候选仍可作为价格事
 
 ---
 
+### 命令栏「确认后什么也没发生」— §3.20–§3.22
+
+用户报告:在命令栏输入「帮我查一下九月上旬东京的酒店,预算 1000 人民币左右」,回车后得到 `"search_hotels" opens a browser tab and needs explicit confirmation before it runs.`,**再次回车确认,什么也没有发生**。
+
+按用户的操作在真实浏览器里复现,发现的不是一个缺陷而是三个,分处三层,叠在一起构成「怎么按都没反应」:第二次回车重新路由了同一句话(§3.20);就算改用鼠标点确认按钮,面板也是空的、标签页也没开(§3.21);而模型给出的日期是**三年前的 2023 年**,并且一路写进了数据库(§3.22)。前两个让人看不出发生了什么,第三个让「发生了什么」本身就是错的。
+
+### 3.20 待确认时,回车重新路由而不是确认 — ✅ 已完成(本次修复)
+
+`CommandBar` 的 `onFieldKeyDown` 对回车只有一种处理:`choose(active)`。确认面板出现后焦点仍留在输入框,`results` 对中文句子为空(`matches` 按空白切词,整句作一个 term 匹配不上任何命令),于是 `choose(0)` 落到 ask 分支,**把同一句话重新发去路由**。
+
+实测拦截 `fetch` 的结果,第二次回车发出的请求体是:
+
+```
+{"message":"帮我查一下九月上旬东京的酒店,预算1000人民币左右"}
+```
+
+——没有 `confirmed`。它再跑一次 DeepSeek、再拿到一次 `confirmation_required`、再画出一模一样的面板。像素级不变,所以看起来就是「什么也没有发生」,代价是每按一次多烧一次模型调用。整条键盘路径到不了确认按钮。
+
+✅ **修复方式:确认出现时把焦点交给确认按钮。** 这是无障碍对话框的常规做法,回车/空格自然落在被询问的那个决定上,Esc 关闭,Shift+Tab 回到输入框。
+
+**没有选择「让输入框的回车代表确认」**,因为 `invokeCapability` 的守卫要的是「按下那个开标签页的控件」,不是「把刚才按过的那个键再按一次」——后者正是误触确认的经典形状。焦点可见地移动过去,按键才算落在决定上。
+
+### 3.21 确认之后,面板是空的,标签页也没开 — ✅ 已完成(本次修复)
+
+用鼠标点了确认按钮,服务端确实跑完了:`BrowserTask` 与 `HotelSearchSession` 都建了行。但界面上只剩一行回显的问句,**没有任何结果、没有链接,也没有任何 Hyatt 标签页被打开**——按钮上写着 "Open the Hyatt tab",按下去不开标签页。
+
+两处断链:
+
+| 断点 | 情况 |
+|---|---|
+| 服务端 | `composeNodes` 对 `search_hotels` / `run_price_check` / `import_account_bookings` 一律走 `default: return null`,所以确认后的运行**不产生 surface**。`TaskLaunch` 这个节点类型在目录和 `SurfaceRenderer` 里都写好了,却从来没有任何代码产出过它。 |
+| 客户端 | `run.ts` 发的 `browser_task_launch` CUSTOM 事件,`CommandBar` 的 `ask` 只认 `name === "surface"`,直接忽略。结果里的 `launchUrl` 因此无人消费。 |
+
+也就是说:浏览器任务的**全部结果就是这个 launch**,而它恰好是唯一没被组装成可渲染形式的东西。
+
+✅ **修复方式:**
+
+1. `composeCapabilitySurface` 接收 `resultRoute`(只有 `effect === "browser_task"` 才有),据此组装 `TaskLaunch` 节点,`launchUrl` 从结果里取。三个浏览器任务共用一种形状,所以按形状组装而不是按能力名逐个写 case。
+2. `CommandBar` 沿用 `RunPriceCheckButton` 已有的写法:**在点击这个手势里**先 `window.open("about:blank")`,等运行返回后把 `location.href` 指向 `launchUrl`。Chrome 只在手势内允许开窗,而 launch URL 要等服务端返回才知道,顺序不能反。运行没产出 launch 就把空标签页关掉;开窗被拦截则明说,不再静默失败。
+
+**实测**(命令栏输入 `search hotels in Tokyo from 2026-09-01 to 2026-09-05`,确认后读取被打开标签页的 `location.href`):
+
+```
+https://www.hyatt.com/search/hotels/en-US/Tokyo?adults=2&...&checkinDate=2026-09-01
+  &checkoutDate=2026-09-05&currency=USD&...#tripbuddyEndpoint=http%3A%2F%2Flocalhost%3A3000
+  &tripbuddyTaskId=134ac945-...&tripbuddyRequestedCurrency=USD
+```
+
+面板同时渲染出 "CHECK STARTED / A Hyatt tab was opened…" 与 "Open that page"。
+
+### 3.22 模型编造的年份被一路接受,写进了数据库 — ✅ 已完成(本次修复)
+
+最严重的一个。「九月上旬」在 2026-08-12 这天被路由成:
+
+```json
+{"checkIn":"2023-09-01","checkOut":"2023-09-10","city":"东京","hotelGroup":"Hyatt"}
+```
+
+**2023 年**——三年前。而这组参数通过了每一道检查,`HotelSearchSession.queryJson` 与 `BrowserTask.launchUrl` 都落了盘:
+
+```
+queryJson  = {"adults":2,"checkIn":"2023-09-01","checkOut":"2023-09-10","city":"东京",...}
+launchUrl  = https://www.hyatt.com/search/hotels/en-US/%E4%B8%9C%E4%BA%AC?...
+             &checkinDate=2023-09-01&checkoutDate=2023-09-10&...
+```
+
+根因两条,缺一不可:
+
+1. **提示词没有日期锚点**,却又只禁止了「相对日期」:原文是 *If the request gives a relative date such as "next week", omit the parameter instead of computing one.*。「九月上旬」在模型看来不是 "next week" 那类相对日期,它是个缺年份的具体日期——于是它补了一个年份。没有今天的日期可依,补出来的就是训练期的默认值。
+2. **`requireCalendarDate` 只是语法检查。** `2023-09-01` 语法完美。ADR 0002 承诺「a natural-language date is rejected rather than coerced」,但这道守卫分不清一个日期是用户打的还是模型编的——两者形状一样。
+
+这正是 `args.ts` 开头那段注释担心的事:*turns a model mistake into a wrong answer that looks right*。守卫写了,只是拦不住这一类。
+
+✅ **修复方式:**
+
+1. **提示词收紧**:日期的每一部分都必须来自请求本身;`"next week"` 缺年月日、`"early September"` 与 `"9月上旬"` 缺年份,一律省略参数——并明说模型不知道今天是哪天,补全就是猜。
+2. **`requireUpcomingCalendarDate`**:住宿日期不得早于今天。**这是唯一能识别编造年份的服务端信号**——一个已经过去的行程无论谁提出都不成立。当天算通过(当日搜索是真实需求)。`search_hotels` 同时把 `checkOut > checkIn` 提到参数解析层:provider 本来也拦,但要等到确认按下、任务开建时才报错;放在解析层它才会变成一个问句。
+
+`CapabilityArgsError` 经 `decide()` 变成 clarify,所以模型犯错的出口是**问句**而不是结果。**实测**同一句中文,现在回答 `"checkIn" is required.`,不再有 2023 年的搜索被建出来。
+
+⬜ **两点记下,不是本次缺陷。**
+
+- `city` 原样传的是 `东京`,进 URL 是 `%E4%B8%9C%E4%BA%AC`。Hyatt 的城市搜索路径大概率认不出中文城市名。要支持中文提问,城市名的归一化需要单独处理。
+- `search_hotels` 没有预算参数,「预算 1000 人民币左右」被静默丢弃;币种取自 profile(实测记为 `USD`)。目前是产品范围问题,但它意味着用户提的约束里有一半没有落点。
+- clarify 用的是解析器原文(`"checkIn" is required.`),中文提问会收到英文参数名。产品决定「文案由产品持有、模型不写用户读的字」是对的,但这条文案对中文用户的可读性值得单独看一次。
+
+**测试方法上的一点**:`CommandBar.test.tsx` 原有的确认用例在点击确认后统一 mock 一个 `Message` surface,于是「`search_hotels` 根本不产出 surface」这件事被 mock 盖住了。断言的是「请求发对了」,没断言「用户看见了什么」。同 §3.19 一样,是构造的输入比真实情况更宽松导致整类缺陷落在断言之外。
+
+---
+
 ## 4. 接入 LLM 的设计建议
 
 ### 4.1 不要从决策层开始
@@ -677,18 +771,34 @@ review 中的原始攻击样例已变成负向回归:候选仍可作为价格事
 | 32 | 三条任务创建 POST 补 same-origin 门禁并统一环回 host 别名(§3.7 遗留) | 本次修复 |
 | 33 | 登录 token 下沉 provider,ObservationEvidence snapshot 补 codec(§3.5、§2.4 观察) | 本次修复 |
 | 34 | 同源门禁改用 `Host` 头并要求私有地址,修复非 localhost 访问全线 403(§3.19) | `10cf242` |
+| 35 | 待确认时把焦点交给确认按钮,回车不再重新路由(§3.20) | 本次修复 |
+| 36 | 浏览器任务组装 `TaskLaunch` surface,确认后真的打开 Hyatt 标签页(§3.21) | 本次修复 |
+| 37 | 提示词禁止补全日期 + `requireUpcomingCalendarDate` 拦下编造的年份(§3.22) | 本次修复 |
 
 ### 后续建议顺序
 
+顺序按产品定位重排过一次。定位是:**面向酒店集团常旅客,官网直采可核验的价格,结合会籍给推荐,并监测已有预定是否有更优价。** 对照这条线,证据链部分超额完成,会籍部分最薄且曾主动收缩,discovery 在 `PRD.md:22` 里至今写着 "auxiliary"——所以前两项是补定位欠账,不是加功能。
+
 | 顺序 | 事项 | 理由 |
 |---|---|---|
-| 35 | 房型等价性判定交给模型(§4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker——这是剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
+| 38 | 落地 ADR 0003 的会籍估值模型 | 定位里「结合会籍」这条现在最薄,且是**唯一无法被通用 AI 旅行助手复制**的部分。删除主观估值与新增警告必须同批上线,否则产品会变成降级推荐机 |
+| 39 | discovery 路径补含税总价证据链 | 定位里「找到最划算方案」这条。城市搜索现在只有起价 / 每晚 / 不含税,而产品的整个论点是含税总价才算数;`PRD.md:22` 的 "auxiliary" 表述要一起改 |
+| 40 | 中文城市名归一化 + `get_hotel_search_session` 补 surface(§3.22 观察) | 小、独立、是第 39 项的地基。城市名原样进 Hyatt URL,中文城市大概率搜不到;而读 session 至今是空面板——和 §3.21 同一个洞 |
+| 41 | 对话骨架(多轮 + 指代解析)与 locale | 表现层。等 38、39 有东西可包再做更划算;locale 的覆盖范围依赖对话面定型 |
+| 42 | 房型等价性判定交给模型(§4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker——这是剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
+
+**另两条待决,各自需要独立 ADR:**
+
+- **跨集团 / OTA 比较。** provider registry、`SourceType.ota`、`consider_ota` verdict 都已就位,加 provider 是填充而非架构变更。但跨集团比较会打断会籍逻辑——同集团内是「哪个更划算」,跨集团是「值不值得放弃进度」,是两个模型。ADR 0003 只锁死一条:被放弃的进度必须作为独立数字展示,不得 netted 进 `estimatedSavings`。
+- **ADR 0001 的修订。** 那份决策把「无人值守」和「headless / CDP / 复制 profile」绑成了一件事,结果「监测」实际上是「用户记得时点一下」。真正的卡点不是反爬而是**登录态**:即使反爬完全解决,后台服务仍看不到会员价。可行的方向是分层——服务端可 7×24 调用的 OTA 合作方 API 作探针(`low` 证据,只有权请求看一眼、无权改 baseline 或出 verdict),本地真实已登录 Chrome 做确认(`high` 证据)。这套分层天然套进现有 `EvidenceQuality`,与「model proposes, never authorizes」同形。
 
 第 13–15 项作为一组一起做是对的:它们是同一条日期约定接缝的三个面,第 9 项(`a5af2de`)就是分开修、只修了一半的例子。
 
 **当前状态**:本轮要求与复查新增项均已关闭:三条应用内任务创建路由拒绝跨源副作用,环回 host 别名统一,Hyatt 登录 token 下沉 provider,最后一处结构 JSON 断言进入 codec。
 
-此后由用户使用中报出并修复了 §3.19:同源门禁比错了对象,localhost 之外的任何访问地址都被拒——包括 README 自己给出的启动方式。它同时暴露了一个测试方法上的问题:既有的同源用例全部用不带 `Host` 头的 `new Request` 构造,比真实浏览器请求宽松,所以整类缺陷落在断言之外。构造测试输入时值得对照真实请求必带的头再确认一次。除此之外无已知的功能性缺陷。
+此后由用户使用中报出并修复了 §3.19:同源门禁比错了对象,localhost 之外的任何访问地址都被拒——包括 README 自己给出的启动方式。它同时暴露了一个测试方法上的问题:既有的同源用例全部用不带 `Host` 头的 `new Request` 构造,比真实浏览器请求宽松,所以整类缺陷落在断言之外。构造测试输入时值得对照真实请求必带的头再确认一次。
+
+再之后由用户报出「命令栏确认后什么也没发生」,复现出三个叠在一起的缺陷(§3.20–§3.22):键盘到不了确认按钮、确认后的运行不产出任何可渲染结果也不开标签页、以及模型编造的年份被一路接受并落盘。三者分处交互层、组装层和参数层,单修任何一个用户看到的仍然是「没反应」。§3.22 是其中最重的一个:它不是界面没反应,而是**反应本身是错的**——一个 2023 年的行程被真的建了出来。它和 §3.19 指向同一个测试方法问题:确认用例统一 mock 了一个 surface,把「这条能力压根不产出 surface」盖住了;断言停在「请求发对了」,没走到「用户看见了什么」。除此之外无已知的功能性缺陷。
 
 `b1e7be3` 顺带推进了两条既有条目:§3.6 的前端轮询已从硬编码 190s 改为消费服务端 `expiresAt`(**可标记完成**);§2.4 当时先覆盖 3 列,其余结构 JSON 已在本次提交补齐。
 
