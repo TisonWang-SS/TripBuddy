@@ -59,7 +59,7 @@ The application is divided into four boundaries:
 - Preserve Hyatt account import behavior, including direct reservation-detail navigation and active-date filtering.
 - Prepare account-import conversions before entering one transaction that atomically resolves and writes every active booking.
 
-### 5. Capability Layer
+### 5. Capability Layer and Event Stream
 
 - Describe each product action once in `src/lib/agent/capabilities/*` as a capability: name, one-line summary, parameter shapes, effect, and a handler that reuses the existing domain modules rather than reimplementing them.
 - Keep capabilities server-side functions invoked through `src/lib/agent/registry.ts`, not new REST routes. The app is a same-origin Next monolith; the only new HTTP surface is the event stream.
@@ -67,6 +67,11 @@ The application is divided into four boundaries:
 - Enforce confirmation in `invokeCapability`, not in handlers, so a new capability cannot forget it. Recognising an intent never authorises acting on it.
 - Parse arguments strictly in `src/lib/agent/args.ts`: reject undeclared keys, refuse natural-language dates, and require calendar dates as `YYYY-MM-DD`. These arguments arrive from a model, and a silent coercion becomes a wrong answer that looks right.
 - Return domain values, not copy: capability results carry stored enum values and ISO strings, and stay JSON-serializable because they cross the event stream.
+- Report a run as an AG-UI event sequence over Server-Sent Events from `POST /api/agent`, the only HTTP surface the agent layer adds. Declare the event union in `src/lib/agent/events.ts` rather than depending on a package: align to the wire shape so a later swap is mechanical.
+- Keep run orchestration in `src/lib/agent/run.ts`, transport-free, so the whole event sequence is testable without HTTP. The route only frames events and sets headers.
+- Split failure reporting by layer: a transport problem answers with a status code, and anything that goes wrong inside a run is a RUN_ERROR event on an otherwise healthy 200 stream, so a client reads outcomes in one place.
+- Pass capability error codes through onto RUN_ERROR unchanged, so a client can tell `confirmation_required` from a failure without matching on message text. Confirmation is a protocol round trip: the client re-sends the same request with `confirmed` after the user presses.
+- Guard the stream with the same `sameOriginRequestError` the task-creation routes use.
 
 ### 6. Verification
 

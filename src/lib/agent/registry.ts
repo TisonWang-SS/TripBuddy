@@ -70,6 +70,16 @@ export function describeCapabilities(): CapabilityDescription[] {
   return CAPABILITIES.map(({ effect, name, params, summary }) => ({ effect, name, params, summary }));
 }
 
+/**
+ * Validates arguments without running anything. The event stream announces a
+ * capability and its arguments before it executes, so it needs the parsed form
+ * up front. `invokeCapability` parses again — the parsers are pure, and one
+ * cheap repetition is better than a second place that could skip the guard.
+ */
+export function parseCapabilityArgs(name: string, rawArgs: unknown) {
+  return requireCapability(name).parseArgs(rawArgs);
+}
+
 /** Where a capability's progress and result are meant to render, if anywhere. */
 export function capabilityResultRoute(capability: AnyCapability, args: unknown) {
   return capability.effect === "browser_task" ? capability.resultRoute(args) : null;

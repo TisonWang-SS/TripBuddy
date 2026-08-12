@@ -125,6 +125,8 @@ What TripBuddy can do is described once, as a set of named capabilities with typ
 
 Capabilities are either reads or browser tasks. A read is safe to run as soon as an intent is recognised. A browser task opens a Hyatt tab through the Browser Companion, so it requires explicit confirmation and names the route that owns its progress and error notices; recognising an intent is never authority to act on it, and a result that has nowhere to render is not an acceptable outcome.
 
+A run is reported as a stream of events rather than a single response: which capability was chosen, the arguments it actually used, when it started and finished, and what it returned. Progress is something the user can watch, and a failure is an event in that stream rather than a separate error channel. Confirmation is part of the exchange — a run that needs a press ends by saying so, and the client asks again once the user has agreed.
+
 Capability arguments are validated strictly and rejected rather than coerced. Dates must be calendar dates; an undeclared argument is an error, not something to ignore. Capability results carry stored enum values and explicit date strings, leaving copy to the presentation layer.
 
 ## Documentation and Validation Rule
