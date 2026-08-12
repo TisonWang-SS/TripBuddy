@@ -81,15 +81,77 @@
 
 ## 3. 下一阶段
 
-排序依据产品定位:**面向酒店集团常旅客,官网直采可核验的价格,结合会籍给推荐,并监测已有预订是否有更优价。** 对照这条线,证据链部分超额完成,会籍部分最薄且曾主动收缩 —— 所以前两项是补定位欠账,不是加功能。
+排序依据产品定位:**面向酒店集团常旅客,官网直采可核验的价格,结合会籍给推荐,并监测已有预订是否有更优价。** 对照这条线,证据链部分超额完成,会籍部分最薄且曾主动收缩 —— 所以会籍这条是补定位欠账,不是加功能。
 
-| 顺序 | 事项 | 理由 |
+### 3.0 阻塞项:先清
+
+**#0 · 修 `PRD.md:171` 失效引用。** 改成稳定的**章节名称引用**而非行号(该行号已经漂过一次),同步更新 `surface.ts` 的两处注释、`SurfaceContractError` 的消息文案,以及 `surface.test.ts:66` 的断言 —— **它断言了这个字符串,不是纯注释改动**。约十分钟,两条泳道都在等它(都会碰 `surface.ts`),先落地后面 rebase 无痛。
+
+### 3.1 两条泳道,可并行
+
+逐文件核过,两条泳道**不碰同一个文件**。A 不碰 `surface.ts`:权益丢失 warning 走已有的 `EvidenceIssues`,`explain_recommendation` 本来就在组装它。
+
+```
+#0 PRD 引用修复
+  │
+  ├─→ 泳道 1(成本模型)  A ──→ B ──→ C
+  │
+  └─→ 泳道 2(发现路径)  第 3 项 ──→ 第 2 项
+```
+
+| | 泳道 1 · 成本模型 | 泳道 2 · 发现路径 |
 |---|---|---|
-| 1 | 落地 [ADR 0003](./decisions/0003-loyalty-valuation.md) 的会籍估值模型 | 定位里「结合会籍」这条现在最薄,且是唯一无法被通用 AI 旅行助手复制的部分。**删除主观估值与新增「权益丢失」warning 必须同批上线**,否则产品会变成降级推荐机 |
-| 2 | 城市列表的比较基准 | 含税总价流程**已经存在**,但只在逐酒店按需的第二步。城市列表的比较与筛选仍跑在不含税起价上,预算筛选会系统性低估。缺的是基准标注与升级路径,不是证据链 |
-| 3 | 中文城市名归一化 + `get_hotel_search_session` 补 surface | 小、独立、是第 2 项的地基。城市名原样进 Hyatt URL,中文城市大概率搜不到;而读 session 至今是空面板 —— 和 §3.21 同一个洞 |
-| 4 | 对话骨架(多轮 + 指代解析)与 locale | 表现层。等 1、2 有东西可包再做更划算;locale 覆盖范围依赖对话面定型 |
-| 5 | 房型等价性判定交给模型(CODE_REVIEW §4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker —— 剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
+| 主要文件 | `decision.ts`、`recommendations.ts`、`recommendationCodecs.ts`、`schema.prisma` + migration、`profile/page.tsx`、`actions.ts`、`seed.ts`、`bookings/[id]/page.tsx`、`agent/capabilities/setup.ts` | `agent/router.ts`、`agent/capabilities/search.ts`、`agent/surface.ts`、`SurfaceRenderer.tsx`、`HotelSearchClient.tsx` |
+| 交付给用户 | 会籍推荐 | 中文提问查酒店 + 预算筛选 |
+
+泳道内部必须串行:A、B、C 都改 `CostBreakdown` 与 schema;第 2 项依赖第 3 项的 session surface。
+
+### 泳道 1:[ADR 0003](./decisions/0003-loyalty-valuation.md) 拆三个交付
+
+**A 必须第一,且是唯一破坏性的一个** —— 它会翻转已有推荐。B、C 纯粹增量。A 同时是减法且承重:成本模型改对之后,B、C 以及任何碰 `CostBreakdown` 的东西都建在正确地基上。
+
+**0003-A · 停止计入无法证实的东西**(破坏性,以下五件必须**同批上线**)
+
+1. 删 `UserProfile` 的 `breakfastValue` / `loungeValue` / `lateCheckoutValue` / `upgradeValue` / `eliteNightValue`,连同表单、`actions.ts` 解析、seed、`get_settings` 暴露。
+2. `CostBreakdown` 去掉 `benefitValue` / `eliteProgressValue` 两个 `effectiveCost` 项;`Recommendation` 的两个 difference 列迁移保留、不重算历史行。
+3. **权益丢失 warning**:基线有、候选没有的权益变成该候选的 warning,走 `DecisionCandidate.warnings` + `EvidenceIssues`。
+4. **未确认促销 warning**:`requiresRegistration` 目前**存了但从未被任何代码读过**(`decision.ts:239` 的过滤只看 hotelGroup、日期窗口、`loyaltyEligible`,连 `DecisionPromotion` 类型里都没有这个字段)。这是 CODE_REVIEW §1.6 漏网的同类缺陷。fail-closed 计入,但**不要静默** —— 没有任何字段记录"用户已注册",静默排除会让真的注册了的用户被系统性低估且不知原因。出一条「此促销需要注册,未确认前不计入节省」。
+5. **「我不在乎这项权益」开关**:几个 boolean + 构造 warning 时过滤。
+
+第 3–5 项不能拆到后面:第 3 项不跟着删除一起上,产品会变成降级推荐机;第 5 项不跟着第 3 项一起上,不吃早餐的用户会在**每一次比较**上收到纯噪音。
+
+> 会有人问:删了 5 个主观估值又加了 4 个 boolean,不是白折腾?**不是。「这项权益我要不要」是能回答的,「这项权益值多少钱」不能。** 这个区别就是整份 ADR 的论点。
+
+⚠️ **不要顺手"修" `appliesToExistingBookings`。** `recommendations.ts:50` 只给 baseline 过滤它、`:79` 给候选传全量,看着像 bug 其实是对的:baseline 是既有订单,候选是新订单,不适用于既有订单的促销恰恰对新订单有效。这个不对称是有意的。
+
+**0003-B · 有出处的估值**(增量)
+
+- points / free night / suite 券的估值存储,带 `sourceName`、`asOf`、`lastReviewedAt`;过期不静默使用也不静默消失,降低依赖它的推荐的置信度并点名哪个数字过期。
+- **realization rate 属于这一批** —— 它是"证书值多少"的一部分(市价 × 相对市场的调整,默认 1),C 只是消费它。
+- 同次证据捕获内的现金 vs 积分兑换比较(cpp)。两个输入不来自同一次捕获则**不比较**,不估算。
+
+**0003-C · 进度与发放**(增量,依赖 B 的证书估值)
+
+- qualification progress、程序门槛与里程碑发放。
+- 促销获得夜数/间夜阈值与 grant,与里程碑走同一条计算路径。
+- allocation mode(默认 *at threshold*,可选 *amortized*);**amortized 只允许摊到已订好的房晚上**。
+- 跨级价值 = Σ(所发券 × 有出处的市价 × 兑现率),无需任何主观输入 —— 所以它依赖 B。
+
+`SOUL.md` 那半(自由文本、只给 agent 读语气)不在 A/B/C 内,随泳道 2 的对话骨架走。
+
+### 泳道 2:发现路径
+
+**第 3 项 · 中文城市名归一化 + `get_hotel_search_session` 补 surface。** 模型返回拉丁字母的 `city`(Hyatt 路径能认的形式)+ `cityAsAsked` 保留用户原话,回显用后者;接地由 Hyatt 结果页自己给(`locationLabel` 对不上或零结果就是可见证据)。`get_hotel_search_session` 至今没有 surface,读一个已完成 session 是空面板 —— 和 CODE_REVIEW §3.21 同一个洞,而搜索结果需要新的 surface 节点类型(节点目录是封闭 switch,必须显式加)。
+
+**第 2 项 · 城市列表的比较基准。** 含税总价流程**已经存在**(`HotelSearchClient` 的 `Get tax-inclusive total`,逐酒店按需),但城市列表的比较与筛选仍跑在不含税起价上,预算筛选会系统性低估。缺的是基准标注与升级路径,不是证据链。预算参数持久化到 session,让页面和 agent 共用同一份确定性筛选。
+
+### 之后
+
+| 事项 | 说明 |
+|---|---|
+| 对话骨架(多轮 + 指代解析)与 locale,含 `SOUL.md` | 表现层。等两条泳道各自出成果再排更划算;locale 覆盖范围依赖对话面定型。需要 ADR 0003 之外的独立决策(模型可写什么) |
+| 房型等价性判定交给模型(CODE_REVIEW §4.2 第 2 项) | `inferRoomMatch` 仍是 token 匹配,`unknown` 直接变 blocker —— 剩下的主要人工介入点,而 grounding 与 provenance 框架已就位 |
+
 
 ### 两条待决,各自需要独立 ADR
 
@@ -103,4 +165,4 @@
 
 - **`PRD.md:22` 把城市搜索写成 "An auxiliary official hotel city search"**,与「帮常旅客找到最划算方案」的定位冲突。改 PRD 是产品决策,不在文档整理范围内,留待第 2 项一起处理。
 - **`PRD.md` 的 v0.2 边界表述滞后**:命令栏、agent 路由、surface 组装、browser task 事件流都已落地但未写入边界章节。
-- **`surface.ts` 与 `surface.test.ts` 引用的 `PRD.md:171` 行号已失效**,该规则现在在 `PRD.md:121`。注意 `surface.test.ts` **断言了这个字符串**,所以不是纯注释改动。
+- ~~`PRD.md:171` 行号失效~~ —— 已排进 §3.0 作为阻塞项。
