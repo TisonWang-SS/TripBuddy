@@ -5,6 +5,7 @@ import {
   parseHyattAccountBookingsFromSnapshots
 } from "@/lib/providers/hyattAccount";
 import { normalizeBrowserEvidencePayload, parseHyattEvidenceFromTextWithMetadata } from "@/lib/providers/hyattEvidence";
+import { extractHyattHotelCode } from "@/lib/providers/hyattUrls";
 import {
   buildHyattCitySearchUrl,
   normalizeHyattCitySearchQuery,
@@ -202,24 +203,6 @@ export function buildHyattBookingSearchUrl(input: BookingPriceInput) {
   return `https://www.hyatt.com/search/hotels/en-US/${location}?${params.toString()}`;
 }
 
-export function extractHyattHotelCode(value?: string | null) {
-  if (!value) {
-    return null;
-  }
-  const patterns = [
-    /\/hotel\/[^/]+\/[^/]+\/([a-z0-9]{4,6})(?:[/?#]|$)/i,
-    /\/[a-z-]+\/[a-z]{2}-[A-Z]{2}\/([a-z0-9]{4,6})-[^/?#]+/i,
-    /\/shop\/rooms\/([a-z0-9]{4,6})(?:[/?#]|$)/i
-  ];
-  for (const pattern of patterns) {
-    const match = value.match(pattern);
-    if (match) {
-      return match[1].toLowerCase();
-    }
-  }
-  return /^[a-z0-9]{4,6}$/i.test(value.trim()) ? value.trim().toLowerCase() : null;
-}
-
 function toDraft(
   candidate: ReturnType<typeof normalizeBrowserEvidencePayload>["candidates"][number],
   sourceUrl: string
@@ -244,3 +227,6 @@ function toDraft(
     taxesIncluded: candidate.taxesIncluded
   };
 }
+
+/* Re-exported so existing callers keep one import path. */
+export { extractHyattHotelCode } from "@/lib/providers/hyattUrls";

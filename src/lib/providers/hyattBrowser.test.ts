@@ -33,6 +33,61 @@ describe("browser agent planner", () => {
     });
   });
 
+  /*
+   * Signed out, Hyatt words this control differently. Matching the label alone
+   * missed it, which did not read as a mismatch: with no recognised control the
+   * planner concluded the page was still loading and waited until the task
+   * timed out on the search results page. The href is what does not move.
+   */
+  it("opens a search result whose label changes with sign-in state", () => {
+    const snapshot: BrowserAgentSnapshot = {
+      bookingId: "booking-1",
+      sourceUrl: "https://www.hyatt.com/search/hotels/en-US/Tokyo",
+      targetHotelName: "Park Hyatt Tokyo",
+      pageText: "Park Hyatt Tokyo Rates from: JPY 90,000 Avg/Night Select Room Hyatt Centric Ginza Tokyo Rates from: JPY 40,000 Avg/Night Select Room",
+      controls: [
+        {
+          context: "Hyatt Centric Ginza Tokyo Rates from: JPY 40,000 Avg/Night",
+          elementId: "wrong",
+          href: "https://www.hyatt.com/shop/rooms/tyogz",
+          label: "Select Room"
+        },
+        {
+          context: "Park Hyatt Tokyo Rates from: JPY 90,000 Avg/Night",
+          elementId: "right",
+          href: "https://www.hyatt.com/hotel/japan/park-hyatt-tokyo/tyoph",
+          label: "Select Room"
+        }
+      ]
+    };
+
+    expect(planBrowserAgentAction(snapshot)).toMatchObject({ action: "click", elementId: "right" });
+  });
+
+  /*
+   * The destination cannot be used to walk past the safety rules. "Book Now" is
+   * deliberately not on that list — on a search card it only opens the rates
+   * page — so this asserts with a label the rules do treat as final.
+   */
+  it("still refuses an unsafe control even when it points at a hotel page", () => {
+    const snapshot: BrowserAgentSnapshot = {
+      bookingId: "booking-1",
+      sourceUrl: "https://www.hyatt.com/search/hotels/en-US/Tokyo",
+      targetHotelName: "Park Hyatt Tokyo",
+      pageText: "Park Hyatt Tokyo Rates from: JPY 90,000 Avg/Night Complete Booking",
+      controls: [
+        {
+          context: "Park Hyatt Tokyo Rates from: JPY 90,000 Avg/Night",
+          elementId: "unsafe",
+          href: "https://www.hyatt.com/shop/rooms/tyoph",
+          label: "Complete Booking"
+        }
+      ]
+    };
+
+    expect(planBrowserAgentAction(snapshot)).toMatchObject({ action: "wait" });
+  });
+
   it("waits when the target hotel card is visible before its View Rates control hydrates", () => {
     expect(
       planBrowserAgentAction({

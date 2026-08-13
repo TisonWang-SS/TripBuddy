@@ -1,5 +1,6 @@
 import safetyRules from "@extension/safetyRules.js";
 import { HYATT_CURRENCY_PATTERN } from "@/lib/providers/hyattCurrency";
+import { isHyattHotelPageUrl } from "@/lib/providers/hyattUrls";
 
 const { isUnsafeBookingControl } = safetyRules;
 
@@ -243,12 +244,29 @@ function isHyattCartOrSummaryPage(sourceUrl: string, text: string) {
     !hasFinalTotalToken(text);
 }
 
+/**
+ * A search-result control is recognised by where it goes, not by what it says.
+ *
+ * Matching the label alone was a silent trap: signed out, Hyatt words this
+ * control differently, so the allowlist missed it, `rateControlsAreVisible`
+ * came back false, and the planner returned `wait` — believing the page was
+ * still loading — until the task timed out on the search results page. A
+ * failure that looks like slowness rather than like a mismatch.
+ *
+ * The destination does not move with sign-in state or with Hyatt's copy, and
+ * adding each new wording to a list is the kind of maintenance that quietly
+ * falls behind the site. The label still counts, as a second signal for a
+ * control whose href a snapshot did not capture.
+ */
 function isHyattRatesResultControl(control: BrowserAgentControlSnapshot) {
   const value = `${control.label} ${control.href ?? ""}`;
   if (/hotel website|website|hotel info|hotel-info/i.test(value)) {
     return false;
   }
-  return /\bview rates?\b|\brates?\b/i.test(control.label) && !isUnsafeBookingControl(control.label);
+  if (isUnsafeBookingControl(control.label)) {
+    return false;
+  }
+  return isHyattHotelPageUrl(control.href) || /\bview rates?\b|\brates?\b/i.test(control.label);
 }
 
 function isHyattRoomRateSelectControl(label: string) {
