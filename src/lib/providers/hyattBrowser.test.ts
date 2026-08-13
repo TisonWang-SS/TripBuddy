@@ -240,6 +240,68 @@ describe("browser agent planner", () => {
     expect(planBrowserAgentAction(snapshot)).not.toMatchObject({ action: "click" });
   });
 
+  /*
+   * Strings taken verbatim from task 8b5d22df, which looped twelve times on
+   * /shop/rooms/nrtzt. Every card's control is SELECT & BOOK and every captured
+   * context is the same wrapper text with no price in it, so ranking by amount
+   * discarded all of them and the planner kept reporting that it was waiting.
+   * The price sits just before the control, inside the card.
+   */
+  it("ranks room controls whose captured context omits the card price", () => {
+    const card = (desc: string, member: string, promo: string) =>
+      `View Room Details ${desc} Members Save More $${member} Avg/Night ` +
+      `Book Now and Save 20 Percent $${promo} Avg/Night +4 more rates Excludes tax & service charges SELECT & BOOK`;
+    const snapshot: BrowserAgentSnapshot = {
+      bookingId: "booking-1",
+      sourceUrl: "https://www.hyatt.com/shop/rooms/nrtzt?adults=2&checkinDate=2026-08-27&checkoutDate=2026-08-28",
+      pageText: `ROOMS (16) SUITES (2) ${card("26-square-meter room", "114", "116")} ${card("28-square-meter Regency Room", "99", "101")}`,
+      controls: [
+        { context: "Excludes tax & service charges SELECT & BOOK", elementId: "pricier", label: "SELECT & BOOK" },
+        { context: "Excludes tax & service charges SELECT & BOOK", elementId: "cheapest", label: "SELECT & BOOK" }
+      ]
+    };
+
+    expect(planBrowserAgentAction(snapshot)).toMatchObject({ action: "click", elementId: "cheapest" });
+  });
+
+  /*
+   * The window is bounded by the previous control so a card can never be ranked
+   * on its neighbour's price — the failure a plain look-behind would introduce.
+   */
+  it("never ranks a room card on the price of the card before it", () => {
+    const snapshot: BrowserAgentSnapshot = {
+      bookingId: "booking-1",
+      sourceUrl: "https://www.hyatt.com/shop/rooms/nrtzt",
+      pageText:
+        "Cheap Room Members Save More $50 Avg/Night Excludes tax & service charges SELECT & BOOK " +
+        "Pricier Room Members Save More $400 Avg/Night Excludes tax & service charges SELECT & BOOK",
+      controls: [
+        { context: "Excludes tax & service charges SELECT & BOOK", elementId: "fifty", label: "SELECT & BOOK" },
+        { context: "Excludes tax & service charges SELECT & BOOK", elementId: "fourhundred", label: "SELECT & BOOK" }
+      ]
+    };
+
+    expect(planBrowserAgentAction(snapshot)).toMatchObject({ action: "click", elementId: "fifty" });
+  });
+
+  /* Controls need not arrive in the order the page renders them. */
+  it("bounds each card by position, not by the order controls arrive in", () => {
+    const snapshot: BrowserAgentSnapshot = {
+      bookingId: "booking-1",
+      sourceUrl: "https://www.hyatt.com/shop/rooms/nrtzt",
+      pageText:
+        "Cheap Room Members Save More $50 Avg/Night Excludes tax & service charges SELECT & BOOK " +
+        "Pricier Room Members Save More $400 Avg/Night Excludes tax & service charges SELECT & BOOK",
+      controls: [
+        { context: "Excludes tax & service charges SELECT & BOOK", elementId: "second-in-page", label: "SELECT & BOOK" },
+        { context: "Excludes tax & service charges SELECT & BOOK", elementId: "first-in-page", label: "SELECT & BOOK" }
+      ]
+    };
+
+    /* Array order maps to page order, so the first entry is the $50 card. */
+    expect(planBrowserAgentAction(snapshot)).toMatchObject({ action: "click", elementId: "second-in-page" });
+  });
+
   it("does not treat hotel review controls as cart actions on the room page", () => {
     expect(
       planBrowserAgentAction({

@@ -101,7 +101,7 @@ export function planBrowserAgentAction(snapshot: BrowserAgentSnapshot): BrowserA
 
   if (hasRoomListRateToken(pageText)) {
     const roomRate = chooseLowestAmountControl(
-      controls.filter((control) => isHyattRoomRateSelectControl(control.label)),
+      withRoomCardText(controls.filter((control) => isHyattRoomRateSelectControl(control.label)), pageText),
       new RegExp(`(?:${HYATT_CURRENCY_PATTERN})\\s*[0-9][0-9,]*(?:\\.\\d{2})?\\s*(?:Avg\\s*\\/\\s*Night|Average\\s*\\/\\s*Night|per\\s*night|\\/\\s*night)`, "i")
     );
     if (roomRate) {
@@ -173,6 +173,50 @@ function chooseRatesControlByPageOrder(
     return rateControls[0];
   }
   return null;
+}
+
+/**
+ * Widens each room control's context to the card it belongs to.
+ *
+ * The extension climbs at most four ancestors and returns the first whose text
+ * clears twenty characters, which on Hyatt's room list lands on the wrapper
+ * holding `Excludes tax & service charges SELECT & BOOK` — a context with no
+ * price in it. Every control was then discarded for having no amount to rank,
+ * the planner reported that it was waiting for selectable rates, and the task
+ * spent its budget on a page that was already finished.
+ *
+ * A length floor cannot express what this context is for. What is needed is the
+ * text a control is scoped to, so each control takes the page text running from
+ * the end of the previous control's occurrence to the end of its own. That is
+ * one card by construction: it cannot reach a neighbour's price, and identical
+ * contexts — every card here says exactly the same thing — stay distinguishable
+ * because occurrences are consumed in order.
+ */
+function withRoomCardText(controls: BrowserAgentControlSnapshot[], pageText: string) {
+  /* Identical contexts are consumed in order; that is the only sensible mapping. */
+  const cursors = new Map<string, number>();
+  const located = controls.map((control) => {
+    const context = compact(control.context);
+    const start = pageText.indexOf(context, cursors.get(context) ?? 0);
+    if (start >= 0) {
+      cursors.set(context, start + context.length);
+    }
+    return { control, end: start + context.length, start };
+  });
+
+  /*
+   * The window opens at the nearest control that ends before this one begins,
+   * found by position rather than by array order — the snapshot does not
+   * promise that controls arrive in the order the page renders them.
+   */
+  const boundaries = located.filter((item) => item.start >= 0).map((item) => item.end).sort((a, b) => a - b);
+  return located.map(({ control, end, start }) => {
+    if (start < 0) {
+      return control;
+    }
+    const opensAt = boundaries.filter((boundary) => boundary <= start).pop() ?? 0;
+    return { ...control, context: pageText.slice(opensAt, end).trim() };
+  });
 }
 
 function chooseLowestAmountControl(
