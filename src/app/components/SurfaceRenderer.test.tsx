@@ -36,13 +36,13 @@ const searchSession: HotelSearchSessionSnapshot = {
   profileId: "primary",
   query: {
     adults: 2,
+    budget: { amount: 500, basis: "per_night", basisAssumed: true, flexibility: "maximum" },
     checkIn: "2030-09-10",
     checkOut: "2030-09-12",
     city: "Tokyo",
     cityAsAsked: "东京",
     currency: "CNY",
-    hotelGroup: "Hyatt",
-    maxStayTotal: 1000
+    hotelGroup: "Hyatt"
   },
   results: {
     capturedAt: "2030-08-01T00:00:00.000Z",
@@ -112,6 +112,7 @@ describe("surface renderer", () => {
     );
 
     expect(screen.getByText(/东京 · 1 to review/)).toBeInTheDocument();
+    expect(screen.getByText(/No basis was stated, so TripBuddy interpreted it as per night/)).toBeInTheDocument();
     expect(screen.getByText(/Starting Avg\/Night prices never qualify/)).toBeInTheDocument();
     expect(screen.getByText(/still need a tax-inclusive total/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Verify tax-inclusive total" }))

@@ -77,17 +77,40 @@ describe("intent router — model path", () => {
 
   it("accepts a Latin provider city while retaining the Chinese wording and budget", async () => {
     const args = {
+      budgetAmount: 1000,
+      budgetBasis: "stay_total",
       checkIn: "2030-09-10",
       checkOut: "2030-09-12",
       city: "Tokyo",
       cityAsAsked: "东京",
-      currency: "CNY",
-      maxStayTotal: 1000
+      currency: "CNY"
     };
     const fetchImpl = vi.fn().mockResolvedValue(completion({ args, capability: "search_hotels" }));
     const decision = await routeIntent("查东京酒店，整段预算 1000 人民币", modelConfig(fetchImpl));
 
     expect(decision).toMatchObject({ args, capability: "search_hotels", kind: "capability", source: "model" });
+  });
+
+  it("rejects a budget amount the model derived instead of copying from the request", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(completion({
+      args: {
+        budgetAmount: 4000,
+        budgetBasis: "stay_total",
+        checkIn: "2030-09-01",
+        checkOut: "2030-09-05",
+        city: "Tokyo",
+        cityAsAsked: "Tokyo"
+      },
+      capability: "search_hotels"
+    }));
+    const decision = await routeIntent(
+      "search hotels in Tokyo from 2030-09-01 to 2030-09-05 with a 1000 USD per night budget",
+      modelConfig(fetchImpl)
+    );
+
+    expect(decision.kind).toBe("clarify");
+    expect(decision.fallbackReason).toBe("router_ungrounded_budget");
+    expect(decision.source).toBe("deterministic");
   });
 
   /*
@@ -229,7 +252,10 @@ describe("router instructions", () => {
     const instructions = buildRouterInstructions();
     expect(instructions).toContain('Latin letters as "city"');
     expect(instructions).toContain('exact destination wording from the request as "cityAsAsked"');
-    expect(instructions).toContain('whole-stay budget as "maxStayTotal"');
+    expect(instructions).toContain('numeric budget literally into "budgetAmount"');
+    expect(instructions).toContain('never multiply by nights');
+    expect(instructions).toContain('"budgetBasis"');
+    expect(instructions).toContain('"budgetFlexibility"');
     expect(instructions).toContain("never convert the amount");
   });
 });

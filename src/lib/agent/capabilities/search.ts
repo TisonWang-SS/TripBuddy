@@ -11,20 +11,24 @@ import {
 import type { Capability } from "@/lib/agent/types";
 import { createHotelSearchTask, supportedHotelSearchGroups } from "@/lib/hotelSearchTasks";
 import { getHotelSearchSession, type HotelSearchSessionSnapshot } from "@/lib/hotelSearchSessions";
+import type { HotelSearchBudget } from "@/lib/providers/types";
 
 /* Computed once: the registry is static metadata, and the list is provider-driven. */
 const SEARCHABLE_GROUPS = supportedHotelSearchGroups();
 
 export type SearchHotelsArgs = {
   adults?: number;
+  budget: HotelSearchBudget | null;
   checkIn: string;
   checkOut: string;
   city: string;
   cityAsAsked: string;
   currency?: string;
   hotelGroup: string;
-  maxStayTotal?: number;
 };
+
+const BUDGET_BASES = ["per_night", "stay_total"] as const;
+const BUDGET_FLEXIBILITIES = ["maximum", "approximate"] as const;
 
 /**
  * City results only. The tax-inclusive total is a second step that needs a
@@ -53,10 +57,24 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
     { description: "Check-out date, YYYY-MM-DD.", name: "checkOut", required: true, type: "calendar_date" },
     { description: "Number of adults. Defaults to the profile setting.", name: "adults", required: false, type: "integer" },
     {
-      description: "Maximum tax-inclusive total for the whole stay, in the profile currency.",
-      name: "maxStayTotal",
+      description: "Budget amount exactly as stated by the user; do not multiply it by the stay length.",
+      name: "budgetAmount",
       required: false,
       type: "number"
+    },
+    {
+      description: "Whether the stated amount is per night or for the whole stay. Omit when the user gives no basis.",
+      enumValues: BUDGET_BASES,
+      name: "budgetBasis",
+      required: false,
+      type: "enum"
+    },
+    {
+      description: "Use approximate only for wording such as around, about, approximately, or 左右.",
+      enumValues: BUDGET_FLEXIBILITIES,
+      name: "budgetFlexibility",
+      required: false,
+      type: "enum"
     },
     {
       description: "ISO currency code only when the user states a budget currency; it must match the profile currency.",
@@ -78,13 +96,15 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
   parseArgs(raw) {
     const bag = argsBag(raw, [
       "adults",
+      "budgetAmount",
+      "budgetBasis",
+      "budgetFlexibility",
       "checkIn",
       "checkOut",
       "city",
       "cityAsAsked",
       "currency",
-      "hotelGroup",
-      "maxStayTotal"
+      "hotelGroup"
     ]);
     const checkIn = requireUpcomingCalendarDate(bag, "checkIn");
     const checkOut = requireUpcomingCalendarDate(bag, "checkOut");
@@ -99,27 +119,40 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
     if (currency && !/^[A-Z]{3}$/.test(currency)) {
       throw new CapabilityArgsError(`"currency" must be a three-letter ISO currency code; received ${currency}.`);
     }
+    const budgetAmount = optionalPositiveNumber(bag, "budgetAmount");
+    const statedBasis = optionalEnum(bag, "budgetBasis", BUDGET_BASES);
+    const statedFlexibility = optionalEnum(bag, "budgetFlexibility", BUDGET_FLEXIBILITIES);
+    if (budgetAmount === undefined && (statedBasis !== undefined || statedFlexibility !== undefined)) {
+      throw new CapabilityArgsError('"budgetAmount" is required when a budget basis or flexibility is supplied.');
+    }
     return {
       adults: optionalInteger(bag, "adults"),
+      budget: budgetAmount === undefined
+        ? null
+        : {
+            amount: budgetAmount,
+            basis: statedBasis ?? "per_night",
+            basisAssumed: statedBasis === undefined,
+            flexibility: statedFlexibility ?? "maximum"
+          },
       checkIn,
       checkOut,
       city: requireString(bag, "city"),
       cityAsAsked: requireString(bag, "cityAsAsked"),
       currency,
-      hotelGroup: optionalEnum(bag, "hotelGroup", SEARCHABLE_GROUPS) ?? SEARCHABLE_GROUPS[0],
-      maxStayTotal: optionalPositiveNumber(bag, "maxStayTotal")
+      hotelGroup: optionalEnum(bag, "hotelGroup", SEARCHABLE_GROUPS) ?? SEARCHABLE_GROUPS[0]
     };
   },
-  async run({ adults, checkIn, checkOut, city, cityAsAsked, currency, hotelGroup, maxStayTotal }) {
+  async run({ adults, budget, checkIn, checkOut, city, cityAsAsked, currency, hotelGroup }) {
     const task = await createHotelSearchTask({
       adults,
+      budget,
       checkIn,
       checkOut,
       city,
       cityAsAsked,
       currency,
       hotelGroup,
-      maxStayTotal,
       mode: "city_results"
     });
     /* The task state is spread from a nullable serializer; a fresh task has both. */

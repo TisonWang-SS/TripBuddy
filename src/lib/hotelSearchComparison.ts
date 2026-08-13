@@ -3,6 +3,7 @@ import type {
   HotelSearchOffer,
   HotelSearchSessionSnapshot
 } from "@/lib/hotelSearchSessions";
+import { summarizeHotelSearchBudget } from "@/lib/hotelSearchBudget";
 
 export type HotelBudgetStatus = "not_requested" | "needs_final_total" | "within_budget" | "over_budget";
 export type DestinationGrounding = "matched" | "mismatch" | "unavailable";
@@ -33,7 +34,7 @@ export type HotelSearchComparison = {
  */
 export function compareHotelSearchSession(session: HotelSearchSessionSnapshot): HotelSearchComparison {
   const rows = session.results.hotels.map((hotel) => rowFor(session, hotel));
-  const budgetRequested = session.query.maxStayTotal !== null;
+  const budgetRequested = session.query.budget !== null;
   return {
     awaitingFinalTotalCount: rows.filter((row) => row.budgetStatus === "needs_final_total").length,
     hiddenOverBudgetCount: rows.filter((row) => row.budgetStatus === "over_budget").length,
@@ -45,12 +46,12 @@ export function compareHotelSearchSession(session: HotelSearchSessionSnapshot): 
 
 function rowFor(session: HotelSearchSessionSnapshot, hotel: HotelSearchHotelResult): HotelSearchComparisonRow {
   const finalOffer = findComparableFinalOffer(hotel.offers, session.query.currency);
-  const maxStayTotal = session.query.maxStayTotal;
-  const budgetStatus: HotelBudgetStatus = maxStayTotal === null
+  const budget = summarizeHotelSearchBudget(session.query);
+  const budgetStatus: HotelBudgetStatus = budget === null
     ? "not_requested"
     : finalOffer?.stayTotal === null || finalOffer?.stayTotal === undefined
       ? "needs_final_total"
-      : finalOffer.stayTotal <= maxStayTotal
+      : finalOffer.stayTotal <= budget.comparisonCeiling
         ? "within_budget"
         : "over_budget";
   return {

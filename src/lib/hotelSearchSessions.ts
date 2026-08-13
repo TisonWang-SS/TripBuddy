@@ -6,6 +6,7 @@ import {
   serializeHotelSearchQuery,
   serializeHotelSearchSessionResults
 } from "@/lib/hotelSearchSessionCodecs";
+import { hotelStayNights } from "@/lib/hotelSearchBudget";
 import type { HotelSearchQuery, HotelSearchResult } from "@/lib/providers/types";
 
 export const HOTEL_SEARCH_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -111,7 +112,7 @@ export async function replaceOfficialSearchResults(input: {
   if (!session) {
     return null;
   }
-  const nights = stayNights(session.query.checkIn, session.query.checkOut);
+  const nights = hotelStayNights(session.query.checkIn, session.query.checkOut);
   const hotels = input.results.map((result) => {
     const hotelKey = buildHotelKey(input.hotelGroup, result.hotelName, session.query.city);
     const offer: HotelSearchOffer = {
@@ -202,7 +203,7 @@ export async function recordOfficialFinalTotal(input: {
     feesIncluded: "included",
     hotelGroup: input.hotelGroup,
     loyaltyEligible: true,
-    nights: stayNights(session.query.checkIn, session.query.checkOut),
+    nights: hotelStayNights(session.query.checkIn, session.query.checkOut),
     offerKey,
     providerName: input.hotelGroup,
     ratePlanName: input.ratePlanName,
@@ -299,12 +300,6 @@ function normalizeKey(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
-function stayNights(checkIn: string, checkOut: string) {
-  const start = new Date(`${checkIn}T00:00:00.000Z`);
-  const end = new Date(`${checkOut}T00:00:00.000Z`);
-  return Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000));
-}
-
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
@@ -312,12 +307,12 @@ function roundMoney(value: number) {
 function emptyQuery(): HotelSearchQuery {
   return {
     adults: 1,
+    budget: null,
     checkIn: "",
     checkOut: "",
     city: "",
     cityAsAsked: "",
     currency: "USD",
-    hotelGroup: "",
-    maxStayTotal: null
+    hotelGroup: ""
   };
 }

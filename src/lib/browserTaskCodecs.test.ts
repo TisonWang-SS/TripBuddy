@@ -84,13 +84,13 @@ describe("browser task JSON codecs", () => {
       mode: "city_results" as const,
       query: {
         adults: 2,
+        budget: { amount: 1000, basis: "stay_total" as const, basisAssumed: false, flexibility: "maximum" as const },
         checkIn: "2030-09-10",
         checkOut: "2030-09-13",
         city: "Tokyo",
         cityAsAsked: "东京",
         currency: "USD",
-        hotelGroup: "Hyatt",
-        maxStayTotal: 1000
+        hotelGroup: "Hyatt"
       },
       searchSessionId: "session-1"
     };
@@ -116,9 +116,9 @@ describe("browser task JSON codecs", () => {
       hotelGroup: "Hyatt"
     });
     expect(parseHotelSearchTaskContext(legacy)?.query).toMatchObject({
+      budget: null,
       city: "Tokyo",
-      cityAsAsked: "Tokyo",
-      maxStayTotal: null
+      cityAsAsked: "Tokyo"
     });
   });
 });

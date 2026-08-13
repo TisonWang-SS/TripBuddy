@@ -8,13 +8,13 @@ import {
 
 const query = {
   adults: 2,
+  budget: { amount: 500, basis: "per_night" as const, basisAssumed: false, flexibility: "maximum" as const },
   checkIn: "2030-09-10",
   checkOut: "2030-09-13",
   city: "Tokyo",
   cityAsAsked: "东京",
   currency: "USD",
-  hotelGroup: "Hyatt",
-  maxStayTotal: 1500
+  hotelGroup: "Hyatt"
 };
 
 const emptyResults = { capturedAt: null, hotels: [], summary: null, warning: null };
@@ -86,13 +86,32 @@ describe("hotel search session JSON codecs", () => {
     });
     expect(parseHotelSearchQuery(legacy, query)).toEqual({
       adults: 2,
+      budget: null,
       checkIn: "2030-09-10",
       checkOut: "2030-09-13",
       city: "Tokyo",
       cityAsAsked: "Tokyo",
       currency: "USD",
+      hotelGroup: "Hyatt"
+    });
+  });
+
+  it("upgrades the first whole-stay-only budget shape with explicit provenance", () => {
+    const legacy = JSON.stringify({
+      adults: 2,
+      checkIn: "2030-09-10",
+      checkOut: "2030-09-13",
+      city: "Tokyo",
+      cityAsAsked: "东京",
+      currency: "USD",
       hotelGroup: "Hyatt",
-      maxStayTotal: null
+      maxStayTotal: 1500
+    });
+    expect(parseHotelSearchQuery(legacy, query).budget).toEqual({
+      amount: 1500,
+      basis: "stay_total",
+      basisAssumed: false,
+      flexibility: "maximum"
     });
   });
 });

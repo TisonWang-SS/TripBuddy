@@ -58,7 +58,13 @@ export function HotelSearchClient({
   const [checkOut, setCheckOut] = useState(initialSession?.query.checkOut ?? defaultCheckOut);
   const [city, setCity] = useState(initialSession?.query.cityAsAsked ?? "");
   const [hotelGroup, setHotelGroup] = useState(initialSession?.query.hotelGroup ?? hotelGroups[0] ?? "Hyatt");
-  const [maxStayTotal, setMaxStayTotal] = useState(initialSession?.query.maxStayTotal?.toString() ?? "");
+  const [budgetAmount, setBudgetAmount] = useState(initialSession?.query.budget?.amount.toString() ?? "");
+  const [budgetBasis, setBudgetBasis] = useState<"per_night" | "stay_total">(
+    initialSession?.query.budget?.basis ?? "stay_total"
+  );
+  const [budgetFlexibility, setBudgetFlexibility] = useState<"maximum" | "approximate">(
+    initialSession?.query.budget?.flexibility ?? "maximum"
+  );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [session, setSession] = useState<HotelSearchSessionSnapshot | null>(initialSession);
@@ -80,12 +86,19 @@ export function HotelSearchClient({
       const response = await fetch("/api/hotel-search", {
         body: JSON.stringify({
           adults: Number(adults),
+          budget: budgetAmount
+            ? {
+                amount: Number(budgetAmount),
+                basis: budgetBasis,
+                basisAssumed: false,
+                flexibility: budgetFlexibility
+              }
+            : null,
           checkIn,
           checkOut,
           city,
           cityAsAsked: city,
-          hotelGroup,
-          maxStayTotal: maxStayTotal ? Number(maxStayTotal) : undefined
+          hotelGroup
         }),
         headers: { "Content-Type": "application/json" },
         method: "POST"
@@ -182,16 +195,36 @@ export function HotelSearchClient({
           <Field htmlFor="checkOut" label="Check-out">
             <input id="checkOut" onChange={(event) => setCheckOut(event.target.value)} required type="date" value={checkOut} />
           </Field>
-          <Field htmlFor="maxStayTotal" label={`Maximum tax-inclusive stay total (${currency})`}>
+          <Field htmlFor="budgetAmount" label={`Tax-inclusive budget amount (${currency})`}>
             <input
-              id="maxStayTotal"
+              id="budgetAmount"
               min="0.01"
-              onChange={(event) => setMaxStayTotal(event.target.value)}
+              onChange={(event) => setBudgetAmount(event.target.value)}
               placeholder="Optional"
               step="0.01"
               type="number"
-              value={maxStayTotal}
+              value={budgetAmount}
             />
+          </Field>
+          <Field htmlFor="budgetBasis" label="Budget basis">
+            <select
+              id="budgetBasis"
+              onChange={(event) => setBudgetBasis(event.target.value as "per_night" | "stay_total")}
+              value={budgetBasis}
+            >
+              <option value="per_night">Per night</option>
+              <option value="stay_total">Whole stay</option>
+            </select>
+          </Field>
+          <Field htmlFor="budgetFlexibility" label="Budget style">
+            <select
+              id="budgetFlexibility"
+              onChange={(event) => setBudgetFlexibility(event.target.value as "maximum" | "approximate")}
+              value={budgetFlexibility}
+            >
+              <option value="maximum">Hard maximum</option>
+              <option value="approximate">Around this amount (+10%)</option>
+            </select>
           </Field>
         </FieldGrid>
 

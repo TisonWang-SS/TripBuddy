@@ -13,12 +13,14 @@ vi.mock("@/lib/hotelSearchTasks", () => ({
 vi.mock("@/lib/hotelSearchSessions", () => ({ getHotelSearchSession: mocks.getHotelSearchSession }));
 
 const args = {
+  budgetAmount: 1000,
+  budgetBasis: "stay_total",
+  budgetFlexibility: "maximum",
   checkIn: "2030-09-10",
   checkOut: "2030-09-12",
   city: "Tokyo",
   cityAsAsked: "东京",
-  currency: "CNY",
-  maxStayTotal: 1000
+  currency: "CNY"
 };
 
 describe("hotel search capabilities", () => {
@@ -31,13 +33,24 @@ describe("hotel search capabilities", () => {
     mocks.getHotelSearchSession.mockReset();
   });
 
-  it("keeps the user's city wording and whole-stay budget beside the provider city", () => {
+  it("keeps the literal budget amount and its stated basis beside the provider city", () => {
     expect(searchHotels.parseArgs(args)).toEqual({
-      ...args,
       adults: undefined,
+      budget: { amount: 1000, basis: "stay_total", basisAssumed: false, flexibility: "maximum" },
+      checkIn: args.checkIn,
+      checkOut: args.checkOut,
+      city: args.city,
+      cityAsAsked: args.cityAsAsked,
+      currency: args.currency,
       hotelGroup: "Hyatt"
     });
     expect(() => searchHotels.parseArgs({ ...args, cityAsAsked: undefined })).toThrow(/cityAsAsked/);
+  });
+
+  it("defaults an unstated basis to per night and preserves approximate wording", () => {
+    expect(searchHotels.parseArgs({ ...args, budgetBasis: undefined, budgetFlexibility: "approximate" }).budget)
+      .toEqual({ amount: 1000, basis: "per_night", basisAssumed: true, flexibility: "approximate" });
+    expect(() => searchHotels.parseArgs({ ...args, budgetAmount: undefined })).toThrow(/budgetAmount/);
   });
 
   it("passes normalized city, explicit currency, and budget into the saved search", async () => {
@@ -47,7 +60,7 @@ describe("hotel search capabilities", () => {
       city: "Tokyo",
       cityAsAsked: "东京",
       currency: "CNY",
-      maxStayTotal: 1000,
+      budget: { amount: 1000, basis: "stay_total", basisAssumed: false, flexibility: "maximum" },
       mode: "city_results"
     }));
   });

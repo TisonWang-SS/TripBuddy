@@ -63,13 +63,13 @@ const searchSession = {
   profileId: "primary",
   query: {
     adults: 2,
+    budget: { amount: 500, basis: "per_night", basisAssumed: true, flexibility: "maximum" },
     checkIn: "2030-09-10",
     checkOut: "2030-09-12",
     city: "Tokyo",
     cityAsAsked: "东京",
     currency: "CNY",
-    hotelGroup: "Hyatt",
-    maxStayTotal: 1000
+    hotelGroup: "Hyatt"
   },
   results: { capturedAt: null, hotels: [], summary: null, warning: null },
   updatedAt: "2030-08-01T00:00:00.000Z"

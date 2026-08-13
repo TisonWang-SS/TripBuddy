@@ -18,7 +18,9 @@ describe("HotelSearchClient", () => {
     expect(screen.queryByText("Marriott")).not.toBeInTheDocument();
     expect(screen.getByText("Official city prices are captured and displayed in your profile currency: CNY.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Search official prices in CNY" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Maximum tax-inclusive stay total (CNY)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Tax-inclusive budget amount (CNY)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Budget basis")).toHaveValue("stay_total");
+    expect(screen.getByLabelText("Budget style")).toHaveValue("maximum");
     expect(screen.queryByLabelText("Currency")).not.toBeInTheDocument();
   });
 
@@ -93,13 +95,13 @@ describe("HotelSearchClient", () => {
       profileId: "primary",
       query: {
         adults: 2,
+        budget: { amount: 1000, basis: "per_night", basisAssumed: false, flexibility: "approximate" },
         checkIn: "2026-08-17",
         checkOut: "2026-08-18",
         city: "Tokyo",
         cityAsAsked: "Tokyo",
         currency: "USD",
-        hotelGroup: "Hyatt",
-        maxStayTotal: null
+        hotelGroup: "Hyatt"
       },
       results: {
         capturedAt: cityResult.capturedAt,
@@ -152,10 +154,17 @@ describe("HotelSearchClient", () => {
 
     render(<HotelSearchClient currency="USD" hotelGroups={["Hyatt"]} />);
     fireEvent.change(screen.getByLabelText("City or destination"), { target: { value: "Tokyo" } });
+    fireEvent.change(screen.getByLabelText("Tax-inclusive budget amount (USD)"), { target: { value: "1000" } });
+    fireEvent.change(screen.getByLabelText("Budget basis"), { target: { value: "per_night" } });
+    fireEvent.change(screen.getByLabelText("Budget style"), { target: { value: "approximate" } });
     fireEvent.click(screen.getByRole("button", { name: "Search official prices in USD" }));
 
     expect(await screen.findByText("Grand Hyatt Tokyo")).toBeInTheDocument();
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({ city: "Tokyo", cityAsAsked: "Tokyo" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+      budget: { amount: 1000, basis: "per_night", basisAssumed: false, flexibility: "approximate" },
+      city: "Tokyo",
+      cityAsAsked: "Tokyo"
+    });
     fireEvent.click(screen.getByRole("button", { name: "Get tax-inclusive total" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));

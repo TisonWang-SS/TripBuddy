@@ -102,6 +102,8 @@ export type ParsedBookingEvidence = {
 
 export type HotelSearchQuery = {
   adults: number;
+  /** User-stated amount plus product-owned interpretation; null means no budget filter. */
+  budget: HotelSearchBudget | null;
   checkIn: string;
   checkOut: string;
   /** Provider-facing Latin-letter destination. */
@@ -110,8 +112,17 @@ export type HotelSearchQuery = {
   cityAsAsked: string;
   currency: string;
   hotelGroup: string;
-  /** Tax-inclusive total-stay ceiling in `currency`; null means no budget filter. */
-  maxStayTotal: number | null;
+};
+
+export type HotelSearchBudget = {
+  /** Numeric amount copied from the user's request or entered in the form; never model-derived. */
+  amount: number;
+  /** Whether `amount` applies per night or to the whole stay. */
+  basis: "per_night" | "stay_total";
+  /** True when the request omitted a basis and the product defaulted it to per night. */
+  basisAssumed: boolean;
+  /** A hard ceiling or an approximate target with the product-owned tolerance. */
+  flexibility: "maximum" | "approximate";
 };
 
 export type HotelSearchResult = {

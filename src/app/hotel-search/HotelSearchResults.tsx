@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { APPROXIMATE_BUDGET_TOLERANCE, summarizeHotelSearchBudget } from "@/lib/hotelSearchBudget";
 import { compareHotelSearchSession } from "@/lib/hotelSearchComparison";
 import { formatCalendarDate, formatMoney } from "@/lib/format";
 import type { HotelSearchHotelResult, HotelSearchSessionSnapshot } from "@/lib/hotelSearchSessions";
@@ -19,7 +20,7 @@ export function HotelSearchResults({
   totalRequests?: Record<string, TotalRequestState>;
 }) {
   const comparison = compareHotelSearchSession(session);
-  const budget = session.query.maxStayTotal;
+  const budget = summarizeHotelSearchBudget(session.query);
   const sourceUrl = comparison.rows.find((row) => row.startingOffer?.sourceUrl)?.startingOffer?.sourceUrl ?? null;
   const mismatches = comparison.rows.filter((row) => row.destinationGrounding === "mismatch");
 
@@ -47,7 +48,7 @@ export function HotelSearchResults({
       <Notice>
         {budget === null
           ? "Comparison basis: a verified tax-inclusive total for the whole stay. Starting Avg/Night prices are discovery hints only."
-          : `Budget filter: verified tax-inclusive stay total at or below ${formatMoney(budget, session.query.currency)}. Starting Avg/Night prices never qualify a hotel.`}
+          : `${budget.flexibility === "approximate" ? "Approximate budget target" : "Budget maximum"}: ${formatMoney(budget.amount, session.query.currency)} ${budget.basis === "per_night" ? "per night" : "for the whole stay"}. ${budget.basisAssumed ? "No basis was stated, so TripBuddy interpreted it as per night. " : ""}${budget.basis === "per_night" ? `${budget.nights} nights produce a deterministic whole-stay target of ${formatMoney(budget.stayTarget, session.query.currency)}. ` : ""}${budget.flexibility === "approximate" ? `The product-owned ${APPROXIMATE_BUDGET_TOLERANCE * 100}% tolerance sets the comparison ceiling at ${formatMoney(budget.comparisonCeiling, session.query.currency)}. ` : ""}Starting Avg/Night prices never qualify a hotel.`}
       </Notice>
       {budget !== null && comparison.awaitingFinalTotalCount > 0 ? (
         <Notice tone="caution">
@@ -56,7 +57,7 @@ export function HotelSearchResults({
       ) : null}
       {comparison.hiddenOverBudgetCount > 0 ? (
         <Notice tone="neutral">
-          {comparison.hiddenOverBudgetCount} verified hotel{comparison.hiddenOverBudgetCount === 1 ? " is" : "s are"} over budget and hidden.
+          {comparison.hiddenOverBudgetCount} verified hotel{comparison.hiddenOverBudgetCount === 1 ? " is" : "s are"} above the comparison ceiling and hidden.
         </Notice>
       ) : null}
       {mismatches.length > 0 ? (
@@ -104,7 +105,11 @@ export function HotelSearchResults({
                             ? "included, breakdown not captured"
                             : formatMoney(finalOffer.taxesAndFeesAmount, finalOffer.currency)}
                         </span>
-                        {budgetStatus === "within_budget" ? <span className={styles.stacked}>Within verified budget</span> : null}
+                        {budgetStatus === "within_budget" ? (
+                          <span className={styles.stacked}>
+                            {budget?.flexibility === "approximate" ? "Within the verified approximate range" : "Within verified budget"}
+                          </span>
+                        ) : null}
                       </>
                     ) : totalRequest?.status === "loading" ? (
                       <span className={styles.stacked}>Reading final Hyatt total…</span>
