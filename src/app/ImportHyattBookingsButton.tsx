@@ -38,7 +38,7 @@ export function ImportHyattBookingsButton({ className }: { className?: string } 
         headers: { "Content-Type": "application/json" },
         method: "POST"
       });
-      const task = await readJsonResponse<BrowserTaskPayload<ImportPayload> & { error?: string }>(response);
+      const task = await readJsonResponse<BrowserTaskPayload<ImportPayload> & { error?: string }>(response, "POST");
       if (!response.ok) {
         throw new Error(task.error || `Import failed with status ${response.status}.`);
       }

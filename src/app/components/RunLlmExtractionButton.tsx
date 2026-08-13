@@ -25,7 +25,7 @@ export function RunLlmExtractionButton({ configured, runId }: { configured: bool
       const response = await fetch(`/api/price-checks/${encodeURIComponent(runId)}/llm-extraction`, {
         method: "POST"
       });
-      const payload = await readJsonResponse<ExtractionResult>(response);
+      const payload = await readJsonResponse<ExtractionResult>(response, "POST");
       if (!response.ok) {
         throw new Error(payload.error || `LLM extraction failed with ${response.status}.`);
       }

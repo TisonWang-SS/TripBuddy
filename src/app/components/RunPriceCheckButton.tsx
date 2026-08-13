@@ -33,7 +33,7 @@ export function RunPriceCheckButton({
         headers: { "Content-Type": "application/json" },
         method: "POST"
       });
-      const created = await readJsonResponse<BrowserTaskPayload & { error?: string }>(response);
+      const created = await readJsonResponse<BrowserTaskPayload & { error?: string }>(response, "POST");
       if (!response.ok) {
         throw new Error(created.error || `Price check failed with ${response.status}.`);
       }

@@ -109,7 +109,7 @@ export function HotelSearchClient({
       const task = await readJsonResponse<BrowserTaskPayload<CitySearchPayload> & {
         error?: string;
         searchSessionId?: string;
-      }>(response);
+      }>(response, "POST");
       if (!response.ok) {
         throw new Error(task.error || `Search failed with ${response.status}.`);
       }
@@ -153,7 +153,7 @@ export function HotelSearchClient({
         headers: { "Content-Type": "application/json" },
         method: "POST"
       });
-      const task = await readJsonResponse<BrowserTaskPayload<TaxInclusiveTotalPayload> & { error?: string }>(response);
+      const task = await readJsonResponse<BrowserTaskPayload<TaxInclusiveTotalPayload> & { error?: string }>(response, "POST");
       if (!response.ok) {
         throw new Error(task.error || `Tax-inclusive price check failed with ${response.status}.`);
       }

@@ -22,7 +22,17 @@ describe("json response reader", () => {
    */
   it("names the request, status and content type when the body is HTML", async () => {
     await expect(readJsonResponse(html())).rejects.toThrow(NonJsonResponseError);
-    await expect(readJsonResponse(html())).rejects.toThrow(/\/api\/hotel-search answered 404 with text\/html/);
-    await expect(readJsonResponse(html())).rejects.toThrow(/delete \.next/);
+    await expect(readJsonResponse(html(), "POST")).rejects.toThrow(/POST \/api\/hotel-search answered 404 with text\/html/);
+    await expect(readJsonResponse(html())).rejects.toThrow(/stop the server first/);
+  });
+
+  /*
+   * One route is called three ways from the search page, so the path alone does
+   * not say which call failed — and the three have different diagnoses.
+   */
+  it("keeps the query string, which is what tells the three calls apart", async () => {
+    const response = new Response("<!DOCTYPE html>", { headers: { "content-type": "text/html" }, status: 404 });
+    Object.defineProperty(response, "url", { value: "http://localhost:3000/api/hotel-search?sessionId=abc" });
+    await expect(readJsonResponse(response)).rejects.toThrow("GET /api/hotel-search?sessionId=abc answered 404");
   });
 });

@@ -16,26 +16,35 @@ export class NonJsonResponseError extends Error {
   readonly code = "non_json_response";
 
   constructor(
-    readonly url: string,
+    readonly request: string,
     readonly status: number,
     readonly contentType: string
   ) {
     super(
-      `${url} answered ${status} with ${contentType || "an unknown content type"} instead of JSON. ` +
-        "If the development server was started before the last change, stop it, delete .next, and start it again."
+      `${request} answered ${status} with ${contentType || "an unknown content type"} instead of JSON. ` +
+        "A development server whose .next directory was deleted while it was running serves this until it " +
+        "rebuilds: stop the server first, then delete .next and start it again."
     );
     this.name = "NonJsonResponseError";
   }
 }
 
-/** Parses a JSON response, or throws an error that says what arrived instead. */
-export async function readJsonResponse<T>(response: Response): Promise<T> {
+/**
+ * Parses a JSON response, or throws an error that says what arrived instead.
+ *
+ * The method and query string are part of the report on purpose. This page
+ * calls one route three ways — start a search, request a tax-inclusive total,
+ * read a saved session — so a path alone does not identify which call failed,
+ * and those three have entirely different diagnoses.
+ */
+export async function readJsonResponse<T>(response: Response, method = "GET"): Promise<T> {
   const body = await response.text();
   try {
     return JSON.parse(body) as T;
   } catch {
+    const url = new URL(response.url, "http://localhost");
     throw new NonJsonResponseError(
-      new URL(response.url, "http://localhost").pathname,
+      `${method.toUpperCase()} ${url.pathname}${url.search}`,
       response.status,
       response.headers.get("content-type") ?? ""
     );
