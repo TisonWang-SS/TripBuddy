@@ -61,6 +61,51 @@ describe("intent router — deterministic path", () => {
     expect(decision.kind === "unsupported" && decision.message).toContain("never books, cancels");
   });
 
+  /*
+   * The Chinese entry point had none of this: every never-acts pattern used
+   * `\b`, which cannot match between CJK characters, so "帮我预定东京的酒店"
+   * routed to a hotel search instead of being refused.
+   *
+   * Both lists matter equally. The second one is why the patterns require a
+   * verb reading rather than a keyword — 取消政策, 延迟退房 and 我的预订 are all
+   * things this product is about, and refusing them would be a worse failure
+   * than the one being fixed.
+   */
+  it("refuses an action the product never takes, asked in Chinese", () => {
+    for (const request of [
+      "帮我预定2026年9月1日到9月3日东京的酒店",
+      "帮我订一间东京的房",
+      "请帮我预订一间大床房",
+      "取消我在东京的酒店预订",
+      "取消我的预订",
+      "帮我支付这个订单",
+      "我要付款",
+      "申请退款",
+      "确认我的预订"
+    ]) {
+      const decision = routeDeterministically(request);
+      expect(decision.kind, request).toBe("unsupported");
+      expect(decision.kind === "unsupported" && decision.message, request).toContain("never books, cancels");
+    }
+  });
+
+  it("keeps answering Chinese questions that only mention those words", () => {
+    for (const request of [
+      "查一下我的预订",
+      "显示所有预订",
+      "我的订单有哪些",
+      "这家酒店的取消政策是什么",
+      "取消政策更差的话会怎么样",
+      "延迟退房算什么权益",
+      "帮我查一下2026年9月1日到9月3日东京的酒店",
+      "九月上旬东京的酒店，每晚预算一千元"
+    ]) {
+      const decision = routeDeterministically(request);
+      const message = decision.kind === "unsupported" ? decision.message : "";
+      expect(message, request).not.toContain("never books, cancels");
+    }
+  });
+
   it("asks what to do when the message is empty", async () => {
     expect((await routeIntent("   ")).kind).toBe("clarify");
   });

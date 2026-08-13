@@ -1,6 +1,6 @@
 # TripBuddy 当前状态
 
-> **锚点:`073d241`(2026-08-12)。** 本文下面所有当前数字都属于这个 commit。
+> **锚点:`30f36bf`(2026-08-13),两条泳道均已合入 `main`。** 本文下面所有当前数字都属于这个 commit。
 
 本文是**唯一描述「现在」的文档**:当前能力、验收状态、下一阶段。
 
@@ -46,6 +46,7 @@
 
 **入口**
 
+- 产品从不执行的动作(订、改、付、确认、取消)在**中英文两种表述**下都由确定性模式在模型之前拒绝。
 - 命令栏自然语言提问:LLM 路由 + 无 key 时的确定性关键词兜底;开浏览器标签页的能力必须显式确认;结果由服务端确定性组装成 surface 后渲染。
 - Browser task 进度以事件流推送(非轮询)。
 - Settings 的观察币种汇率入口;主题切换。
@@ -60,14 +61,16 @@
 
 ## 2. 验收状态
 
-**本轮已验证**(均在 `073d241`):
+**本轮已验证**(均在 `30f36bf`,即两条泳道合并后的 `main`)。
+锚点只能指向**已存在的** commit,所以它落在合并点而不是本次提交;本次提交在其上补了中文安全边界与两组用例(350 项)。
+
 
 | 项 | 结果 | 复现 |
 |---|---|---|
-| 单元 / 集成测试 | 57 文件 323 项通过 | `npm test` |
+| 单元 / 集成测试 | 59 文件 348 项通过 | `npm test` |
 | 类型检查 | 无错误 | `npm run typecheck` |
 | Lint | 无告警 | `npm run lint` |
-| Production build | 成功;`/` 为 dynamic(`ƒ`) | `npm run build` |
+| Production build | 成功;`/` 为 dynamic(`ƒ`);7/7 页面预渲染 | `npm run build`(先 `npx prisma migrate deploy`) |
 | migration 与 Prisma schema | 8 个 migration 在全新隔离库干净应用;与 schema 零差异;旧推荐行、savings 与旧 JSON 成本组成保持不变 | `npx prisma migrate deploy`;`npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url <isolated SQLite URL> --exit-code`;`npm test -- --run src/lib/loyaltyValuationMigration.integration.test.ts` |
 | Profile 权益偏好 | 本地浏览器实测:四个开关可见,旧五个估值输入不存在;关闭 Breakfast 后保存并刷新仍为关闭;控制台无 error / warning,1280px 无横向溢出 | `/profile` |
 
@@ -80,7 +83,7 @@
 | 跨时区套件稳定性 | `a800687`(2026-08-11) | 外部 `TZ` 设为 -7 / 0 / +14 分别全过 |
 | 真实 Hyatt 端到端 | `a800687`(2026-08-11) | §3.19 那轮由用户经 `http://192.168.3.1:3000` 跑通一次真实价格核查 |
 
-⚠️ **一处需要点名的局限**:`073d241` 没有跑真实 Hyatt 抓取。本轮不触碰 Hyatt 抽取逻辑,所以不需要用旧结果替它背书;发现路径的下一次改动仍须按 `PRD.md` 的验证规则补真实验证。
+⚠️ **一处需要点名的局限**:`30f36bf` 没有跑真实 Hyatt 抓取。本轮不触碰 Hyatt 抽取逻辑,所以不需要用旧结果替它背书;发现路径的下一次改动仍须按 `PRD.md` 的验证规则补真实验证。
 
 **泳道 2 初次交付验证**(均在独立代码锚点 `a7ccb28`,2026-08-12):这组结果补上了上文所记的发现路径真实验证缺口;它只覆盖当时的泳道 2 shape,不改写上面的全局基线表。
 
