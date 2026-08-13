@@ -63,10 +63,8 @@ export function planBrowserAgentAction(snapshot: BrowserAgentSnapshot): BrowserA
 
   if (isHyattRatePlanPage(pageText)) {
     const ratePlan = chooseLowestAmountControl(
-      controls.filter(
-        (control) =>
-          isHyattRatePlanBookControl(control.label) &&
-          /Choose Your Rate|Cancellation Policy|Deposit Policy/i.test(compact(control.context))
+      withCardText(controls.filter((control) => isHyattRatePlanBookControl(control.label)), pageText).filter((control) =>
+        /Choose Your Rate|Cancellation Policy|Deposit Policy/i.test(compact(control.context))
       ),
       /Choose Your Rate|Cancellation Policy|Deposit Policy/i,
       ratePlanContinuePriority
@@ -101,7 +99,7 @@ export function planBrowserAgentAction(snapshot: BrowserAgentSnapshot): BrowserA
 
   if (hasRoomListRateToken(pageText)) {
     const roomRate = chooseLowestAmountControl(
-      withRoomCardText(controls.filter((control) => isHyattRoomRateSelectControl(control.label)), pageText),
+      withCardText(controls.filter((control) => isHyattRoomRateSelectControl(control.label)), pageText),
       new RegExp(`(?:${HYATT_CURRENCY_PATTERN})\\s*[0-9][0-9,]*(?:\\.\\d{2})?\\s*(?:Avg\\s*\\/\\s*Night|Average\\s*\\/\\s*Night|per\\s*night|\\/\\s*night)`, "i")
     );
     if (roomRate) {
@@ -176,7 +174,7 @@ function chooseRatesControlByPageOrder(
 }
 
 /**
- * Widens each room control's context to the card it belongs to.
+ * Widens each control's context to the card it belongs to.
  *
  * The extension climbs at most four ancestors and returns the first whose text
  * clears twenty characters, which on Hyatt's room list lands on the wrapper
@@ -185,6 +183,9 @@ function chooseRatesControlByPageOrder(
  * the planner reported that it was waiting for selectable rates, and the task
  * spent its budget on a page that was already finished.
  *
+ * The same wrapper hides the rate dialog's tokens from the rate-plan branch,
+ * which is why both branches widen before they filter.
+ *
  * A length floor cannot express what this context is for. What is needed is the
  * text a control is scoped to, so each control takes the page text running from
  * the end of the previous control's occurrence to the end of its own. That is
@@ -192,7 +193,7 @@ function chooseRatesControlByPageOrder(
  * contexts — every card here says exactly the same thing — stay distinguishable
  * because occurrences are consumed in order.
  */
-function withRoomCardText(controls: BrowserAgentControlSnapshot[], pageText: string) {
+function withCardText(controls: BrowserAgentControlSnapshot[], pageText: string) {
   /* Identical contexts are consumed in order; that is the only sensible mapping. */
   const cursors = new Map<string, number>();
   const located = controls.map((control) => {

@@ -302,6 +302,30 @@ describe("browser agent planner", () => {
     expect(planBrowserAgentAction(snapshot)).toMatchObject({ action: "click", elementId: "second-in-page" });
   });
 
+  /*
+   * Contexts taken from the final snapshot of task 87ea9098. Signed out, every
+   * rate's controls are JOIN WHILE YOU BOOK and SIGN IN & BOOK, and the wrapper
+   * the extension captures holds only those two words — none of the rate-plan
+   * tokens the branch filters on. So the branch found nothing and waited, on a
+   * page that already had everything it needed one level up.
+   */
+  it("finds a rate plan whose captured context is only the button wrapper", () => {
+    const snapshot: BrowserAgentSnapshot = {
+      bookingId: "booking-1",
+      sourceUrl: "https://www.hyatt.com/shop/rooms/nrtzt",
+      pageText:
+        "Choose Your Rate Members Save More $250 Avg/Night Cancellation Policy 3 days before arrival " +
+        "JOIN WHILE YOU BOOK SIGN IN & BOOK " +
+        "Standard Rate $99 Avg/Night Cancellation Policy 3 days before arrival JOIN WHILE YOU BOOK SIGN IN & BOOK",
+      controls: [
+        { context: "JOIN WHILE YOU BOOK SIGN IN & BOOK", elementId: "pricier-join", label: "JOIN WHILE YOU BOOK" },
+        { context: "JOIN WHILE YOU BOOK SIGN IN & BOOK", elementId: "cheapest-join", label: "JOIN WHILE YOU BOOK" }
+      ]
+    };
+
+    expect(planBrowserAgentAction(snapshot)).toMatchObject({ action: "click", elementId: "cheapest-join" });
+  });
+
   it("does not treat hotel review controls as cart actions on the room page", () => {
     expect(
       planBrowserAgentAction({
