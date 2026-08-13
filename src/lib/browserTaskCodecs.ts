@@ -135,11 +135,29 @@ export function parseSanitizedBrowserSnapshots(value: string | null | undefined)
     }
     return [{
       capturedAt: capturedAt.toISOString(),
+      controls: parseSanitizedControls(item.controls),
       pageTitle: stringValue(item.pageTitle).slice(0, 200),
       phase: item.phase === "inventory" || item.phase === "detail" ? item.phase : "other" as const,
       sourceUrl: item.sourceUrl,
       textSample: stringValue(item.textSample).slice(0, 12_000),
       truncated: item.truncated === true || stringValue(item.textSample).length > 12_000
+    }];
+  });
+}
+
+/** Bounded like the text sample: enough to diagnose a match, not a page dump. */
+function parseSanitizedControls(value: unknown): SanitizedBrowserSnapshot["controls"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.label !== "string") {
+      return [];
+    }
+    return [{
+      context: stringValue(item.context).slice(0, 300),
+      href: typeof item.href === "string" && item.href.length > 0 ? item.href.slice(0, 300) : null,
+      label: item.label.slice(0, 200)
     }];
   });
 }

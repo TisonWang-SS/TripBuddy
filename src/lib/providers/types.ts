@@ -28,6 +28,17 @@ export type BrowserPageSnapshot = {
 
 export type SanitizedBrowserSnapshot = {
   capturedAt: string;
+  /**
+   * The controls the planner actually had to choose from.
+   *
+   * Without these a navigation failure is undiagnosable after the fact: the
+   * text sample shows what the page said, but the planner matches on control
+   * labels, hrefs and surrounding context, and "the page clearly had a button"
+   * cannot distinguish a control that was never captured from one that was
+   * captured and rejected. They carry no more than the text sample already
+   * does — a label, a link, and the wording around it.
+   */
+  controls: Array<{ context: string; href: string | null; label: string }>;
   pageTitle: string;
   phase: "inventory" | "detail" | "other";
   sourceUrl: string;

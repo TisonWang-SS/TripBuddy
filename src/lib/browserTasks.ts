@@ -87,6 +87,11 @@ export async function appendBrowserSnapshot(taskId: string, snapshot: BrowserPag
   const textSample = selectEvidenceTextSample(sanitizedText);
   snapshots.push({
     capturedAt: snapshot.capturedAt,
+    controls: (snapshot.controls ?? []).slice(0, 40).map((control) => ({
+      context: sanitizeEvidenceText(String(control.context ?? ""), 300),
+      href: typeof control.href === "string" && control.href.length > 0 ? control.href.slice(0, 300) : null,
+      label: String(control.label ?? "").slice(0, 200)
+    })),
     pageTitle: snapshot.pageTitle.slice(0, 200),
     phase: inferSnapshotPhase(snapshot.pageText),
     sourceUrl: stripBrowserTaskHash(snapshot.sourceUrl),

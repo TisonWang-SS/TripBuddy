@@ -121,4 +121,47 @@ describe("browser task JSON codecs", () => {
       cityAsAsked: "Tokyo"
     });
   });
+
+  /*
+   * Twice now a navigation failure could not be diagnosed after the fact: the
+   * text sample showed the page had a "Book Now" button, but the planner
+   * matches on controls, and a control that was never captured is
+   * indistinguishable from one captured and rejected. Controls are bounded the
+   * same way the text sample is.
+   */
+  it("keeps the controls a planner had to choose from, bounded", () => {
+    const parsed = parseSanitizedBrowserSnapshots(JSON.stringify([{
+      capturedAt: "2026-08-13T09:00:00.000Z",
+      controls: [
+        { context: "Members Save More $99 Avg/Night", href: "https://www.hyatt.com/shop/rooms/nrtzt", label: "Book Now" },
+        { context: "x".repeat(400), href: "y".repeat(400), label: "z".repeat(300) },
+        { context: "no label", href: null }
+      ],
+      pageTitle: "Hyatt | Select Room",
+      sourceUrl: "https://www.hyatt.com/shop/rooms/nrtzt",
+      textSample: "Members Save More $99 Avg/Night Book Now"
+    }]));
+
+    expect(parsed[0].controls[0]).toEqual({
+      context: "Members Save More $99 Avg/Night",
+      href: "https://www.hyatt.com/shop/rooms/nrtzt",
+      label: "Book Now"
+    });
+    expect(parsed[0].controls[1].context).toHaveLength(300);
+    expect(parsed[0].controls[1].href).toHaveLength(300);
+    expect(parsed[0].controls[1].label).toHaveLength(200);
+    /* A control with no label tells the planner nothing, so it is not kept. */
+    expect(parsed[0].controls).toHaveLength(2);
+  });
+
+  it("reads a snapshot written before controls were kept", () => {
+    const parsed = parseSanitizedBrowserSnapshots(JSON.stringify([{
+      capturedAt: "2026-08-13T09:00:00.000Z",
+      pageTitle: "Hyatt",
+      sourceUrl: "https://www.hyatt.com/shop/rooms/nrtzt",
+      textSample: "older row"
+    }]));
+
+    expect(parsed[0].controls).toEqual([]);
+  });
 });
