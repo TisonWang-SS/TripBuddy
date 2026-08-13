@@ -194,6 +194,52 @@ describe("browser agent planner", () => {
     });
   });
 
+  /*
+   * Built from a real capture: task 56e9bab8 sat on /shop/rooms/nrtzt for
+   * twelve snapshots and timed out. The page was finished — thirteen Avg/Night
+   * rates were visible — but signed out every room card said "Book Now", which
+   * the room matcher excluded, so nothing was selectable and the planner kept
+   * reporting that it was waiting for rates to load.
+   */
+  it("selects a signed-out room card labelled Book Now", () => {
+    const snapshot: BrowserAgentSnapshot = {
+      bookingId: "booking-1",
+      sourceUrl: "https://www.hyatt.com/shop/rooms/nrtzt?adults=2&checkinDate=2026-08-27&checkoutDate=2026-08-28",
+      pageText:
+        "Sign In Hyatt Regency Tokyo Bay View Room Details Members Save More $114 Avg/Night Book Now " +
+        "View Room Details Members Save More $99 Avg/Night Book Now",
+      controls: [
+        {
+          context: "View Room Details Members Save More $114 Avg/Night Book Now",
+          elementId: "pricier",
+          label: "Book Now"
+        },
+        {
+          context: "View Room Details Members Save More $99 Avg/Night Book Now",
+          elementId: "cheapest",
+          label: "Book Now"
+        }
+      ]
+    };
+
+    expect(planBrowserAgentAction(snapshot)).toMatchObject({ action: "click", elementId: "cheapest" });
+  });
+
+  /* The account flow is not a room selection, whatever the page shows next. */
+  it("never treats a sign-in or join control as a room selection", () => {
+    const snapshot: BrowserAgentSnapshot = {
+      bookingId: "booking-1",
+      sourceUrl: "https://www.hyatt.com/shop/rooms/nrtzt",
+      pageText: "View Room Details Members Save More $99 Avg/Night Sign In & Book Join While You Book",
+      controls: [
+        { context: "Members Save More $99 Avg/Night", elementId: "signin", label: "Sign In & Book" },
+        { context: "Members Save More $99 Avg/Night", elementId: "join", label: "Join While You Book" }
+      ]
+    };
+
+    expect(planBrowserAgentAction(snapshot)).not.toMatchObject({ action: "click" });
+  });
+
   it("does not treat hotel review controls as cart actions on the room page", () => {
     expect(
       planBrowserAgentAction({

@@ -269,9 +269,24 @@ function isHyattRatesResultControl(control: BrowserAgentControlSnapshot) {
   return isHyattHotelPageUrl(control.href) || /\bview rates?\b|\brates?\b/i.test(control.label);
 }
 
+/**
+ * A room-card control that opens that room's rates.
+ *
+ * Signed out, Hyatt labels these `Book Now` — the same words the rate dialog
+ * uses for its continue control, which is why they were excluded here. That
+ * exclusion is unnecessary and was load-bearing in the wrong direction: the
+ * rate-dialog branch is tested before this one and returns, so a `Book Now`
+ * reaching a room card cannot belong to a dialog. Excluding it left a signed-out
+ * room list with no selectable control at all, and the planner read that as a
+ * page still loading rather than as a mismatch — the tax-inclusive upgrade
+ * spent its whole budget waiting on a page that was already finished.
+ *
+ * `Sign In & Book` and `Join While You Book` stay excluded. Those do not open a
+ * room's rates; they start an account flow this product does not perform.
+ */
 function isHyattRoomRateSelectControl(label: string) {
   return /\b(?:select|select\s*&\s*book|book)\b/i.test(label) &&
-    !/\b(?:book now|sign in\s*&\s*book|join while you book)\b/i.test(label) &&
+    !/\b(?:sign in\s*&\s*book|join while you book)\b/i.test(label) &&
     !isUnsafeBookingControl(label);
 }
 
