@@ -179,6 +179,17 @@
 
 **第 2 项 · ✅ 城市列表的比较基准。** Router 只抄请求中实际出现的 `budgetAmount`,basis 与 flexibility 分字段保存;能力层对未给 basis 的请求默认 `per_night` 并保留 `basisAssumed`,整段目标与 10% approximate 容差由纯函数计算。页面与 agent surface 共用这一比较:不含税 `Avg/Night` 永远不满足预算,没有 final total 的结果保持可见并提供升级路径,只有 `final_total`、同币种、tax included、fee included 四项全真的 stay total 才能判定预算内或隐藏为超预算。真实 Hyatt 初次交付验证证明城市列表不会误判;单酒店 final-total 升级超时,所以抽取完成态没有冒充已复验。
 
+### 搜索约束分层([ADR 0004](./decisions/0004-search-constraint-tiers.md))
+
+已定分层与归属规则,**第二层刻意留空**。当下要做的只有两件小的:
+
+| | 事项 | 说明 |
+|---|---|---|
+| 1 | 封闭的约束分类表 + 第三层文案 | 先于第二层的任何内容。第三层能用,第二层的扩展才是「改分类」而不是「铺新管路」 |
+| 2 | `rooms` / `kids` 从 URL 常量提升为查询字段 | `buildHyattCitySearchUrl` 现在把两者钉死;`2 间` 因此落进了 `adults` |
+
+第二层(设施、地址、页面写明的距离)与儿童年龄建模留待产品整体成型后再展开。ADR 里记了两条将来必须守住的:**第二层需要四态而非三态**(`not_stated` 不得塌成 `lacks`),以及**验证搭含税总价那趟车**,不新开逐酒店的第二遍访问。
+
 ### 之后
 
 | 事项 | 说明 |
