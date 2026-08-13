@@ -39,8 +39,10 @@
 
 **发现**
 
-- 官网城市搜索(Hyatt),返回起价 / 每晚 / 不含税的候选列表。
-- **逐酒店按需的含税总价**:`Get tax-inclusive total` 会开一次 Hyatt 任务,拿到 stay total、税前 subtotal 与 taxes & fees 分项后才写入。
+- 中文自然语言搜索会同时保存用户原话(`cityAsAsked`)与 Hyatt 路径使用的拉丁字母城市名;Hyatt location label 不匹配或零结果会作为可见 grounding 证据。
+- 官网城市搜索(Hyatt)保存用户原始预算金额、`per_night | stay_total` basis、basis 是否为默认解释,以及 `maximum | approximate`。模型不得计算整段金额;确定性代码负责晚数乘法,未给 basis 时按每晚并在 surface 点名,「左右」使用产品固定的 10% 容差。
+- 起价 / 每晚 / 不含税只作发现提示,不参与预算判断;页面与 agent surface 共用同一份 session 与确定性比较。
+- **逐酒店按需的含税总价**:`Get tax-inclusive total` 会开一次 Hyatt 任务;只有同币种 stay total 与明确的 taxes & fees included 证据才能判定预算内外。未升级的酒店保持可见,已证实超预算的酒店隐藏。
 
 **入口**
 
@@ -80,6 +82,32 @@
 
 ⚠️ **一处需要点名的局限**:`073d241` 没有跑真实 Hyatt 抓取。本轮不触碰 Hyatt 抽取逻辑,所以不需要用旧结果替它背书;发现路径的下一次改动仍须按 `PRD.md` 的验证规则补真实验证。
 
+**泳道 2 初次交付验证**(均在独立代码锚点 `a7ccb28`,2026-08-12):这组结果补上了上文所记的发现路径真实验证缺口;它只覆盖当时的泳道 2 shape,不改写上面的全局基线表。
+
+| 项 | 结果 | 复现 |
+|---|---|---|
+| 单元 / 集成测试 | 56 文件 330 项通过 | `npm test` |
+| 类型检查 / Lint | 无错误 / 无告警 | `npm run typecheck`;`npm run lint` |
+| Production build | 成功;`/` 与 `/hotel-search` 均为 dynamic(`ƒ`) | `npm run build` |
+| 中文路由 | 真实模型把「东京…整段预算 1000 美元」解析为 `city=Tokyo`、`cityAsAsked=东京`、`maxStayTotal=1000`、`currency=USD`;模型只选择 capability 与参数 | `routeIntent`,使用真实配置 |
+| 已保存搜索的 agent surface | `get_hotel_search_session` 经真实 `/api/agent` SSE 返回 `HotelSearchResults`,并复用 session 预算比较 | `/api/agent` |
+| 真实 Hyatt 城市搜索 | 在 profile 名为 `TripBuddy` 的正常 Chrome 中从 `/hotel-search` 启动,Tokyo 返回 10 个真实 Hyatt 结果;10 个都明确标成等待含税总价,没有拿不含税起价冒充预算内 | `/hotel-search` → `/api/hotel-search` |
+| 单酒店含税总价升级 | **本轮未通过**:所选 Hyatt 结果页未暴露可继续到 final summary 的可见控件,Browser Companion 安全超时;没有生成或推断含税结论 | `/hotel-search` 的 `Get tax-inclusive total` |
+
+**§3.25 审查修复验证**(均在独立代码锚点 `372a28c`,2026-08-13):
+
+| 项 | 结果 | 复现 |
+|---|---|---|
+| 单元 / 集成测试 | 56 文件 336 项通过 | `npm test` |
+| 类型检查 / Lint | 无错误 / 无告警 | `npm run typecheck`;`npm run lint` |
+| Production build | 成功;`/` 与 `/hotel-search` 均为 dynamic(`ƒ`) | 对全新隔离 SQLite 依次应用 migration 并 seed 后 `npm run build` |
+| 真实模型预算 grounding | §3.25 的 1000/晚×4、500/晚×3、200/晚×7 三个请求分别只返回原文里的 1000、500、200 + `per_night`;whole-stay 800 返回 800 + `stay_total`,没有模型乘法 | `routeIntent`,使用真实配置 |
+| 未给 basis +「左右」 | 「预算 1000 人民币左右」返回原文 1000 + `approximate`,不返回 basis;能力层确定性记为 `per_night`、`basisAssumed=true`,比较函数应用 10% 容差 | `routeIntent` → `parseCapabilityArgs` |
+| 模型数字落点 | 模型若提议请求原文中不存在的 `budgetAmount=4000`,路由 fail-closed 并退回确定性 clarify | `router.test.ts` |
+| 比较守卫 | `final_total`、同币种、tax included、fee included 各有只违反该一项的样本;删除任一守卫都会让对应测试失败 | `hotelSearchComparison.test.ts` |
+
+这轮没有改 Hyatt 抽取器,因此没有把 `a7ccb28` 的真实 Hyatt 城市搜索抄成 `372a28c` 的新事实;单酒店 final-total 的超时边界也仍然未关闭。
+
 ---
 
 ## 3. 下一阶段
@@ -99,7 +127,7 @@
   │
   ├─→ 泳道 1(成本模型)  A ✅ ──→ B ──→ C
   │
-  └─→ 泳道 2(发现路径)  第 3 项 ──→ 第 2 项
+  └─→ 泳道 2(发现路径)  第 3 项 ✅ ──→ 第 2 项 ✅
 ```
 
 | | 泳道 1 · 成本模型 | 泳道 2 · 发现路径 |
@@ -142,11 +170,11 @@
 
 `SOUL.md` 那半(自由文本、只给 agent 读语气)不在 A/B/C 内,随泳道 2 的对话骨架走。
 
-### 泳道 2:发现路径
+### 泳道 2:发现路径 · ✅ 初次交付于 `a7ccb28`,§3.25 修复于 `372a28c`
 
-**第 3 项 · 中文城市名归一化 + `get_hotel_search_session` 补 surface。** 模型返回拉丁字母的 `city`(Hyatt 路径能认的形式)+ `cityAsAsked` 保留用户原话,回显用后者;接地由 Hyatt 结果页自己给(`locationLabel` 对不上或零结果就是可见证据)。`get_hotel_search_session` 至今没有 surface,读一个已完成 session 是空面板 —— 和 CODE_REVIEW §3.21 同一个洞,而搜索结果需要新的 surface 节点类型(节点目录是封闭 switch,必须显式加)。
+**第 3 项 · ✅ 中文城市名归一化 + `get_hotel_search_session` surface。** Router 要求模型同时返回 Hyatt 路径能识别的拉丁字母 `city` 与保留用户原话的 `cityAsAsked`;两个字段从 capability、browser task 到 session codec 均持久化,旧任务与旧 session 读取时会补兼容默认值。结果回显原话与实际搜索词,并把 Hyatt `locationLabel` 不匹配或零结果显示为 grounding 证据。封闭 surface 目录新增 `HotelSearchResults`,`get_hotel_search_session` 不再返回空面板,启动 surface 也把 `sessionId` 带回搜索页。
 
-**第 2 项 · 城市列表的比较基准。** 含税总价流程**已经存在**(`HotelSearchClient` 的 `Get tax-inclusive total`,逐酒店按需),但城市列表的比较与筛选仍跑在不含税起价上,预算筛选会系统性低估。缺的是基准标注与升级路径,不是证据链。预算参数持久化到 session,让页面和 agent 共用同一份确定性筛选。
+**第 2 项 · ✅ 城市列表的比较基准。** Router 只抄请求中实际出现的 `budgetAmount`,basis 与 flexibility 分字段保存;能力层对未给 basis 的请求默认 `per_night` 并保留 `basisAssumed`,整段目标与 10% approximate 容差由纯函数计算。页面与 agent surface 共用这一比较:不含税 `Avg/Night` 永远不满足预算,没有 final total 的结果保持可见并提供升级路径,只有 `final_total`、同币种、tax included、fee included 四项全真的 stay total 才能判定预算内或隐藏为超预算。真实 Hyatt 初次交付验证证明城市列表不会误判;单酒店 final-total 升级超时,所以抽取完成态没有冒充已复验。
 
 ### 之后
 
@@ -166,6 +194,4 @@
 
 ## 4. 已知张力,尚未决定
 
-- **PRD 的 `v0.2 Product Boundary` 与 `City Search and Account Import` 两个章节都把城市搜索定位为 auxiliary workflow**,与「帮常旅客找到最划算方案」的定位冲突。两处必须在第 2 项中同批修改;只改一处会让 PRD 自相矛盾。
-- **`PRD.md` 的 v0.2 边界表述滞后**:命令栏、agent 路由、surface 组装、browser task 事件流都已落地但未写入边界章节。
 - ~~`PRD.md:171` 行号失效~~ —— 已在 §3.0 清理,改为引用 **Presentation** 章节名称。

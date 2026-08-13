@@ -24,7 +24,7 @@ import { describeCapabilities, findCapability, parseCapabilityArgs } from "@/lib
 import { isLlmConfigured, LlmError, type LlmClientConfig, readLlmConfigFromEnv, requestJsonCompletion } from "@/lib/providers/llmClient";
 
 export const INTENT_ROUTER_NAME = "deepseek-chat-completions-intent-router";
-export const INTENT_ROUTER_VERSION = "2026-08-12.1";
+export const INTENT_ROUTER_VERSION = "2026-08-13.1";
 
 /** Signals that the request is outside what this product does. */
 export const UNSUPPORTED_CAPABILITY = "unsupported";
@@ -106,7 +106,9 @@ export async function routeIntent(message: string, options: RouteOptions = {}): 
       timeoutMs: 20_000,
       user: JSON.stringify({ request: text })
     });
-    return decide(parseRouterOutput(payload), "model");
+    const output = parseRouterOutput(payload);
+    assertGroundedSearchBudget(output, text);
+    return decide(output, "model");
   } catch (error) {
     /*
      * A provider outage must not take the product with it. The decision records
@@ -121,6 +123,26 @@ type RouterOutput = {
   args: unknown;
   capability: string;
 };
+
+/** Refuses a model-derived budget amount that does not occur in the request. */
+function assertGroundedSearchBudget(output: RouterOutput, request: string) {
+  if (output.capability !== "search_hotels" || !output.args || typeof output.args !== "object") {
+    return;
+  }
+  const proposedAmount = (output.args as Record<string, unknown>).budgetAmount;
+  const amount = typeof proposedAmount === "string" ? Number(proposedAmount) : proposedAmount;
+  if (typeof amount !== "number" || !Number.isFinite(amount)) {
+    return;
+  }
+  const requestNumbers = request.match(/\d[\d,]*(?:\.\d+)?/g) ?? [];
+  const grounded = requestNumbers.some((token) => Number(token.replace(/,/g, "")) === amount);
+  if (!grounded) {
+    throw new LlmError(
+      "router_ungrounded_budget",
+      `The router proposed budgetAmount ${amount}, but that number does not occur in the request.`
+    );
+  }
+}
 
 /**
  * Strict, for the same reason the evidence extractor is strict: an extra key or
@@ -255,6 +277,10 @@ export function buildRouterInstructions() {
     `Choose "capability" from the catalogue below, or "${UNSUPPORTED_CAPABILITY}" when the request is not something the catalogue covers.`,
     "Never invent a capability name and never invent a parameter name. Only use parameters listed for the capability you chose.",
     "Omit any parameter whose value the request does not state. Never guess an identifier, a city, or a date.",
+    'For search_hotels, return the provider-facing destination in Latin letters as "city" and preserve the exact destination wording from the request as "cityAsAsked". Transliteration or translation is allowed only for "city".',
+    'For search_hotels, copy the stated numeric budget literally into "budgetAmount". The same number must occur in the request: never multiply by nights, divide, round, convert, or otherwise derive it.',
+    'For search_hotels, set "budgetBasis" to "per_night" only when the request states a nightly basis and to "stay_total" only when it states a whole-stay basis. Omit it when no basis is stated; deterministic product code will default it to per night and disclose that assumption.',
+    'For search_hotels, set "budgetFlexibility" to "approximate" only for wording such as around, about, approximately, or 左右; otherwise omit it. If the request names its currency, return that three-letter ISO code as "currency"; never convert the amount.',
     'Dates must be calendar dates formatted "YYYY-MM-DD", and every part of one must come from the request itself.',
     'Omit the parameter instead of computing or completing a date. "next week" has no year, month, or day; "early September" and "9月上旬" have no year. You do not know today\'s date, so supplying the missing part would be a guess.',
     "",

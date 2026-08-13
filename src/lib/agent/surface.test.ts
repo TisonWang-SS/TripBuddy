@@ -56,6 +56,25 @@ const recommendation = {
   warnings: []
 };
 
+const searchSession = {
+  createdAt: "2030-08-01T00:00:00.000Z",
+  expiresAt: "2030-08-02T00:00:00.000Z",
+  id: "session-1",
+  profileId: "primary",
+  query: {
+    adults: 2,
+    budget: { amount: 500, basis: "per_night", basisAssumed: true, flexibility: "maximum" },
+    checkIn: "2030-09-10",
+    checkOut: "2030-09-12",
+    city: "Tokyo",
+    cityAsAsked: "东京",
+    currency: "CNY",
+    hotelGroup: "Hyatt"
+  },
+  results: { capturedAt: null, hotels: [], summary: null, warning: null },
+  updatedAt: "2030-08-01T00:00:00.000Z"
+};
+
 describe("surface ordering contract", () => {
   /*
    * The "Presentation" section of docs/PRD.md. This is the concrete reason
@@ -114,6 +133,28 @@ describe("surface composition", () => {
       { label: "Display currency", value: "USD" },
       { label: "Llm extraction configured", value: "true" }
     ]);
+  });
+
+  it("composes a stored hotel search session into its closed surface node", () => {
+    const surface = composeCapabilitySurface("get_hotel_search_session", { session: searchSession }, "s1");
+    expect(surface?.nodes).toEqual([
+      { component: "HotelSearchResults", key: "hotel-search", props: { session: searchSession } }
+    ]);
+    expect(composeCapabilitySurface("get_hotel_search_session", { session: null }, "s1")?.nodes[0])
+      .toMatchObject({ component: "Message", props: { tone: "caution" } });
+  });
+
+  it("links a hotel-search launch to the session that will own its result", () => {
+    const surface = composeCapabilitySurface(
+      "search_hotels",
+      { launchUrl: "https://www.hyatt.com/search", searchSessionId: "session with spaces" },
+      "s1",
+      "/hotel-search"
+    );
+    expect(surface?.nodes[0]).toMatchObject({
+      component: "TaskLaunch",
+      props: { resultRoute: "/hotel-search?sessionId=session%20with%20spaces" }
+    });
   });
 
   /* A capability with no rendered form says so, rather than inventing one. */

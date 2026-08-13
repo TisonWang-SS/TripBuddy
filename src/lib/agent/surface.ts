@@ -24,6 +24,7 @@
 
 import type { BookingSummary, ObservationRecord, RecommendationExplanation } from "@/lib/agent/capabilities/bookings";
 import type { DueCheck } from "@/lib/agent/capabilities/checks";
+import type { HotelSearchSessionSnapshot } from "@/lib/hotelSearchSessions";
 import type { Tone } from "@/lib/labels";
 
 export const SURFACE_VERSION = "tripbuddy-surface-1";
@@ -61,6 +62,7 @@ export type SurfaceNode =
   | { component: "BaselineAction"; key: string; props: { bookingId: string; label: string } }
   | { component: "PriceHistory"; key: string; props: { observations: readonly ObservationRecord[]; runs: readonly RunRecord[] } }
   | { component: "TaskLaunch"; key: string; props: { capability: string; launchUrl: string | null; resultRoute: string } }
+  | { component: "HotelSearchResults"; key: string; props: { session: HotelSearchSessionSnapshot } }
   | { component: "Facts"; key: string; props: { items: readonly FactItem[]; title: string } };
 
 export type SurfaceComponent = SurfaceNode["component"];
@@ -137,12 +139,17 @@ export function composeCapabilitySurface(
  * composed from the shape all three share rather than per capability.
  */
 function composeLaunchNodes(capability: string, result: unknown, resultRoute: string): SurfaceNode[] {
-  const launchUrl = result && typeof result === "object" ? (result as { launchUrl?: unknown }).launchUrl : undefined;
+  const launch = result && typeof result === "object"
+    ? result as { launchUrl?: unknown; searchSessionId?: unknown }
+    : {};
+  const route = capability === "search_hotels" && typeof launch.searchSessionId === "string"
+    ? `${resultRoute}?sessionId=${encodeURIComponent(launch.searchSessionId)}`
+    : resultRoute;
   return [
     {
       component: "TaskLaunch",
       key: "launch",
-      props: { capability, launchUrl: typeof launchUrl === "string" ? launchUrl : null, resultRoute }
+      props: { capability, launchUrl: typeof launch.launchUrl === "string" ? launch.launchUrl : null, resultRoute: route }
     }
   ];
 }
@@ -222,6 +229,12 @@ function composeNodes(capability: string, result: unknown): SurfaceNode[] | null
     case "get_settings": {
       const settings = result as Record<string, unknown>;
       return [{ component: "Facts", key: "settings", props: { items: factsFrom(settings), title: "Settings" } }];
+    }
+    case "get_hotel_search_session": {
+      const { session } = result as { session: HotelSearchSessionSnapshot | null };
+      return session
+        ? [{ component: "HotelSearchResults", key: "hotel-search", props: { session } }]
+        : [{ component: "Message", key: "missing", props: { text: "That hotel search session was not found or has expired.", tone: "caution" } }];
     }
     default:
       return null;

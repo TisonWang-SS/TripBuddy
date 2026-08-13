@@ -4,7 +4,7 @@ import type {
   HotelSearchOffer,
   HotelSearchSessionResults
 } from "@/lib/hotelSearchSessions";
-import type { HotelSearchQuery } from "@/lib/providers/types";
+import type { HotelSearchBudget, HotelSearchQuery } from "@/lib/providers/types";
 
 export function parseHotelSearchQuery(value: string | null | undefined, fallback: HotelSearchQuery) {
   return decodeQuery(parseJson<unknown>(value, null)) ?? fallback;
@@ -38,15 +38,53 @@ function decodeQuery(value: unknown): HotelSearchQuery | null {
     return null;
   }
   const adults = positiveInteger(value.adults);
+  const budget = decodeBudget(value);
   const checkIn = calendarDate(value.checkIn);
   const checkOut = calendarDate(value.checkOut);
   const city = requiredString(value.city);
+  const cityAsAsked = value.cityAsAsked === undefined ? city : requiredString(value.cityAsAsked);
   const currency = requiredString(value.currency)?.toUpperCase() ?? null;
   const hotelGroup = requiredString(value.hotelGroup);
-  if (!adults || !checkIn || !checkOut || !city || !currency || !hotelGroup || checkOut <= checkIn) {
+  if (
+    !adults ||
+    !checkIn ||
+    !checkOut ||
+    !city ||
+    !cityAsAsked ||
+    !currency ||
+    !hotelGroup ||
+    budget === undefined ||
+    checkOut <= checkIn
+  ) {
     return null;
   }
-  return { adults, checkIn, checkOut, city, currency, hotelGroup };
+  return { adults, budget, checkIn, checkOut, city, cityAsAsked, currency, hotelGroup };
+}
+
+/** Upgrades both pre-budget rows and the first whole-stay-only budget shape. */
+function decodeBudget(value: Record<string, unknown>): HotelSearchBudget | null | undefined {
+  if (value.budget === undefined) {
+    if (value.maxStayTotal === undefined || value.maxStayTotal === null) {
+      return null;
+    }
+    const legacyAmount = positiveNumber(value.maxStayTotal);
+    return legacyAmount === null
+      ? undefined
+      : { amount: legacyAmount, basis: "stay_total", basisAssumed: false, flexibility: "maximum" };
+  }
+  if (value.budget === null) {
+    return null;
+  }
+  if (!isRecord(value.budget)) {
+    return undefined;
+  }
+  const amount = positiveNumber(value.budget.amount);
+  const basis = enumValue(value.budget.basis, ["per_night", "stay_total"] as const);
+  const flexibility = enumValue(value.budget.flexibility, ["maximum", "approximate"] as const);
+  if (amount === null || basis === null || flexibility === null || typeof value.budget.basisAssumed !== "boolean") {
+    return undefined;
+  }
+  return { amount, basis, basisAssumed: value.budget.basisAssumed, flexibility };
 }
 
 function decodeResults(value: unknown): HotelSearchSessionResults | null {
@@ -196,6 +234,10 @@ function nullableNumber(value: unknown): number | null | undefined {
 
 function positiveInteger(value: unknown) {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function positiveNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function nullableBoolean(value: unknown): boolean | null | undefined {

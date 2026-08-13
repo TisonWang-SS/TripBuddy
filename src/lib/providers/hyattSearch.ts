@@ -1,21 +1,28 @@
 import { HYATT_CURRENCY_TOKENS, normalizeHyattCurrency } from "@/lib/providers/hyattCurrency";
-import type { HotelSearchQuery, HotelSearchResult } from "@/lib/providers/types";
+import type { HotelSearchBudget, HotelSearchQuery, HotelSearchResult } from "@/lib/providers/types";
 
 type HyattCitySearchQuery = Omit<HotelSearchQuery, "hotelGroup">;
 
 export function normalizeHyattCitySearchQuery(input: Partial<HyattCitySearchQuery>) {
   const adults = Number(input.adults ?? 2);
+  const city = String(input.city ?? "").trim();
+  const budget = normalizeBudget(input.budget);
   const query = {
     adults: Number.isInteger(adults) && adults > 0 ? adults : 2,
+    budget,
     checkIn: String(input.checkIn ?? "").trim(),
     checkOut: String(input.checkOut ?? "").trim(),
-    city: String(input.city ?? "").trim(),
+    city,
+    cityAsAsked: String(input.cityAsAsked ?? city).trim() || city,
     currency: normalizeHyattCurrency(String(input.currency ?? "USD"))
   };
 
   const errors: string[] = [];
   if (!query.city) {
     errors.push("City is required.");
+  }
+  if (input.budget !== undefined && input.budget !== null && query.budget === null) {
+    errors.push("Hotel budget is invalid.");
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(query.checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(query.checkOut)) {
     errors.push("Check-in and check-out dates are required.");
@@ -24,6 +31,20 @@ export function normalizeHyattCitySearchQuery(input: Partial<HyattCitySearchQuer
   }
 
   return { errors, query };
+}
+
+function normalizeBudget(value: HotelSearchBudget | null | undefined): HotelSearchBudget | null {
+  if (!value || !Number.isFinite(value.amount) || value.amount <= 0) {
+    return null;
+  }
+  if (
+    (value.basis !== "per_night" && value.basis !== "stay_total") ||
+    (value.flexibility !== "maximum" && value.flexibility !== "approximate") ||
+    typeof value.basisAssumed !== "boolean"
+  ) {
+    return null;
+  }
+  return { ...value, amount: Number(value.amount) };
 }
 
 export function buildHyattCitySearchUrl(query: HyattCitySearchQuery) {

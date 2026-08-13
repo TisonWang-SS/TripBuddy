@@ -84,9 +84,11 @@ describe("browser task JSON codecs", () => {
       mode: "city_results" as const,
       query: {
         adults: 2,
+        budget: { amount: 1000, basis: "stay_total" as const, basisAssumed: false, flexibility: "maximum" as const },
         checkIn: "2030-09-10",
         checkOut: "2030-09-13",
         city: "Tokyo",
+        cityAsAsked: "东京",
         currency: "USD",
         hotelGroup: "Hyatt"
       },
@@ -102,5 +104,21 @@ describe("browser task JSON codecs", () => {
     expect(parseBrowserTaskResult("booking_price_check", '{"observationsCreated":"2"}')).toBeNull();
     expect(() => serializeBrowserTaskResult("booking_price_check", { observationsCreated: -1, runId: "" }))
       .toThrow(/result JSON is invalid/);
+  });
+
+  it("upgrades an older hotel-search task context with display and budget defaults", () => {
+    const legacy = JSON.stringify({
+      adults: 2,
+      checkIn: "2030-09-10",
+      checkOut: "2030-09-13",
+      city: "Tokyo",
+      currency: "USD",
+      hotelGroup: "Hyatt"
+    });
+    expect(parseHotelSearchTaskContext(legacy)?.query).toMatchObject({
+      budget: null,
+      city: "Tokyo",
+      cityAsAsked: "Tokyo"
+    });
   });
 });

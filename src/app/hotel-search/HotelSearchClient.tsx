@@ -2,14 +2,9 @@
 
 import { useState } from "react";
 import { waitForBrowserTask, type BrowserTaskPayload } from "@/lib/browserTaskClient";
-import { formatMoney } from "@/lib/format";
-import { Button, buttonClassName, Card, EmptyState, Field, FieldGrid, Form, FormActions, Notice, Table } from "@/ui";
-import styles from "./HotelSearchClient.module.css";
-import type {
-  HotelSearchHotelResult,
-  HotelSearchOffer,
-  HotelSearchSessionSnapshot
-} from "@/lib/hotelSearchSessions";
+import { Button, Card, Field, FieldGrid, Form, FormActions, Notice } from "@/ui";
+import type { HotelSearchHotelResult, HotelSearchSessionSnapshot } from "@/lib/hotelSearchSessions";
+import { HotelSearchResults, type TotalRequestState } from "./HotelSearchResults";
 
 type SearchResult = {
   availabilityLabel: string;
@@ -46,29 +41,34 @@ type TaxInclusiveTotalPayload = {
   total: number;
 };
 
-type TotalRequestState =
-  | { status: "loading" }
-  | { error: string; status: "failed" };
-
 const defaultCheckIn = offsetDateInput(14);
 const defaultCheckOut = offsetDateInput(15);
 
 export function HotelSearchClient({
   currency,
-  hotelGroups
+  hotelGroups,
+  initialSession = null
 }: {
   currency: string;
   hotelGroups: string[];
+  initialSession?: HotelSearchSessionSnapshot | null;
 }) {
-  const [adults, setAdults] = useState("2");
-  const [checkIn, setCheckIn] = useState(defaultCheckIn);
-  const [checkOut, setCheckOut] = useState(defaultCheckOut);
-  const [city, setCity] = useState("");
-  const [hotelGroup, setHotelGroup] = useState(hotelGroups[0] ?? "Hyatt");
+  const [adults, setAdults] = useState(String(initialSession?.query.adults ?? 2));
+  const [checkIn, setCheckIn] = useState(initialSession?.query.checkIn ?? defaultCheckIn);
+  const [checkOut, setCheckOut] = useState(initialSession?.query.checkOut ?? defaultCheckOut);
+  const [city, setCity] = useState(initialSession?.query.cityAsAsked ?? "");
+  const [hotelGroup, setHotelGroup] = useState(initialSession?.query.hotelGroup ?? hotelGroups[0] ?? "Hyatt");
+  const [budgetAmount, setBudgetAmount] = useState(initialSession?.query.budget?.amount.toString() ?? "");
+  const [budgetBasis, setBudgetBasis] = useState<"per_night" | "stay_total">(
+    initialSession?.query.budget?.basis ?? "stay_total"
+  );
+  const [budgetFlexibility, setBudgetFlexibility] = useState<"maximum" | "approximate">(
+    initialSession?.query.budget?.flexibility ?? "maximum"
+  );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [session, setSession] = useState<HotelSearchSessionSnapshot | null>(null);
-  const [searchSessionId, setSearchSessionId] = useState<string | null>(null);
+  const [session, setSession] = useState<HotelSearchSessionSnapshot | null>(initialSession);
+  const [searchSessionId, setSearchSessionId] = useState<string | null>(initialSession?.id ?? null);
   const [totalRequests, setTotalRequests] = useState<Record<string, TotalRequestState>>({});
 
   async function submitSearch(event: React.FormEvent<HTMLFormElement>) {
@@ -84,7 +84,22 @@ export function HotelSearchClient({
         throw new Error("Chrome blocked the hotel tab. Allow pop-ups for TripBuddy and try again.");
       }
       const response = await fetch("/api/hotel-search", {
-        body: JSON.stringify({ adults: Number(adults), checkIn, checkOut, city, hotelGroup }),
+        body: JSON.stringify({
+          adults: Number(adults),
+          budget: budgetAmount
+            ? {
+                amount: Number(budgetAmount),
+                basis: budgetBasis,
+                basisAssumed: false,
+                flexibility: budgetFlexibility
+              }
+            : null,
+          checkIn,
+          checkOut,
+          city,
+          cityAsAsked: city,
+          hotelGroup
+        }),
         headers: { "Content-Type": "application/json" },
         method: "POST"
       });
@@ -127,11 +142,7 @@ export function HotelSearchClient({
       }
       const response = await fetch("/api/hotel-search", {
         body: JSON.stringify({
-          adults: Number(adults),
-          checkIn,
-          checkOut,
-          city,
-          hotelGroup,
+          ...session?.query,
           hotelName: hotel.hotelName,
           mode: "tax_inclusive_total",
           searchSessionId
@@ -184,6 +195,37 @@ export function HotelSearchClient({
           <Field htmlFor="checkOut" label="Check-out">
             <input id="checkOut" onChange={(event) => setCheckOut(event.target.value)} required type="date" value={checkOut} />
           </Field>
+          <Field htmlFor="budgetAmount" label={`Tax-inclusive budget amount (${currency})`}>
+            <input
+              id="budgetAmount"
+              min="0.01"
+              onChange={(event) => setBudgetAmount(event.target.value)}
+              placeholder="Optional"
+              step="0.01"
+              type="number"
+              value={budgetAmount}
+            />
+          </Field>
+          <Field htmlFor="budgetBasis" label="Budget basis">
+            <select
+              id="budgetBasis"
+              onChange={(event) => setBudgetBasis(event.target.value as "per_night" | "stay_total")}
+              value={budgetBasis}
+            >
+              <option value="per_night">Per night</option>
+              <option value="stay_total">Whole stay</option>
+            </select>
+          </Field>
+          <Field htmlFor="budgetFlexibility" label="Budget style">
+            <select
+              id="budgetFlexibility"
+              onChange={(event) => setBudgetFlexibility(event.target.value as "maximum" | "approximate")}
+              value={budgetFlexibility}
+            >
+              <option value="maximum">Hard maximum</option>
+              <option value="approximate">Around this amount (+10%)</option>
+            </select>
+          </Field>
         </FieldGrid>
 
         <Notice>Official city prices are captured and displayed in your profile currency: {currency}.</Notice>
@@ -202,90 +244,11 @@ export function HotelSearchClient({
       ) : null}
 
       {session ? (
-        <Card
-          actions={
-            session.results.hotels[0]?.offers[0]?.sourceUrl ? (
-              <a
-                className={buttonClassName({ size: "sm", variant: "secondary" })}
-                href={session.results.hotels[0].offers[0].sourceUrl}
-                rel="noreferrer"
-                target="_blank"
-              >
-                Open official source
-              </a>
-            ) : null
-          }
-          eyebrow={`${hotelGroup} official results`}
-          title={`${session.results.hotels.length} hotels found`}
-        >
-          <p className={styles.summary}>{session.results.summary}</p>
-          {session.results.warning ? <Notice tone="caution">{session.results.warning}</Notice> : null}
-
-          {session.results.hotels.length > 0 ? (
-            <Table className={styles.results}>
-              <thead>
-                <tr>
-                  <th scope="col">Hotel</th>
-                  <th scope="col">Starting price</th>
-                  <th scope="col">Verified official stay price</th>
-                </tr>
-              </thead>
-              <tbody>
-                {session.results.hotels.map((hotel) => {
-                  const startingOffer = findStartingOffer(hotel.offers);
-                  const finalOffer = hotel.offers.find((offer) => offer.evidenceLevel === "final_total");
-                  const totalRequest = totalRequests[hotel.hotelKey];
-                  return (
-                    <tr key={hotel.hotelKey}>
-                      <td>
-                        <span className={styles.hotelName}>{hotel.hotelName}</span>
-                        {hotel.locationLabel ? <span className={styles.stacked}>{hotel.locationLabel}</span> : null}
-                        <span className={styles.stacked}>{hotel.availabilityLabel}</span>
-                      </td>
-                      <td className={styles.money}>
-                        {startingOffer
-                          ? formatMoney(startingOffer.startingAvgNightlyRate ?? startingOffer.displayedAmount, startingOffer.currency)
-                          : "Not captured"}
-                        <span className={styles.stacked}>Avg/night; taxes and fees not included</span>
-                      </td>
-                      <td className={styles.money}>
-                        {finalOffer?.stayTotal !== null && finalOffer?.stayTotal !== undefined ? (
-                          <>
-                            <span className={styles.total}>Total {formatMoney(finalOffer.stayTotal, finalOffer.currency)}</span>
-                            <span className={styles.stacked}>
-                              Before taxes &amp; fees{" "}
-                              {finalOffer.staySubtotal === null ? "not captured" : formatMoney(finalOffer.staySubtotal, finalOffer.currency)}
-                            </span>
-                            <span className={styles.stacked}>
-                              {finalOffer.nights}-night stay · taxes &amp; fees{" "}
-                              {finalOffer.taxesAndFeesAmount === null
-                                ? "included, breakdown not captured"
-                                : formatMoney(finalOffer.taxesAndFeesAmount, finalOffer.currency)}
-                            </span>
-                          </>
-                        ) : totalRequest?.status === "loading" ? (
-                          <span className={styles.stacked}>Reading final Hyatt total…</span>
-                        ) : (
-                          <>
-                            <Button onClick={() => getTaxInclusiveTotal(hotel)} size="sm" type="button" variant="secondary">
-                              Get tax-inclusive total
-                            </Button>
-                            {totalRequest?.status === "failed" ? <Notice tone="caution">{totalRequest.error}</Notice> : null}
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </Table>
-          ) : (
-            <EmptyState
-              description="Try another date range or inspect the opened source page."
-              title="No visible official prices"
-            />
-          )}
-        </Card>
+        <HotelSearchResults
+          onGetTaxInclusiveTotal={getTaxInclusiveTotal}
+          session={session}
+          totalRequests={totalRequests}
+        />
       ) : null}
     </div>
   );
@@ -300,10 +263,6 @@ async function loadSearchSession(searchSessionId: string) {
     throw new Error(session.error || "Hotel search session was not found or expired.");
   }
   return session;
-}
-
-function findStartingOffer(offers: HotelSearchOffer[]) {
-  return offers.find((offer) => offer.startingAvgNightlyRate !== null) ?? offers[0] ?? null;
 }
 
 function offsetDateInput(days: number) {
