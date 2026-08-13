@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { readJsonResponse } from "@/lib/jsonResponse";
 import { waitForBrowserTask, type BrowserTaskPayload } from "@/lib/browserTaskClient";
 import { Button, Card, Field, FieldGrid, Form, FormActions, Notice } from "@/ui";
 import type { HotelSearchHotelResult, HotelSearchSessionSnapshot } from "@/lib/hotelSearchSessions";
@@ -105,10 +106,10 @@ export function HotelSearchClient({
         headers: { "Content-Type": "application/json" },
         method: "POST"
       });
-      const task = (await response.json()) as BrowserTaskPayload<CitySearchPayload> & {
+      const task = await readJsonResponse<BrowserTaskPayload<CitySearchPayload> & {
         error?: string;
         searchSessionId?: string;
-      };
+      }>(response);
       if (!response.ok) {
         throw new Error(task.error || `Search failed with ${response.status}.`);
       }
@@ -152,7 +153,7 @@ export function HotelSearchClient({
         headers: { "Content-Type": "application/json" },
         method: "POST"
       });
-      const task = (await response.json()) as BrowserTaskPayload<TaxInclusiveTotalPayload> & { error?: string };
+      const task = await readJsonResponse<BrowserTaskPayload<TaxInclusiveTotalPayload> & { error?: string }>(response);
       if (!response.ok) {
         throw new Error(task.error || `Tax-inclusive price check failed with ${response.status}.`);
       }
@@ -260,7 +261,7 @@ async function loadSearchSession(searchSessionId: string) {
   const response = await fetch(`/api/hotel-search?sessionId=${encodeURIComponent(searchSessionId)}`, {
     cache: "no-store"
   });
-  const session = (await response.json()) as HotelSearchSessionSnapshot & { error?: string };
+  const session = await readJsonResponse<HotelSearchSessionSnapshot & { error?: string }>(response);
   if (!response.ok) {
     throw new Error(session.error || "Hotel search session was not found or expired.");
   }

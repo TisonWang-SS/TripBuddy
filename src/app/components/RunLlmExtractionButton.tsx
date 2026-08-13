@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { readJsonResponse } from "@/lib/jsonResponse";
 import { ActionPanel, Button, Notice } from "@/ui";
 
 type ExtractionResult = {
@@ -24,7 +25,7 @@ export function RunLlmExtractionButton({ configured, runId }: { configured: bool
       const response = await fetch(`/api/price-checks/${encodeURIComponent(runId)}/llm-extraction`, {
         method: "POST"
       });
-      const payload = await response.json() as ExtractionResult;
+      const payload = await readJsonResponse<ExtractionResult>(response);
       if (!response.ok) {
         throw new Error(payload.error || `LLM extraction failed with ${response.status}.`);
       }

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { readJsonResponse } from "@/lib/jsonResponse";
 import { waitForBrowserTask, type BrowserTaskPayload } from "@/lib/browserTaskClient";
 import { ActionPanel, Notice } from "@/ui";
 
@@ -32,7 +33,7 @@ export function RunPriceCheckButton({
         headers: { "Content-Type": "application/json" },
         method: "POST"
       });
-      const created = (await response.json()) as BrowserTaskPayload & { error?: string };
+      const created = await readJsonResponse<BrowserTaskPayload & { error?: string }>(response);
       if (!response.ok) {
         throw new Error(created.error || `Price check failed with ${response.status}.`);
       }

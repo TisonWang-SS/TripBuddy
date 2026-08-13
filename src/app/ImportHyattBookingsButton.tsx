@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { readJsonResponse } from "@/lib/jsonResponse";
 import { waitForBrowserTask, type BrowserTaskPayload } from "@/lib/browserTaskClient";
 import { ActionPanel, Notice } from "@/ui";
 
@@ -37,7 +38,7 @@ export function ImportHyattBookingsButton({ className }: { className?: string } 
         headers: { "Content-Type": "application/json" },
         method: "POST"
       });
-      const task = (await response.json()) as BrowserTaskPayload<ImportPayload> & { error?: string };
+      const task = await readJsonResponse<BrowserTaskPayload<ImportPayload> & { error?: string }>(response);
       if (!response.ok) {
         throw new Error(task.error || `Import failed with status ${response.status}.`);
       }
