@@ -666,7 +666,7 @@ STATUS §3.1 要求同批上线的五件全部到齐,并逐条核过:五个主�
 
 历史保全也做对了:migration 只 DROP 两列,`costBreakdownJson` 快照原样留着,订单页对旧快照条件性渲染「(historical)」两行。
 
-### 3.25 PR 2(发现路径)审查 — ⬜ 两处未关闭(`agent/discovery-path`)
+### 3.25 PR 2(发现路径)审查 — ✅ 两处已关闭(`372a28c`、`1081fa6`),⬜ 新增一处窄缺陷
 
 330 项测试 / typecheck / lint / build 全过,与 PR 1 `git merge-tree` 干净(源码零重叠,只有三份文档相邻章节)。比较规则本身**写得对**:`findComparableFinalOffer` 要求 `final_total` + 同币种 + 税费均 `included`,起价永远不能判定预算内;只隐藏已证实超预算的,未升级的保持可见并给升级路径。放弃 §4 那条张力也是合法的——两处 "auxiliary" 都真改了,v0.2 边界的滞后也一并补了。真实 Hyatt 东京搜索 10 个结果全部正确标成等待含税总价,单酒店升级超时且如实记为未通过。
 
@@ -692,6 +692,42 @@ STATUS §3.1 要求同批上线的五件全部到齐,并逐条核过:五个主�
 | `offer.currency === currency` | 1 失败 ✅ |
 
 也就是说,那句已经写进 `PRD.md`、也写在模块头注释里的「起价永远不能让一家酒店满足预算」,**删掉它没有任何断言会响**。只有同币种那条被守住。真实 Hyatt 那次跑通,是因为代码本来就对,不是因为有东西拦着它变坏。这与 §3.19(用例比真实请求宽松)、§3.22(mock 盖住了真实产出)是同一类:断言没有落到真正要紧的行为上。
+
+#### 复审(`1081fa6`,336 项测试 / typecheck / lint / build 全过)
+
+✅ **缺陷二已关闭。** 逐条还原三道守卫跑全量:`final_total` → 1 失败,`taxesIncluded` / `feesIncluded` → 2 失败,同币种 → 1 失败。三条都有断言守着了。
+
+✅ **缺陷一已关闭,而且修法比「加个 basis 参数」更强。** 能力层拆出 `budgetAmount` / `budgetBasis` / `budgetFlexibility` 三个参数只是一半;另一半是 `assertGroundedSearchBudget`——**服务端拒绝任何没有在请求原文里字面出现的金额**。这跟 LLM 证据抽取器「必须证明数字出现在快照里」是同一个形状,比提示词硬得多:提示词是请求,守卫是拒绝。算术移进 `summarizeHotelSearchBudget`,在产品代码里确定性完成。
+
+真实模型复测五条,全部返回**字面值**,不再推导:
+
+| 请求 | `budgetAmount` | `budgetBasis` | 产品算出的 ceiling |
+|---|---|---|---|
+| 预算 1000 人民币左右,4 晚 | 1000 | (未给)→ per_night | 4400 = 1000×4×1.1 |
+| 每晚预算 1000,4 晚 | 1000 | per_night | 4000 |
+| max 500 USD per night,3 晚 | 500 | per_night | 1500 |
+| max 200 USD a night,7 晚 | 200 | per_night | 1400 |
+| total budget 800 whole stay | 800 | stay_total | 800 |
+
+守卫本身也非空转:把 `assertGroundedSearchBudget(output, text)` 那一行删掉,专门的用例立刻失败。
+
+`basisAssumed` 被记录并**披露**,不是静默默认。页面文案给出从「用户说的数」到「实际比较用的天花板」的完整链条:字面金额 + basis +「No basis was stated, so TripBuddy interpreted it as per night」+ 晚数 + 确定性 stay target + 具名的产品容差 + 最终 ceiling。这正是 §3.22 当时缺的那种可追溯性。
+
+⬜ **新缺陷(窄):中文数字写的预算会让整个请求被拒。**
+
+```
+「帮我查一下2026年9月1日到9月5日东京的酒店，每晚预算一千元」
+→ kind=unsupported, fallbackReason=router_ungrounded_budget
+→ 用户看到「TripBuddy only tracks Hyatt hotel bookings」
+```
+
+模型把「一千」正确转写成 1000,但请求原文里没有数字串 `1000`,守卫判定未接地 → 抛 `LlmError` → 外层 catch 退回确定性关键词路由 → 中文句子匹配不到任何关键词 → unsupported。**对一个 Hyatt 订房请求回答「本产品只跟踪 Hyatt 酒店预订」。**
+
+根因是守卫把「没有以数字形式出现」等同于「模型推导的」,但**转写不是推导**——「一千」和 `1000` 是同一个数字的两种写法,和 `1,200`(守卫已正确归一化逗号)是同一类。而且失败路径丢的是**整个请求**,不只是那个预算参数。
+
+方向是安全的(拒绝而非错答),但拒绝文案是误导的,而且代价过大。建议:未接地的预算应当**丢弃该参数并继续路由其余部分**,由产品说明「预算没读懂,已按无预算搜索」——这既保住守卫的严格性,又不让一个参数问题吃掉整次请求。扩展接地判定去认中英文数字写法是另一条路,但那等于在守卫里重新实现一个解析器,不如前者干净。
+
+`1,200 元` 这种带千分位的写法已经正确工作,不受影响。
 
 ---
 
