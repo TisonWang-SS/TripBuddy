@@ -123,6 +123,11 @@ export type HotelSearchBudget = {
   basisAssumed: boolean;
   /** A hard ceiling or an approximate target with the product-owned tolerance. */
   flexibility: "maximum" | "approximate";
+  /**
+   * The wording the amount was read from, verified verbatim against the request.
+   * Null for a budget typed into the search form, which needs no citation.
+   */
+  quote: string | null;
 };
 
 export type HotelSearchResult = {

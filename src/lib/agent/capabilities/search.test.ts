@@ -13,7 +13,7 @@ vi.mock("@/lib/hotelSearchTasks", () => ({
 vi.mock("@/lib/hotelSearchSessions", () => ({ getHotelSearchSession: mocks.getHotelSearchSession }));
 
 const args = {
-  budgetAmount: 1000,
+  budgetAmount: 1000, budgetQuote: "budget 1000",
   budgetBasis: "stay_total",
   budgetFlexibility: "maximum",
   checkIn: "2030-09-10",
@@ -36,7 +36,7 @@ describe("hotel search capabilities", () => {
   it("keeps the literal budget amount and its stated basis beside the provider city", () => {
     expect(searchHotels.parseArgs(args)).toEqual({
       adults: undefined,
-      budget: { amount: 1000, basis: "stay_total", basisAssumed: false, flexibility: "maximum" },
+      budget: { amount: 1000, basis: "stay_total", basisAssumed: false, flexibility: "maximum", quote: "budget 1000" },
       checkIn: args.checkIn,
       checkOut: args.checkOut,
       city: args.city,
@@ -49,7 +49,7 @@ describe("hotel search capabilities", () => {
 
   it("defaults an unstated basis to per night and preserves approximate wording", () => {
     expect(searchHotels.parseArgs({ ...args, budgetBasis: undefined, budgetFlexibility: "approximate" }).budget)
-      .toEqual({ amount: 1000, basis: "per_night", basisAssumed: true, flexibility: "approximate" });
+      .toEqual({ amount: 1000, basis: "per_night", basisAssumed: true, flexibility: "approximate", quote: "budget 1000" });
     expect(() => searchHotels.parseArgs({ ...args, budgetAmount: undefined })).toThrow(/budgetAmount/);
   });
 
@@ -60,7 +60,7 @@ describe("hotel search capabilities", () => {
       city: "Tokyo",
       cityAsAsked: "东京",
       currency: "CNY",
-      budget: { amount: 1000, basis: "stay_total", basisAssumed: false, flexibility: "maximum" },
+      budget: { amount: 1000, basis: "stay_total", basisAssumed: false, flexibility: "maximum", quote: "budget 1000" },
       mode: "city_results"
     }));
   });
@@ -68,5 +68,16 @@ describe("hotel search capabilities", () => {
   it("returns the stored session for deterministic surface composition", async () => {
     mocks.getHotelSearchSession.mockResolvedValue({ id: "session-1" });
     await expect(getSearchSession.run({ sessionId: "session-1" })).resolves.toEqual({ session: { id: "session-1" } });
+  });
+
+  /* The router can only verify a citation that the parser insisted on having. */
+  it("refuses a budget amount that arrives without the wording it came from", () => {
+    expect(() => searchHotels.parseArgs({
+      budgetAmount: 1000,
+      checkIn: "2030-09-10",
+      checkOut: "2030-09-12",
+      city: "Tokyo",
+      cityAsAsked: "东京"
+    })).toThrow(/"budgetQuote" is required/);
   });
 });

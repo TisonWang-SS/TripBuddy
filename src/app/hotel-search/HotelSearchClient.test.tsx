@@ -95,7 +95,7 @@ describe("HotelSearchClient", () => {
       profileId: "primary",
       query: {
         adults: 2,
-        budget: { amount: 1000, basis: "per_night", basisAssumed: false, flexibility: "approximate" },
+        budget: { amount: 1000, basis: "per_night", basisAssumed: false, flexibility: "approximate", quote: null },
         checkIn: "2026-08-17",
         checkOut: "2026-08-18",
         city: "Tokyo",
@@ -161,7 +161,7 @@ describe("HotelSearchClient", () => {
 
     expect(await screen.findByText("Grand Hyatt Tokyo")).toBeInTheDocument();
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
-      budget: { amount: 1000, basis: "per_night", basisAssumed: false, flexibility: "approximate" },
+      budget: { amount: 1000, basis: "per_night", basisAssumed: false, flexibility: "approximate", quote: null },
       city: "Tokyo",
       cityAsAsked: "Tokyo"
     });

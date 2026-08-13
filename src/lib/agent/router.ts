@@ -124,24 +124,72 @@ type RouterOutput = {
   capability: string;
 };
 
-/** Refuses a model-derived budget amount that does not occur in the request. */
+/**
+ * Grounds a proposed budget in the request, by checking the quote rather than
+ * the number.
+ *
+ * This is the shape `llmEvidence.ts` already uses against a page snapshot: the
+ * model reads freely but must cite the contiguous span it read from, and the
+ * span is what gets verified. Checking the amount instead confuses two different
+ * things — transcribing "一千" as 1000 creates no information and is legitimate,
+ * while dividing a stay total by a night count creates a number the request
+ * never contained. Matching digits would reject every spelled-out or non-Latin
+ * amount, which is the wrong answer for a product whose entry point is natural
+ * language.
+ *
+ * Arithmetic stays out of the model's hands for a separate and duller reason:
+ * the product already holds the authoritative night count, so recomputing it
+ * from a worse copy can only lose fidelity.
+ */
 function assertGroundedSearchBudget(output: RouterOutput, request: string) {
   if (output.capability !== "search_hotels" || !output.args || typeof output.args !== "object") {
     return;
   }
-  const proposedAmount = (output.args as Record<string, unknown>).budgetAmount;
-  const amount = typeof proposedAmount === "string" ? Number(proposedAmount) : proposedAmount;
-  if (typeof amount !== "number" || !Number.isFinite(amount)) {
+  const args = output.args as Record<string, unknown>;
+  if (args.budgetAmount === undefined || args.budgetAmount === null) {
     return;
   }
-  const requestNumbers = request.match(/\d[\d,]*(?:\.\d+)?/g) ?? [];
-  const grounded = requestNumbers.some((token) => Number(token.replace(/,/g, "")) === amount);
-  if (!grounded) {
+  const quote = typeof args.budgetQuote === "string" ? args.budgetQuote : "";
+  if (quote.trim().length === 0) {
     throw new LlmError(
       "router_ungrounded_budget",
-      `The router proposed budgetAmount ${amount}, but that number does not occur in the request.`
+      "The router proposed a budget without quoting the wording it read the amount from."
     );
   }
+  if (!normalizeForQuoteMatch(request).includes(normalizeForQuoteMatch(quote))) {
+    throw new LlmError(
+      "router_ungrounded_budget",
+      `The router quoted \u201c${quote}\u201d as the budget wording, but that does not occur in the request.`
+    );
+  }
+
+  /*
+   * A real quote still leaves room to derive: citing "1000 USD per night" while
+   * returning 4000 is a true citation of a fabricated number. So when the cited
+   * wording writes its amount in digits, the amount must be one of them. When it
+   * does not — "每晚预算一千元" — transcription is unavoidable and cannot be
+   * verified here, but no digit inside the quote was multiplied either.
+   *
+   * One rule rather than a list of writing systems: the citation is checked
+   * against itself, so nothing has to know how any language spells a thousand.
+   */
+  const amount = typeof args.budgetAmount === "string" ? Number(args.budgetAmount) : args.budgetAmount;
+  const quotedNumbers = quote.match(/\d[\d,]*(?:\.\d+)?/g) ?? [];
+  if (
+    typeof amount === "number" &&
+    quotedNumbers.length > 0 &&
+    !quotedNumbers.some((token) => Number(token.replace(/,/g, "")) === amount)
+  ) {
+    throw new LlmError(
+      "router_ungrounded_budget",
+      `The router returned budgetAmount ${amount}, but the wording it quoted \u2014 \u201c${quote}\u201d \u2014 states a different number.`
+    );
+  }
+}
+
+/** Collapses whitespace only. A quote must otherwise be a verbatim span. */
+function normalizeForQuoteMatch(value: string) {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 /**
@@ -278,7 +326,8 @@ export function buildRouterInstructions() {
     "Never invent a capability name and never invent a parameter name. Only use parameters listed for the capability you chose.",
     "Omit any parameter whose value the request does not state. Never guess an identifier, a city, or a date.",
     'For search_hotels, return the provider-facing destination in Latin letters as "city" and preserve the exact destination wording from the request as "cityAsAsked". Transliteration or translation is allowed only for "city".',
-    'For search_hotels, copy the stated numeric budget literally into "budgetAmount". The same number must occur in the request: never multiply by nights, divide, round, convert, or otherwise derive it.',
+    'For search_hotels, put the amount the request states into "budgetAmount" as a number, writing it in digits even when the request spells it out. Never multiply by nights, divide, round, or convert it: the product knows the stay length and does that arithmetic itself.',
+    'For search_hotels, whenever you return "budgetAmount" you must also return "budgetQuote": one short, contiguous, exact substring copied verbatim from the request, containing the amount as the user wrote it. For the request "帮我查东京的酒店，每晚预算一千元", a valid budgetQuote is "每晚预算一千元". Never join wording from separate positions.',
     'For search_hotels, set "budgetBasis" to "per_night" only when the request states a nightly basis and to "stay_total" only when it states a whole-stay basis. Omit it when no basis is stated; deterministic product code will default it to per night and disclose that assumption.',
     'For search_hotels, set "budgetFlexibility" to "approximate" only for wording such as around, about, approximately, or 左右; otherwise omit it. If the request names its currency, return that three-letter ISO code as "currency"; never convert the amount.',
     'Dates must be calendar dates formatted "YYYY-MM-DD", and every part of one must come from the request itself.',

@@ -40,7 +40,7 @@ function sessionWith(
     amount: 1000,
     basis: "stay_total",
     basisAssumed: false,
-    flexibility: "maximum"
+    flexibility: "maximum", quote: null
   }
 ): HotelSearchSessionSnapshot {
   return {
@@ -145,7 +145,7 @@ describe("hotel search comparison", () => {
       amount: 1000,
       basis: "per_night",
       basisAssumed: true,
-      flexibility: "approximate"
+      flexibility: "approximate", quote: null
     };
 
     expect(compareHotelSearchSession(sessionWith([finalOffer], approximatePerNight)).rows[0].budgetStatus)

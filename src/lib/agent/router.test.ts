@@ -79,6 +79,7 @@ describe("intent router — model path", () => {
     const args = {
       budgetAmount: 1000,
       budgetBasis: "stay_total",
+      budgetQuote: "整段预算 1000 人民币",
       checkIn: "2030-09-10",
       checkOut: "2030-09-12",
       city: "Tokyo",
@@ -96,6 +97,8 @@ describe("intent router — model path", () => {
       args: {
         budgetAmount: 4000,
         budgetBasis: "stay_total",
+        /* Nothing in the request says 4000; the model multiplied 1000 by four nights. */
+        budgetQuote: "1000 USD per night",
         checkIn: "2030-09-01",
         checkOut: "2030-09-05",
         city: "Tokyo",
@@ -111,6 +114,65 @@ describe("intent router — model path", () => {
     expect(decision.kind).toBe("clarify");
     expect(decision.fallbackReason).toBe("router_ungrounded_budget");
     expect(decision.source).toBe("deterministic");
+  });
+
+  /*
+   * The counterpart the digit-matching guard used to get wrong. Transcribing
+   * 一千 as 1000 creates no information, so it is not a fabrication and must
+   * route normally — the quote is what proves the amount came from the user.
+   */
+  it("accepts an amount the request spells out rather than writing in digits", async () => {
+    const args = {
+      budgetAmount: 1000,
+      budgetBasis: "per_night",
+      budgetQuote: "每晚预算一千元",
+      checkIn: "2030-09-01",
+      checkOut: "2030-09-05",
+      city: "Tokyo",
+      cityAsAsked: "东京"
+    };
+    const fetchImpl = vi.fn().mockResolvedValue(completion({ args, capability: "search_hotels" }));
+    const decision = await routeIntent(
+      "帮我查一下2030年9月1日到9月5日东京的酒店，每晚预算一千元",
+      modelConfig(fetchImpl)
+    );
+
+    expect(decision).toMatchObject({ args, capability: "search_hotels", kind: "capability", source: "model" });
+  });
+
+  /* A citation that is not in the source is the plainest fabrication of all. */
+  it("rejects a budget quote that does not occur in the request", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(completion({
+      args: {
+        budgetAmount: 1000,
+        budgetQuote: "under 1000 a night",
+        checkIn: "2030-09-01",
+        checkOut: "2030-09-05",
+        city: "Tokyo",
+        cityAsAsked: "Tokyo"
+      },
+      capability: "search_hotels"
+    }));
+    const decision = await routeIntent("Tokyo hotels 2030-09-01 to 2030-09-05, 1000 max", modelConfig(fetchImpl));
+
+    expect(decision.fallbackReason).toBe("router_ungrounded_budget");
+  });
+
+  /* A quote is the citation; without one there is nothing to verify. */
+  it("rejects a budget amount that arrives with no quote at all", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(completion({
+      args: {
+        budgetAmount: 1000,
+        checkIn: "2030-09-01",
+        checkOut: "2030-09-05",
+        city: "Tokyo",
+        cityAsAsked: "Tokyo"
+      },
+      capability: "search_hotels"
+    }));
+    const decision = await routeIntent("Tokyo hotels 2030-09-01 to 2030-09-05 under 1000", modelConfig(fetchImpl));
+
+    expect(decision.fallbackReason).toBe("router_ungrounded_budget");
   });
 
   /*
@@ -252,8 +314,10 @@ describe("router instructions", () => {
     const instructions = buildRouterInstructions();
     expect(instructions).toContain('Latin letters as "city"');
     expect(instructions).toContain('exact destination wording from the request as "cityAsAsked"');
-    expect(instructions).toContain('numeric budget literally into "budgetAmount"');
-    expect(instructions).toContain('never multiply by nights');
+    expect(instructions).toContain('writing it in digits even when the request spells it out');
+    expect(instructions).toContain("Never multiply by nights");
+    expect(instructions).toContain('you must also return "budgetQuote"');
+    expect(instructions).toContain("exact substring copied verbatim from the request");
     expect(instructions).toContain('"budgetBasis"');
     expect(instructions).toContain('"budgetFlexibility"');
     expect(instructions).toContain("never convert the amount");

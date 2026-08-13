@@ -36,7 +36,7 @@ const searchSession: HotelSearchSessionSnapshot = {
   profileId: "primary",
   query: {
     adults: 2,
-    budget: { amount: 500, basis: "per_night", basisAssumed: true, flexibility: "maximum" },
+    budget: { amount: 500, basis: "per_night", basisAssumed: true, flexibility: "maximum", quote: null },
     checkIn: "2030-09-10",
     checkOut: "2030-09-12",
     city: "Tokyo",

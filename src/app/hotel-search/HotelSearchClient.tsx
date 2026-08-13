@@ -91,7 +91,9 @@ export function HotelSearchClient({
                 amount: Number(budgetAmount),
                 basis: budgetBasis,
                 basisAssumed: false,
-                flexibility: budgetFlexibility
+                flexibility: budgetFlexibility,
+                /* Typed into the form, so there is no request wording to cite. */
+                quote: null
               }
             : null,
           checkIn,
