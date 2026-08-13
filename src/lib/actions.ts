@@ -411,14 +411,13 @@ export async function updateProfile(formData: FormData) {
     create: { displayCurrency: defaultCurrency, id: "primary" }
   });
   const profileData = {
-    breakfastValue: numberValue(formData, "breakfastValue", 25),
+    caresAboutBreakfast: boolValue(formData, "caresAboutBreakfast"),
+    caresAboutLateCheckout: boolValue(formData, "caresAboutLateCheckout"),
+    caresAboutLounge: boolValue(formData, "caresAboutLounge"),
+    caresAboutUpgrade: boolValue(formData, "caresAboutUpgrade"),
     defaultCurrency,
-    eliteNightValue: numberValue(formData, "eliteNightValue", 10),
-    lateCheckoutValue: numberValue(formData, "lateCheckoutValue", 15),
-    loungeValue: numberValue(formData, "loungeValue", 35),
     name: value(formData, "name") || "Primary Traveler",
     savingsThreshold: numberValue(formData, "savingsThreshold", 50),
-    upgradeValue: numberValue(formData, "upgradeValue", 40),
     urgentWindowHours: numberValue(formData, "urgentWindowHours", 24)
   };
   await prisma.userProfile.upsert({

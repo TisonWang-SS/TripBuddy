@@ -129,6 +129,8 @@ describe("booking detail page", () => {
     expect(screen.getByText("Review the captured cancellation policy.")).toBeInTheDocument();
     expect(screen.getByText("Observed in MYR")).toBeInTheDocument();
     expect(screen.getByText("Cost breakdown")).toBeInTheDocument();
+    expect(screen.getByText("Elite progress value (historical)")).toBeInTheDocument();
+    expect(screen.getByText("Included benefits value (historical)")).toBeInTheDocument();
     expect(screen.getByText("Effective cost")).toBeInTheDocument();
     expect(screen.getAllByText("$1,200").length).toBeGreaterThan(1);
     expect(screen.getAllByText("$1,100").length).toBeGreaterThan(1);

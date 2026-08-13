@@ -7,21 +7,20 @@ import { isLlmEvidenceExtractionConfigured } from "@/lib/providers/llmEvidence";
 import { getSystemCurrency } from "@/lib/systemSettings";
 
 export type ProfileValues = {
-  breakfastValue: number;
+  caresAboutBreakfast: boolean;
+  caresAboutLateCheckout: boolean;
+  caresAboutLounge: boolean;
+  caresAboutUpgrade: boolean;
   defaultCurrency: string;
-  eliteNightValue: number;
-  lateCheckoutValue: number;
-  loungeValue: number;
   name: string;
   savingsThreshold: number;
-  upgradeValue: number;
   urgentWindowHours: number;
 };
 
 export const getProfile: Capability<Record<string, never>, { profile: ProfileValues | null }> = {
   name: "get_profile",
   keywords: ["profile", "loyalty", "tier", "point value", "threshold"],
-  summary: "Read the traveler profile that prices loyalty and benefit value.",
+  summary: "Read the traveler profile, loyalty settings, and entitlement-warning preferences.",
   effect: "read",
   params: [],
   parseArgs(raw) {
@@ -35,14 +34,13 @@ export const getProfile: Capability<Record<string, never>, { profile: ProfileVal
     }
     return {
       profile: {
-        breakfastValue: profile.breakfastValue,
+        caresAboutBreakfast: profile.caresAboutBreakfast,
+        caresAboutLateCheckout: profile.caresAboutLateCheckout,
+        caresAboutLounge: profile.caresAboutLounge,
+        caresAboutUpgrade: profile.caresAboutUpgrade,
         defaultCurrency: profile.defaultCurrency,
-        eliteNightValue: profile.eliteNightValue,
-        lateCheckoutValue: profile.lateCheckoutValue,
-        loungeValue: profile.loungeValue,
         name: profile.name,
         savingsThreshold: profile.savingsThreshold,
-        upgradeValue: profile.upgradeValue,
         urgentWindowHours: profile.urgentWindowHours
       }
     };

@@ -87,7 +87,10 @@ Hotel evidence extractors are compared offline against one shared, provider-spec
 ## Cost and Recommendation Behavior
 
 - Monetary and points calculations remain deterministic.
-- Comparable cost can include cash, points value, cash copay, promotions, credit-card value, elite progress, breakfast, lounge, late checkout, and upgrade value.
+- Comparable cost can include cash, recorded points value, cash copay, confirmed eligible promotions, and credit-card value. Breakfast, lounge access, late checkout, room upgrades, and flat elite-night progress never enter `effectiveCost`.
+- An entitlement available with the current booking but absent from a candidate is a warning on that candidate. The traveler can mark each entitlement as not important; that suppresses only its warning and cannot change a cost figure or verdict.
+- A promotion marked as requiring registration is excluded until registration can be confirmed. Because the profile does not yet record registration state, the omission is named in the recommendation rather than silently treated as zero.
+- Historical recommendation rows retain the cost snapshot and savings produced by the decision version that created them. A cost-model migration never recalculates history; legacy subjective components remain readable only as historical composition.
 - Missing conversion for an observed currency is a hard blocker. A recorded conversion rate may make the rate comparable without changing the preserved observed currency.
 - Unknown room match, unknown cancellation match, and incomplete final taxes/fees block an automatic rebook recommendation.
 - A known weaker cancellation policy does not block an automatic recommendation; it lowers evidence quality and risk confidence to medium and is surfaced as a prominent caution.

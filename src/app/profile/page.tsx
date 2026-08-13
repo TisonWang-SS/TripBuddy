@@ -1,7 +1,7 @@
 import { createCreditCardBenefit, updateProfile } from "@/lib/actions";
 import { DEFAULT_PROFILE_ID, HOTEL_GROUPS, HOTEL_GROUP_TIERS, SUPPORTED_CURRENCIES } from "@/lib/constants";
 import { prisma } from "@/lib/db";
-import { Button, Card, EmptyState, Field, FieldGrid, Form, FormActions, PageHeader, Table } from "@/ui";
+import { Button, Card, CheckField, EmptyState, Field, FieldGrid, Form, FormActions, PageHeader, Table } from "@/ui";
 import styles from "./page.module.css";
 
 export default async function ProfilePage() {
@@ -13,12 +13,7 @@ export default async function ProfilePage() {
       name: "Primary Traveler",
       defaultCurrency: "USD",
       savingsThreshold: 50,
-      urgentWindowHours: 24,
-      breakfastValue: 25,
-      loungeValue: 35,
-      lateCheckoutValue: 15,
-      upgradeValue: 40,
-      eliteNightValue: 10
+      urgentWindowHours: 24
     },
     include: {
       loyaltyAccounts: true,
@@ -61,22 +56,22 @@ export default async function ProfilePage() {
           <Field htmlFor="urgentWindowHours" label="Urgent window hours">
             <input defaultValue={profile.urgentWindowHours} id="urgentWindowHours" name="urgentWindowHours" type="number" />
           </Field>
-          <Field htmlFor="breakfastValue" label="Breakfast value per night">
-            <input defaultValue={profile.breakfastValue} id="breakfastValue" name="breakfastValue" step="0.01" type="number" />
-          </Field>
-          <Field htmlFor="loungeValue" label="Lounge value per night">
-            <input defaultValue={profile.loungeValue} id="loungeValue" name="loungeValue" step="0.01" type="number" />
-          </Field>
-          <Field htmlFor="lateCheckoutValue" label="Late checkout value">
-            <input defaultValue={profile.lateCheckoutValue} id="lateCheckoutValue" name="lateCheckoutValue" step="0.01" type="number" />
-          </Field>
-          <Field htmlFor="upgradeValue" label="Upgrade value per night">
-            <input defaultValue={profile.upgradeValue} id="upgradeValue" name="upgradeValue" step="0.01" type="number" />
-          </Field>
-          <Field htmlFor="eliteNightValue" label="Elite night value">
-            <input defaultValue={profile.eliteNightValue} id="eliteNightValue" name="eliteNightValue" step="0.01" type="number" />
-          </Field>
         </FieldGrid>
+
+        <section>
+          <PageHeader
+            description="Untick an entitlement you do not care about. Preferences suppress loss warnings; they never change cost or verdicts."
+            eyebrow="Entitlement preferences"
+            level={2}
+            title="Warn me when a candidate drops"
+          />
+          <FieldGrid>
+            <CheckField defaultChecked={profile.caresAboutBreakfast} id="caresAboutBreakfast" label="Breakfast" name="caresAboutBreakfast" />
+            <CheckField defaultChecked={profile.caresAboutLounge} id="caresAboutLounge" label="Lounge access" name="caresAboutLounge" />
+            <CheckField defaultChecked={profile.caresAboutLateCheckout} id="caresAboutLateCheckout" label="Late checkout" name="caresAboutLateCheckout" />
+            <CheckField defaultChecked={profile.caresAboutUpgrade} id="caresAboutUpgrade" label="Room upgrades" name="caresAboutUpgrade" />
+          </FieldGrid>
+        </section>
 
         <section>
           <PageHeader eyebrow="Loyalty accounts" level={2} title="Hotel program status" />

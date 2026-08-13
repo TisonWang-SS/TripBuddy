@@ -1,6 +1,6 @@
 # TripBuddy 当前状态
 
-> **锚点:`6f06fa3`(2026-08-12)。** 本文下面所有数字都属于这个 commit。
+> **锚点:`073d241`(2026-08-12)。** 本文下面所有当前数字都属于这个 commit。
 
 本文是**唯一描述「现在」的文档**:当前能力、验收状态、下一阶段。
 
@@ -33,6 +33,8 @@
 **决策**
 
 - 确定性成本计算与推荐(keep / rebook_direct / consider_ota / needs_review / urgent),含取消政策降级的显式 warning 路径。
+- `effectiveCost` 不再计入早餐、lounge、延迟退房、升房或固定 elite night 的主观估值。基线有而候选没有的权益变成 warning;四个结构化偏好可以逐项关闭 warning,但不能改变成本或 verdict。
+- 需要注册但注册状态无法确认的促销 fail-closed:不计入节省,并在推荐 warning 中点名。新推荐由 deterministic decider v3 生成;旧推荐保留原成本快照,不重算历史。
 - 前台到期队列:打开 Dashboard 时按 cadence 与取消窗口推导,每项仍需用户点击才会开 Chrome(ADR 0001)。
 
 **发现**
@@ -56,26 +58,27 @@
 
 ## 2. 验收状态
 
-**本轮已验证**(均在 `6f06fa3`):
+**本轮已验证**(均在 `073d241`):
 
 | 项 | 结果 | 复现 |
 |---|---|---|
-| 单元 / 集成测试 | 54 文件 315 项通过 | `npm test` |
+| 单元 / 集成测试 | 57 文件 323 项通过 | `npm test` |
 | 类型检查 | 无错误 | `npm run typecheck` |
 | Lint | 无告警 | `npm run lint` |
 | Production build | 成功;`/` 为 dynamic(`ƒ`) | `npm run build` |
-| 命令栏确认链路 | 本地浏览器实测:确认后焦点落在按钮、标签页被指向真实 Hyatt launch URL、面板渲染 TaskLaunch | 见 CODE_REVIEW §3.20–§3.22 |
+| migration 与 Prisma schema | 8 个 migration 在全新隔离库干净应用;与 schema 零差异;旧推荐行、savings 与旧 JSON 成本组成保持不变 | `npx prisma migrate deploy`;`npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url <isolated SQLite URL> --exit-code`;`npm test -- --run src/lib/loyaltyValuationMigration.integration.test.ts` |
+| Profile 权益偏好 | 本地浏览器实测:四个开关可见,旧五个估值输入不存在;关闭 Breakfast 后保存并刷新仍为关闭;控制台无 error / warning,1280px 无横向溢出 | `/profile` |
 
-**上次验证于 `a800687`(2026-08-11),本轮未复验** —— 这些需要真实 API 或真实 Hyatt 页面,不能从本轮改动推断:
+**上次验证,本轮未复验** —— 不能从本轮改动推断:
 
-| 项 | 上次结果 |
-|---|---|
-| DeepSeek V4 Flash 抽取评测 | 13 fixtures、63/63 断言通过 |
-| migration 与 Prisma schema 一致性 | 零差异,全新库干净应用 |
-| 跨时区套件稳定性 | 外部 `TZ` 设为 -7 / 0 / +14 分别全过 |
-| 真实 Hyatt 端到端 | §3.19 那轮由用户经 `http://192.168.3.1:3000` 跑通一次真实价格核查 |
+| 项 | 上次验证于 | 上次结果 |
+|---|---|---|
+| 命令栏确认链路 | `6f06fa3`(2026-08-12) | 确认后焦点落在按钮、标签页被指向真实 Hyatt launch URL、面板渲染 TaskLaunch;其中 `window.open` 由桩对象断言 |
+| DeepSeek V4 Flash 抽取评测 | `a800687`(2026-08-11) | 13 fixtures、63/63 断言通过 |
+| 跨时区套件稳定性 | `a800687`(2026-08-11) | 外部 `TZ` 设为 -7 / 0 / +14 分别全过 |
+| 真实 Hyatt 端到端 | `a800687`(2026-08-11) | §3.19 那轮由用户经 `http://192.168.3.1:3000` 跑通一次真实价格核查 |
 
-⚠️ **一处需要点名的局限**:本轮命令栏验证中,`window.open` 是被替换成桩对象后断言 `location.href` 的 —— 内置浏览器拦截弹窗。**真实 Hyatt 抓取在本轮没有跑过**。按 `PRD.md` 的验证规则,涉及 Hyatt 抽取行为的改动需要一次真实验证;本轮改动不触碰抽取逻辑,但发现路径的下一次改动需要补上。
+⚠️ **一处需要点名的局限**:`073d241` 没有跑真实 Hyatt 抓取。本轮不触碰 Hyatt 抽取逻辑,所以不需要用旧结果替它背书;发现路径的下一次改动仍须按 `PRD.md` 的验证规则补真实验证。
 
 ---
 
@@ -94,7 +97,7 @@
 ```
 #0 PRD 引用修复
   │
-  ├─→ 泳道 1(成本模型)  A ──→ B ──→ C
+  ├─→ 泳道 1(成本模型)  A ✅ ──→ B ──→ C
   │
   └─→ 泳道 2(发现路径)  第 3 项 ──→ 第 2 项
 ```
@@ -108,21 +111,21 @@
 
 ### 泳道 1:[ADR 0003](./decisions/0003-loyalty-valuation.md) 拆三个交付
 
-**A 必须第一,且是唯一破坏性的一个** —— 它会翻转已有推荐。B、C 纯粹增量。A 同时是减法且承重:成本模型改对之后,B、C 以及任何碰 `CostBreakdown` 的东西都建在正确地基上。
+**A 已作为第一批交付,且是唯一破坏性的一个** —— 它会翻转已有推荐。B、C 纯粹增量。A 同时是减法且承重:成本模型改对之后,B、C 以及任何碰 `CostBreakdown` 的东西都建在正确地基上。
 
-**0003-A · 停止计入无法证实的东西**(破坏性,以下五件必须**同批上线**)
+**0003-A · ✅ 已完成于 `073d241`:停止计入无法证实的东西。** 以下五件已同批上线:
 
-1. 删 `UserProfile` 的 `breakfastValue` / `loungeValue` / `lateCheckoutValue` / `upgradeValue` / `eliteNightValue`,连同表单、`actions.ts` 解析、seed、`get_settings` 暴露。
-2. `CostBreakdown` 去掉 `benefitValue` / `eliteProgressValue` 两个 `effectiveCost` 项;`Recommendation` 的两个 difference 列迁移保留、不重算历史行。
-3. **权益丢失 warning**:基线有、候选没有的权益变成该候选的 warning,走 `DecisionCandidate.warnings` + `EvidenceIssues`。
-4. **未确认促销 warning**:`requiresRegistration` 目前**存了但从未被任何代码读过**(`decision.ts:239` 的过滤只看 hotelGroup、日期窗口、`loyaltyEligible`,连 `DecisionPromotion` 类型里都没有这个字段)。这是 CODE_REVIEW §1.6 漏网的同类缺陷。fail-closed 计入,但**不要静默** —— 没有任何字段记录"用户已注册",静默排除会让真的注册了的用户被系统性低估且不知原因。出一条「此促销需要注册,未确认前不计入节省」。
-5. **「我不在乎这项权益」开关**:几个 boolean + 构造 warning 时过滤。
+1. 已删 `UserProfile` 的 `breakfastValue` / `loungeValue` / `lateCheckoutValue` / `upgradeValue` / `eliteNightValue`,连同表单、`actions.ts` 解析、seed、`get_profile` 暴露。
+2. `CostBreakdown` 已去掉 `benefitValue` / `eliteProgressValue` 两项;`Recommendation` 的两个 difference 列已删除,迁移保留旧行与 JSON 快照且不重算历史。
+3. **权益丢失 warning**:基线有、候选没有的权益已变成该候选的 warning,走 `DecisionCandidate.warnings` + `EvidenceIssues`。
+4. **未确认促销 warning**:`requiresRegistration` 已进入 `DecisionPromotion`;促销 fail-closed 不计入,同时点名 registration 尚未确认。
+5. **「我不在乎这项权益」开关**:四个 boolean 已落在 profile,构造 warning 时过滤。
 
-第 3–5 项不能拆到后面:第 3 项不跟着删除一起上,产品会变成降级推荐机;第 5 项不跟着第 3 项一起上,不吃早餐的用户会在**每一次比较**上收到纯噪音。
+第 3–5 项已经随删除同批交付,避免产品短暂成为降级推荐机或向不在乎某项权益的用户反复发噪音 warning。
 
 > 会有人问:删了 5 个主观估值又加了 4 个 boolean,不是白折腾?**不是。「这项权益我要不要」是能回答的,「这项权益值多少钱」不能。** 这个区别就是整份 ADR 的论点。
 
-⚠️ **不要顺手"修" `appliesToExistingBookings`。** `recommendations.ts:50` 只给 baseline 过滤它、`:79` 给候选传全量,看着像 bug 其实是对的:baseline 是既有订单,候选是新订单,不适用于既有订单的促销恰恰对新订单有效。这个不对称是有意的。
+⚠️ **不要顺手"修" `appliesToExistingBookings`。** `createRecommendationForBooking` 只给 baseline 过滤它、给候选传全量,看着像 bug 其实是对的:baseline 是既有订单,候选是新订单,不适用于既有订单的促销恰恰对新订单有效。这个不对称是有意的。
 
 **0003-B · 有出处的估值**(增量)
 
