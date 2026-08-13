@@ -30,7 +30,7 @@ TripBuddy 是一个 **local-first 的酒店预订优化工作台**。它不是 O
 | 手工录入价格观察 | 已实现 | 支持现金、积分 + copay、房型、税费、取消政策和人工纠正 |
 | Hyatt 订单导入 | 已实现，需真实浏览器回归 | 从 My Stays 收集 Stay Details，再逐个打开详情页；只导入 check-in 为今天或未来的订单 |
 | Hyatt 已有订单价格检查 | 已实现，需真实浏览器回归 | 支持现金和积分库存，只有 final/detail cash total 才进入 observation |
-| Hyatt 城市搜索 | 已实现 | 中文目的地保留原话并归一化为 provider 可识别的拉丁字母形式；整段预算只与同币种、含税费的 stay total 比较，起价只作发现提示 |
+| Hyatt 城市搜索 | 已实现 | 中文目的地保留原话并归一化为 provider 可识别的拉丁字母形式；预算保留原始金额与 basis，由确定性代码换算整段上限，并只与同币种、含税费的 stay total 比较 |
 | 证据质量和人工纠正 | 已实现 | blocker、warning、quality、assessment source 均落库 |
 | 确定性可比成本与推荐 | 已实现 | 支持现金、积分、促销、信用卡、会籍进度和权益估值 |
 | Provider 插件化边界 | 已实现 | 当前 registry 里只有 Hyatt |
@@ -220,10 +220,12 @@ Agent 能力与代码映射：
 | Task kind | 输入 | Agent 行为 | 持久化结果 |
 |---|---|---|---|
 | `booking_price_check` | 已有 booking + watch plan | 查现金/积分库存，安全进入 final detail | PriceCheckRun、Observation、Evidence、Recommendation |
-| `hotel_search` | provider 城市、用户原始城市、日期、人数、profile currency、可选整段预算 | 切换并验证页面币种，采集 Avg/Night；展示 Hyatt location grounding；可继续到单酒店含税总价 | BrowserTask result + HotelSearchSession；不写 booking observation |
+| `hotel_search` | provider 城市、用户原始城市、日期、人数、profile currency、可选预算原始金额 / basis / flexibility | 切换并验证页面币种，采集 Avg/Night；展示 Hyatt location grounding；可继续到单酒店含税总价 | BrowserTask result + HotelSearchSession；不写 booking observation |
 | `account_booking_import` | Hyatt My Stays | 先收集 Stay Details URL，再直接逐个打开详情 | upsert active HotelBooking；支持 cash / points / certificate baseline |
 
-城市搜索的页面与 agent 共用 `HotelSearchResults` 和同一个纯比较函数。`Avg/Night` 明确标成不含税且不参与预算判断；没有 final total 的酒店继续可见并给出升级入口，只有同币种且 `taxesIncluded` / `feesIncluded` 都为 `included` 的 stay total 才能判定预算内或预算外。`get_hotel_search_session` 把已保存 session 组装成封闭目录里的 `HotelSearchResults` surface；搜索启动 surface 则把 `sessionId` 带回 `/hotel-search`，因此页面与命令栏不会各自实现一套筛选。
+城市搜索的页面与 agent 共用 `HotelSearchResults` 和同一个纯比较函数。Router 只能抄取请求里实际出现的 `budgetAmount`,并把 `budgetBasis` / `budgetFlexibility` 分开返回;路由边界会拒绝请求原文中不存在的金额。未给 basis 时能力层默认 `per_night` 且记录 `basisAssumed=true`;`approximate` 由纯函数应用固定 10% 容差。晚数、整段目标与比较上限都由 `hotelSearchBudget.ts` 计算并在 surface 说明。
+
+`Avg/Night` 明确标成不含税且不参与预算判断；没有 final total 的酒店继续可见并给出升级入口，只有同币种且 `evidenceLevel=final_total`、`taxesIncluded=included`、`feesIncluded=included` 的 stay total 才能判定预算内或预算外。四个守卫各有独立回归样本。`get_hotel_search_session` 把已保存 session 组装成封闭目录里的 `HotelSearchResults` surface；搜索启动 surface 则把 `sessionId` 带回 `/hotel-search`，因此页面与命令栏不会各自实现一套筛选。
 
 ---
 
@@ -255,7 +257,7 @@ erDiagram
 - `ObservationEvidence` 单独存 comparability、来源、blocker、warning 和人工/自动 assessment provenance；
 - `Recommendation` 保存 cost breakdown、decision provider/version 和当时的解释，便于审计历史；
 - `BrowserTask` 与 `PriceCheckRun` 分开：前者描述跨浏览器执行，后者描述业务价格检查；
-- `HotelSearchSession` 保存用户原始目的地、provider 目的地、币种、整段预算和 transient results；旧 session codec 会补齐新增字段，页面与 agent surface 读取同一份状态；
+- `HotelSearchSession` 保存用户原始目的地、provider 目的地、币种、预算原始金额 / basis / basis 是否默认 / flexibility 和 transient results；旧的无预算与仅有 `maxStayTotal` 两种 session shape 都由 codec 补齐来源信息，页面与 agent surface 读取同一份状态；
 - 不同 shape 的 provider context、snapshot 和 cost breakdown 目前以 JSON string 保存，换取 v0.2 的开发速度。
 
 ---
