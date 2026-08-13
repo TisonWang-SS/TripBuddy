@@ -1,6 +1,6 @@
 # TripBuddy 当前状态
 
-> **锚点:`30f36bf`(2026-08-13),两条泳道均已合入 `main`。** 本文下面所有当前数字都属于这个 commit。
+> **锚点:`c1ef559`(2026-08-13)。** 两条泳道均已合入 `main`,发现路径已完成真实 Hyatt 端到端验收。本文下面所有当前数字都属于这个 commit。
 
 本文是**唯一描述「现在」的文档**:当前能力、验收状态、下一阶段。
 
@@ -61,18 +61,18 @@
 
 ## 2. 验收状态
 
-**本轮已验证**(均在 `30f36bf`,即两条泳道合并后的 `main`)。
-锚点只能指向**已存在的** commit,所以它落在合并点而不是本次提交;本次提交在其上补了中文安全边界与两组用例(350 项)。
-
+**本轮已验证**(均在 `c1ef559`):
 
 | 项 | 结果 | 复现 |
 |---|---|---|
-| 单元 / 集成测试 | 59 文件 348 项通过 | `npm test` |
+| 单元 / 集成测试 | 60 文件 363 项通过 | `npm test` |
 | 类型检查 | 无错误 | `npm run typecheck` |
 | Lint | 无告警 | `npm run lint` |
 | Production build | 成功;`/` 为 dynamic(`ƒ`);7/7 页面预渲染 | `npm run build`(先 `npx prisma migrate deploy`) |
 | migration 与 Prisma schema | 8 个 migration 在全新隔离库干净应用;与 schema 零差异;旧推荐行、savings 与旧 JSON 成本组成保持不变 | `npx prisma migrate deploy`;`npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url <isolated SQLite URL> --exit-code`;`npm test -- --run src/lib/loyaltyValuationMigration.integration.test.ts` |
 | Profile 权益偏好 | 本地浏览器实测:四个开关可见,旧五个估值输入不存在;关闭 Breakfast 后保存并刷新仍为关闭;控制台无 error / warning,1280px 无横向溢出 | `/profile` |
+| **真实 Hyatt 端到端(发现路径)** | **✅ 首次通过。** 未登录、正常 Chrome + Companion:城市搜索取得 10 个 Hyatt 结果;`Hyatt Regency Tokyo Bay` 单酒店升级取得 `final_total 122.58 USD = 税前 98.62 + 税费 23.96`,`taxesIncluded=included`,算术自洽 | `/hotel-search` → `Get tax-inclusive total` |
+| 中英文 never-acts 边界 | 「帮我预定…」「取消我的预订」被确定性拒绝且文案正确;「查一下我的预订」「取消政策是什么」「延迟退房」照常路由 | `router.test.ts` 两组语料 + 真实模型实测 |
 
 **上次验证,本轮未复验** —— 不能从本轮改动推断:
 
@@ -81,11 +81,16 @@
 | 命令栏确认链路 | `6f06fa3`(2026-08-12) | 确认后焦点落在按钮、标签页被指向真实 Hyatt launch URL、面板渲染 TaskLaunch;其中 `window.open` 由桩对象断言 |
 | DeepSeek V4 Flash 抽取评测 | `a800687`(2026-08-11) | 13 fixtures、63/63 断言通过 |
 | 跨时区套件稳定性 | `a800687`(2026-08-11) | 外部 `TZ` 设为 -7 / 0 / +14 分别全过 |
-| 真实 Hyatt 端到端 | `a800687`(2026-08-11) | §3.19 那轮由用户经 `http://192.168.3.1:3000` 跑通一次真实价格核查 |
+| 订单价格核查真实链路 | `a800687`(2026-08-11) | §3.19 那轮由用户经 `http://192.168.3.1:3000` 跑通一次真实价格核查(发现路径已在本轮单独验收,见上表) |
 
-⚠️ **一处需要点名的局限**:`30f36bf` 没有跑真实 Hyatt 抓取。本轮不触碰 Hyatt 抽取逻辑,所以不需要用旧结果替它背书;发现路径的下一次改动仍须按 `PRD.md` 的验证规则补真实验证。
+✅ **发现路径欠的真实验收已补上**(见上表)。这是 `PRD.md` 验证规则要求、且从 PR 2 起就挂着的一项。
 
-**泳道 2 初次交付验证**(均在独立代码锚点 `a7ccb28`,2026-08-12):这组结果补上了上文所记的发现路径真实验证缺口;它只覆盖当时的泳道 2 shape,不改写上面的全局基线表。
+⚠️ **两处仍需点名**:
+
+- **扩展需要在 Chrome 重载**(版本 0.2.3)。`c1ef559` 只改扩展的状态文案,不重载不会生效,服务端不受影响。
+- **中文版 Hyatt 页面未覆盖。** launch URL 已把语言钉在 `en-US`,但 `/shop/rooms/{code}` 路径没有语言段,语言由账户偏好决定。把 Hyatt 设为中文的用户,房型页 token 会全部落空,而表现是 `task_timeout` 而非「读不懂」。详见 CODE_REVIEW §3.27 末条。
+
+**泳道 2 初次交付验证**(独立代码锚点 `a7ccb28`,2026-08-12)—— **历史记录,已被上表取代**。当时写的是「补上了发现路径的真实验证缺口」,但同一张表的最后一行就是单酒店升级未通过:城市搜索通了,含税总价没通,缺口并没有补上。真正补上是在 `c1ef559`(见上表)。
 
 | 项 | 结果 | 复现 |
 |---|---|---|
@@ -189,6 +194,13 @@
 | 2 | `rooms` / `kids` 从 URL 常量提升为查询字段 | `buildHyattCitySearchUrl` 现在把两者钉死;`2 间` 因此落进了 `adults` |
 
 第二层(设施、地址、页面写明的距离)与儿童年龄建模留待产品整体成型后再展开。ADR 里记了两条将来必须守住的:**第二层需要四态而非三态**(`not_stated` 不得塌成 `lacks`),以及**验证搭含税总价那趟车**,不新开逐酒店的第二遍访问。
+
+### 发现路径的遗留(小,可随时插队)
+
+| | 事项 | 说明 |
+|---|---|---|
+| 1 | **中文版 Hyatt 页面读不懂时明确失败** | launch URL 已钉 `en-US`,但 `/shop/rooms/{code}` 无语言段。解析前断言英文锚点,读不懂就报 `page_locale_unexpected` 并说明如何改语言 —— 现在的表现是 `task_timeout`,把「读不懂」伪装成「慢」。纯服务端,不需重载扩展 |
+| 2 | 让 Hyatt 请求显式携带语言 | 把控制权拿回来,而不是依赖账户偏好。需要一次真实验证确认 Hyatt 认哪个参数 |
 
 ### 之后
 
