@@ -84,6 +84,7 @@ describe("capability registry", () => {
         "budgetAmount",
         "budgetBasis",
         "budgetFlexibility",
+        "budgetQuote",
         "checkIn",
         "checkOut",
         "city",

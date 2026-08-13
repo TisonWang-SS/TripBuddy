@@ -56,7 +56,7 @@ describe("hotel search API", () => {
     const response = await POST(new Request("http://localhost/api/hotel-search", {
       body: JSON.stringify({
         adults: 2,
-        budget: { amount: 1000, basis: "stay_total", basisAssumed: false, flexibility: "maximum" },
+        budget: { amount: 1000, basis: "stay_total", basisAssumed: false, flexibility: "maximum", quote: null },
         checkIn: "2026-09-10",
         checkOut: "2026-09-12",
         city: "Tokyo",
@@ -69,7 +69,7 @@ describe("hotel search API", () => {
     }));
     expect(response.status).toBe(201);
     expect(createHotelSearchTask).toHaveBeenCalledWith(expect.objectContaining({
-      budget: { amount: 1000, basis: "stay_total", basisAssumed: false, flexibility: "maximum" },
+      budget: { amount: 1000, basis: "stay_total", basisAssumed: false, flexibility: "maximum", quote: null },
       city: "Tokyo",
       cityAsAsked: "东京",
       hotelGroup: "Hyatt"

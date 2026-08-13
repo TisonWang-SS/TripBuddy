@@ -70,7 +70,7 @@ function decodeBudget(value: Record<string, unknown>): HotelSearchBudget | null 
     const legacyAmount = positiveNumber(value.maxStayTotal);
     return legacyAmount === null
       ? undefined
-      : { amount: legacyAmount, basis: "stay_total", basisAssumed: false, flexibility: "maximum" };
+      : { amount: legacyAmount, basis: "stay_total", basisAssumed: false, flexibility: "maximum", quote: null };
   }
   if (value.budget === null) {
     return null;
@@ -84,7 +84,8 @@ function decodeBudget(value: Record<string, unknown>): HotelSearchBudget | null 
   if (amount === null || basis === null || flexibility === null || typeof value.budget.basisAssumed !== "boolean") {
     return undefined;
   }
-  return { amount, basis, basisAssumed: value.budget.basisAssumed, flexibility };
+  const quote = typeof value.budget.quote === "string" && value.budget.quote.trim().length > 0 ? value.budget.quote : null;
+  return { amount, basis, basisAssumed: value.budget.basisAssumed, flexibility, quote };
 }
 
 function decodeResults(value: unknown): HotelSearchSessionResults | null {

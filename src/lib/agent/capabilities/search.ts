@@ -57,10 +57,17 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
     { description: "Check-out date, YYYY-MM-DD.", name: "checkOut", required: true, type: "calendar_date" },
     { description: "Number of adults. Defaults to the profile setting.", name: "adults", required: false, type: "integer" },
     {
-      description: "Budget amount exactly as stated by the user; do not multiply it by the stay length.",
+      description: "The amount the request states, in digits even if the user spelled it out; never multiplied by the stay length.",
       name: "budgetAmount",
       required: false,
       type: "number"
+    },
+    {
+      description:
+        "One short, contiguous, exact substring of the request containing the budget as the user wrote it. Required whenever budgetAmount is given.",
+      name: "budgetQuote",
+      required: false,
+      type: "string"
     },
     {
       description: "Whether the stated amount is per night or for the whole stay. Omit when the user gives no basis.",
@@ -99,6 +106,7 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
       "budgetAmount",
       "budgetBasis",
       "budgetFlexibility",
+      "budgetQuote",
       "checkIn",
       "checkOut",
       "city",
@@ -122,8 +130,18 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
     const budgetAmount = optionalPositiveNumber(bag, "budgetAmount");
     const statedBasis = optionalEnum(bag, "budgetBasis", BUDGET_BASES);
     const statedFlexibility = optionalEnum(bag, "budgetFlexibility", BUDGET_FLEXIBILITIES);
-    if (budgetAmount === undefined && (statedBasis !== undefined || statedFlexibility !== undefined)) {
-      throw new CapabilityArgsError('"budgetAmount" is required when a budget basis or flexibility is supplied.');
+    const budgetQuote = optionalString(bag, "budgetQuote");
+    if (budgetAmount === undefined && (statedBasis !== undefined || statedFlexibility !== undefined || budgetQuote !== undefined)) {
+      throw new CapabilityArgsError('"budgetAmount" is required when a budget basis, flexibility, or quote is supplied.');
+    }
+    /*
+     * The amount may legitimately be written differently from the request —
+     * "一千" arrives as 1000 — so the quote is what ties it back to something the
+     * user actually wrote. The router verifies the quote occurs verbatim;
+     * requiring it here is what guarantees there is one to verify.
+     */
+    if (budgetAmount !== undefined && budgetQuote === undefined) {
+      throw new CapabilityArgsError('"budgetQuote" is required when a budget amount is supplied.');
     }
     return {
       adults: optionalInteger(bag, "adults"),
@@ -133,7 +151,8 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
             amount: budgetAmount,
             basis: statedBasis ?? "per_night",
             basisAssumed: statedBasis === undefined,
-            flexibility: statedFlexibility ?? "maximum"
+            flexibility: statedFlexibility ?? "maximum",
+            quote: budgetQuote ?? null
           },
       checkIn,
       checkOut,

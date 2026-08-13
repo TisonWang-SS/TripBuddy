@@ -8,7 +8,7 @@ import {
 
 const query = {
   adults: 2,
-  budget: { amount: 500, basis: "per_night" as const, basisAssumed: false, flexibility: "maximum" as const },
+  budget: { amount: 500, basis: "per_night" as const, basisAssumed: false, flexibility: "maximum" as const, quote: "每晚预算五百元" },
   checkIn: "2030-09-10",
   checkOut: "2030-09-13",
   city: "Tokyo",
@@ -111,7 +111,7 @@ describe("hotel search session JSON codecs", () => {
       amount: 1500,
       basis: "stay_total",
       basisAssumed: false,
-      flexibility: "maximum"
+      flexibility: "maximum", quote: null
     });
   });
 });

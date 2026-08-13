@@ -84,7 +84,7 @@ describe("browser task JSON codecs", () => {
       mode: "city_results" as const,
       query: {
         adults: 2,
-        budget: { amount: 1000, basis: "stay_total" as const, basisAssumed: false, flexibility: "maximum" as const },
+        budget: { amount: 1000, basis: "stay_total" as const, basisAssumed: false, flexibility: "maximum" as const, quote: "总预算 1000 元" },
         checkIn: "2030-09-10",
         checkOut: "2030-09-13",
         city: "Tokyo",
