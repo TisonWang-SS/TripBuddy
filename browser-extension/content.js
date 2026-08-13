@@ -156,8 +156,7 @@ async function runHotelSearchTask(endpoint, taskId, hotelSearchMode) {
     }
     const result = await postCapture(endpoint, taskId, { snapshot });
     if (["succeeded", "partial", "failed"].includes(result.status)) {
-      const count = result.result?.results?.length ?? 0;
-      showStatus(result.errorMessage || `TripBuddy captured ${count} visible hotel rate${count === 1 ? "" : "s"}.`);
+      showStatus(result.errorMessage || describeHotelSearchResult(hotelSearchMode, result.result));
       return result;
     }
     const action = result.action;
@@ -191,6 +190,22 @@ async function runHotelSearchTask(endpoint, taskId, hotelSearchMode) {
     await delay(Math.min(Math.max(action.milliseconds || 1200, 500), 4000));
   }
   return reportFailure(endpoint, taskId, "task_timeout", "Hyatt did not reach a tax-inclusive price summary before the task timed out.");
+}
+
+/*
+ * Both hotel-search modes end here, and they return different shapes. Counting
+ * `results` for a tax-inclusive run reports "captured 0 visible hotel rates"
+ * over a total that was captured correctly — a success described as a failure.
+ */
+function describeHotelSearchResult(hotelSearchMode, result) {
+  if (hotelSearchMode === "tax_inclusive_total") {
+    const total = result?.total;
+    return typeof total === "number"
+      ? `TripBuddy captured a tax-inclusive total of ${result?.currency || ""} ${total}.`.replace(/\s+/g, " ")
+      : "TripBuddy did not capture a tax-inclusive total.";
+  }
+  const count = result?.results?.length ?? 0;
+  return `TripBuddy captured ${count} visible hotel rate${count === 1 ? "" : "s"}.`;
 }
 
 async function runAccountImportTask(endpoint, taskId) {
