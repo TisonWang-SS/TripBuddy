@@ -90,7 +90,8 @@ export async function appendBrowserSnapshot(taskId: string, snapshot: BrowserPag
     controls: (snapshot.controls ?? []).slice(0, 40).map((control) => ({
       context: sanitizeEvidenceText(String(control.context ?? ""), 300),
       href: typeof control.href === "string" && control.href.length > 0 ? control.href.slice(0, 300) : null,
-      label: String(control.label ?? "").slice(0, 200)
+      label: String(control.label ?? "").slice(0, 200),
+      pressed: typeof control.pressed === "boolean" ? control.pressed : null
     })),
     pageTitle: snapshot.pageTitle.slice(0, 200),
     phase: inferSnapshotPhase(snapshot.pageText),

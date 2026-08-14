@@ -1,4 +1,4 @@
-import type { LoginState } from "@prisma/client";
+import type { LoginState, PointsBasis } from "@prisma/client";
 import type { BrowserAgentAction, BrowserAgentControlSnapshot } from "@/lib/providers/hyattBrowser";
 
 export type InventoryTypeValue = "cash" | "award";
@@ -15,6 +15,14 @@ export type BookingPriceInput = {
   hotelGroup: string;
   hotelName: string;
   inventoryTypes: readonly InventoryTypeValue[];
+  /**
+   * Which modes this run has already walked to a price summary.
+   *
+   * Hyatt renders cash or points, never both, and the mode is fixed in the URL
+   * a task launches with. Comparing the two therefore takes two walks inside
+   * one run, and this is what stops the second walk from starting a third.
+   */
+  capturedModes?: readonly InventoryTypeValue[];
   roomType: string;
 };
 
@@ -38,7 +46,7 @@ export type SanitizedBrowserSnapshot = {
    * captured and rejected. They carry no more than the text sample already
    * does — a label, a link, and the wording around it.
    */
-  controls: Array<{ context: string; href: string | null; label: string }>;
+  controls: Array<{ context: string; href: string | null; label: string; pressed: boolean | null }>;
   pageTitle: string;
   phase: "inventory" | "detail" | "other";
   sourceUrl: string;
@@ -92,6 +100,7 @@ export type ParsedObservationDraft = {
   inventoryType: InventoryTypeValue;
   loyaltyEligible: boolean | null;
   points: number | null;
+  pointsBasis: PointsBasis;
   ratePlanName: string | null;
   rawRateName: string | null;
   roomTypeRaw: string | null;
@@ -152,6 +161,20 @@ export type HotelSearchResult = {
 };
 
 export interface BookingPriceProvider {
+  /**
+   * The awards in a run's accumulated evidence that this booking can be
+   * compared against.
+   *
+   * A run imports on its last snapshot, but awards are seen on earlier ones,
+   * so the accumulated evidence has to be filtered by the same rule that
+   * decides observations — otherwise every award ever glimpsed is stored,
+   * which is how the points side ended up exempt from rules the cash side
+   * has always had to meet.
+   */
+  selectComparableAwards(
+    inventory: readonly ParsedObservationDraft[],
+    input: BookingPriceInput
+  ): ParsedObservationDraft[];
   hotelGroup: string;
   name: string;
   buildLaunchUrl(input: BookingPriceInput): string;

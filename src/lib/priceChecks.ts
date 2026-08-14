@@ -145,7 +145,26 @@ export async function captureBookingPriceTask(taskId: string, capture: BrowserTa
   if (capture.errorMessage) {
     const context = parseBookingPriceContext(task.contextJson);
     const inventory = parseObservationDrafts(task.priceCheckRun.inventoryEvidenceJson);
-    const awards = inventory.filter((candidate) => candidate.inventoryType === "award" && candidate.points);
+    /*
+     * Whatever the run already proved, kept.
+     *
+     * This matters more since a run can walk two modes: the first leg's total
+     * is only in inventory until the last leg imports, so a second leg that
+     * dies would otherwise discard a summary this run had already reached.
+     * The bar is the same one storage always applies — an award needs its
+     * points, a cash total needs its taxes and fees shown as included.
+     */
+    const provider = getBookingPriceProvider(task.hotelGroup);
+    const awards = [
+      ...(context && provider ? provider.selectComparableAwards(inventory, context) : []),
+      ...inventory.filter(
+        (candidate) =>
+          candidate.inventoryType === "cash" &&
+          candidate.cashTotal !== null &&
+          candidate.taxesIncluded === true &&
+          candidate.feesIncluded === true
+      )
+    ];
     if (context && awards.length > 0) {
       const observationIds = await completePriceCheckTask({
         context,
@@ -162,7 +181,7 @@ export async function captureBookingPriceTask(taskId: string, capture: BrowserTa
           observations: awards,
           sourceUrl: awards[0].sourceUrl,
           status: "partial",
-          summary: "Explicit award evidence was saved, but the browser task did not reach a final cash summary."
+          summary: "The rate evidence this run had already proved was saved, but the browser task did not finish every requested mode."
         },
         candidatesTruncated: task.priceCheckRun.candidatesTruncated,
         taskId
@@ -205,6 +224,40 @@ export async function captureBookingPriceTask(taskId: string, capture: BrowserTa
     }
   });
 
+  /*
+   * Switch here rather than after an import: the award leg never reaches a
+   * payment summary, so waiting for one would sit on the room list holding
+   * the answer until the task timed out.
+   */
+  if (
+    awardLegIsSatisfied(
+      context,
+      inventoryMerge.candidates,
+      provider.selectComparableAwards(inventoryMerge.candidates, context)
+    )
+  ) {
+    const modeSwitch = planInventoryModeSwitch(context);
+    if (modeSwitch) {
+      await prisma.browserTask.update({
+        where: { id: taskId },
+        data: {
+          contextJson: serializeBrowserTaskContext(
+            "booking_price_check",
+            serializeBookingPriceContext({ ...context, capturedModes: modeSwitch.capturedModes })
+          )
+        }
+      });
+      return {
+        ...serializeTaskState(await getBrowserTask(taskId)),
+        action: {
+          action: "navigate" as const,
+          reason: modeSwitch.reason,
+          url: addBrowserTaskHash(provider.buildLaunchUrl({ ...context, inventoryTypes: [modeSwitch.nextMode] }), taskId)
+        }
+      };
+    }
+  }
+
   if (parsed.status === "failed") {
     await failPriceCheckTask(taskId, parsed.errorCode ?? "provider_failed", parsed.errorMessage ?? parsed.summary);
     return serializeTaskState(await getBrowserTask(taskId));
@@ -219,8 +272,49 @@ export async function captureBookingPriceTask(taskId: string, capture: BrowserTa
     return { ...serializeTaskState(await getBrowserTask(taskId)), action };
   }
 
+  /*
+   * One capture, both modes.
+   *
+   * Hyatt renders cash or points and never both, and which one is fixed in the
+   * URL the task launched with. Comparing them therefore takes two walks, and
+   * they have to belong to one run: a cash total from this visit against an
+   * award rate from another is two inventories wearing one conclusion.
+   *
+   * The decision lives here rather than in the planner because only this
+   * function can see what the run has already collected. It fires at most
+   * once — the second leg finds a mode already recorded and imports.
+   */
+  const modeSwitch = planInventoryModeSwitch(context);
+  if (modeSwitch) {
+    await prisma.browserTask.update({
+      where: { id: taskId },
+      data: {
+        contextJson: serializeBrowserTaskContext(
+          "booking_price_check",
+          serializeBookingPriceContext({ ...context, capturedModes: modeSwitch.capturedModes })
+        )
+      }
+    });
+    return {
+      ...serializeTaskState(await getBrowserTask(taskId)),
+      action: {
+        action: "navigate" as const,
+        reason: modeSwitch.reason,
+        url: addBrowserTaskHash(provider.buildLaunchUrl({ ...context, inventoryTypes: [modeSwitch.nextMode] }), taskId)
+      }
+    };
+  }
+
+  /*
+   * Both inventory types reach storage through the provider's own rule.
+   *
+   * This used to hand every award in the run's evidence straight to storage
+   * while cash had to pass parseSnapshot, so the points side was exempt from
+   * the completeness and room-comparability rules cash has always met — and
+   * any filter added to the provider had no effect on what was written.
+   */
   const observationMerge = mergeObservationCandidates(
-    inventoryMerge.candidates.filter((candidate) => candidate.inventoryType === "award"),
+    provider.selectComparableAwards(inventoryMerge.candidates, context),
     parsed.observations.map((candidate) => ({ ...candidate, sourceUrl: snapshot.sourceUrl }))
   );
   const observationIds = await completePriceCheckTask({
@@ -237,6 +331,68 @@ export async function captureBookingPriceTask(taskId: string, capture: BrowserTa
     await createRecommendationForBooking(context.bookingId);
   }
   return serializeTaskState(await getBrowserTask(taskId));
+}
+
+/*
+ * Which mode this leg was, and whether another one is owed.
+ *
+ * The launch mode is derivable rather than stored: `buildLaunchUrl` asks for
+ * points whenever award inventory is requested, so the first leg is award when
+ * award was requested at all. Once a mode is recorded the run is done
+ * switching, which is what bounds this to a single extra walk.
+ */
+export function planInventoryModeSwitch(context: BookingPriceInput) {
+  if ((context.capturedModes ?? []).length > 0) {
+    return null;
+  }
+  const requested = new Set(context.inventoryTypes);
+  if (!requested.has("cash") || !requested.has("award")) {
+    return null;
+  }
+  const currentMode = "award" as const;
+  const nextMode = "cash" as const;
+  return {
+    capturedModes: [currentMode],
+    nextMode,
+    reason: "Re-open the same room in cash rates so this capture holds both a points price and a cash total."
+  };
+}
+
+/*
+ * The award leg is done as soon as a free-night award is priced for the stay.
+ *
+ * Unlike a cash rate there is nothing further to discover: points-only awards
+ * carry no tax, so the room list already holds the whole price. Walking on
+ * would mean pressing a rate control that Hyatt greys out until a member
+ * signs in — and signing in is something this product does not do.
+ */
+export function awardLegIsSatisfied(
+  context: BookingPriceInput,
+  inventory: readonly ParsedObservationDraft[],
+  comparableAwards: readonly ParsedObservationDraft[]
+) {
+  return (
+    context.inventoryTypes.includes("award") &&
+    !(context.capturedModes ?? []).includes("award") &&
+    comparableAwards.some(
+      (candidate) =>
+        candidate.points !== null && candidate.pointsBasis === "stay_total" && hasCapturedPolicy(candidate)
+    )
+  );
+}
+
+/*
+ * The price alone does not finish the award leg.
+ *
+ * Hyatt's room list prints the points but not the cancellation terms, and an
+ * observation with no policy is blocked on unknown equivalence — so a run that
+ * stopped at the price produced an award that could never be acted on. The
+ * terms appear once the rate card is expanded, which is a step short of the
+ * control Hyatt greys out for anonymous redemption.
+ */
+function hasCapturedPolicy(candidate: ParsedObservationDraft) {
+  const policy = (candidate.cancellationPolicyRaw ?? "").trim();
+  return policy.length > 0 && !/^policy not captured$/i.test(policy);
 }
 
 async function completePriceCheckTask(input: {
@@ -283,7 +439,22 @@ async function completePriceCheckTask(input: {
       return { candidate, evidence };
     })
   );
-  const status = prepared.length > 0 ? input.parsed.status : "partial";
+  /*
+   * A requested inventory type that produced nothing is reported, not dropped.
+   *
+   * A run that asked Hyatt for award rates and came back with only cash used
+   * to finish as a clean success, which is the product claiming to have
+   * checked something it never saw. Naming it is what makes a broken points
+   * path visible instead of looking like a hotel with no award availability.
+   */
+  const missingInventory = input.context.inventoryTypes.filter(
+    (type) => !prepared.some(({ candidate }) => candidate.inventoryType === type)
+  );
+  const status = prepared.length > 0 ? (missingInventory.length > 0 ? "partial" : input.parsed.status) : "partial";
+  const summary =
+    missingInventory.length > 0 && prepared.length > 0
+      ? `${input.parsed.summary} No ${missingInventory.join(" or ")} rate was visible on the pages this run reached.`
+      : input.parsed.summary;
   const finishedAt = new Date();
   const observationIds = prepared.map(() => randomUUID());
 
@@ -331,6 +502,7 @@ async function completePriceCheckTask(input: {
           isSuite: candidate.roomTypeRaw ? inferIsSuite(candidate.roomTypeRaw) : null,
           loyaltyEligible: candidate.loyaltyEligible,
           points: candidate.points,
+          pointsBasis: candidate.pointsBasis,
           priceCheckRun: { connect: { id: task.priceCheckRun!.id } },
           providerName: task.priceCheckRun!.providerName,
           ratePlanName: candidate.ratePlanName,
@@ -352,7 +524,7 @@ async function completePriceCheckTask(input: {
         inventoryEvidenceJson: toJson(input.inventory),
         sourceUrl: input.parsed.sourceUrl,
         status,
-        summary: input.parsed.summary
+        summary
       }
     });
     await tx.browserTask.update({

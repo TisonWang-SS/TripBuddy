@@ -4,6 +4,8 @@ import { formatCalendarDateInput, formatLocalInstantInput } from "@/lib/format";
 import { Button, CheckField, Field, FieldGrid, Form, FormActions } from "@/ui";
 
 type BookingFormValue = {
+  baselineAwardCount: number | null;
+  baselineAwardKind: string | null;
   baselineAwardLabel: string | null;
   baselineCashTotal: number | null;
   baselinePoints: number | null;
@@ -71,6 +73,20 @@ export function BookingForm({ booking }: { booking?: BookingFormValue }) {
         </Field>
         <Field htmlFor="baselineAwardLabel" label="Certificate label">
           <input defaultValue={booking?.baselineAwardLabel ?? ""} id="baselineAwardLabel" name="baselineAwardLabel" placeholder="1 Free Night" />
+        </Field>
+        <Field
+          hint="A certificate is priced only when its kind and count are stated."
+          htmlFor="baselineAwardKind"
+          label="Certificate kind"
+        >
+          <select defaultValue={booking?.baselineAwardKind ?? ""} id="baselineAwardKind" name="baselineAwardKind">
+            <option value="">Not stated</option>
+            <option value="free_night">Free-night award</option>
+            <option value="suite_upgrade">Suite upgrade award</option>
+          </select>
+        </Field>
+        <Field htmlFor="baselineAwardCount" label="Certificates spent">
+          <input defaultValue={booking?.baselineAwardCount ?? ""} id="baselineAwardCount" min="1" name="baselineAwardCount" step="1" type="number" />
         </Field>
         <Field htmlFor="bookingChannel" label="Booking channel">
           <select defaultValue={booking?.bookingChannel ?? "direct"} id="bookingChannel" name="bookingChannel" required>

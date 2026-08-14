@@ -1,8 +1,13 @@
-import { createCreditCardBenefit, updateProfile } from "@/lib/actions";
+import { createCreditCardBenefit, saveLoyaltyValuation, updateProfile } from "@/lib/actions";
 import { DEFAULT_PROFILE_ID, HOTEL_GROUPS, HOTEL_GROUP_TIERS, SUPPORTED_CURRENCIES } from "@/lib/constants";
 import { prisma } from "@/lib/db";
-import { Button, Card, CheckField, EmptyState, Field, FieldGrid, Form, FormActions, PageHeader, Table } from "@/ui";
+import { formatCalendarDate } from "@/lib/format";
+import { loyaltyValuationKindLabel } from "@/lib/labels";
+import { isValuationStale, VALUATION_REVIEW_INTERVAL_DAYS, valuationReviewDueAt } from "@/lib/loyaltyValuation";
+import { Button, Card, CheckField, EmptyState, Field, FieldGrid, Form, FormActions, LabelStamp, PageHeader, Table } from "@/ui";
 import styles from "./page.module.css";
+
+const VALUATION_KINDS = ["point", "free_night", "suite_upgrade"] as const;
 
 export default async function ProfilePage() {
   const profile = await prisma.userProfile.upsert({
@@ -17,11 +22,13 @@ export default async function ProfilePage() {
     },
     include: {
       loyaltyAccounts: true,
-      creditCardBenefits: true
+      creditCardBenefits: true,
+      loyaltyValuations: { orderBy: [{ hotelGroup: "asc" }, { kind: "asc" }] }
     }
   });
 
   const accountByGroup = new Map(profile.loyaltyAccounts.map((account) => [account.hotelGroup, account]));
+  const now = new Date();
   return (
     <div className="deskStack">
       <PageHeader
@@ -95,15 +102,6 @@ export default async function ProfilePage() {
                         ))}
                       </select>
                     </Field>
-                    <Field htmlFor={`${group}_pointValue`} label="Point value">
-                      <input
-                        defaultValue={account?.pointValue ?? 0.005}
-                        id={`${group}_pointValue`}
-                        name={`${group}_pointValue`}
-                        step="0.0001"
-                        type="number"
-                      />
-                    </Field>
                   </FieldGrid>
                 </div>
               );
@@ -113,6 +111,129 @@ export default async function ProfilePage() {
 
         <FormActions>
           <Button type="submit">Save profile</Button>
+        </FormActions>
+      </Form>
+
+      <Card eyebrow="Sourced valuations" title="What a point or certificate is worth">
+        <p>
+          Only figures someone else quotes a price for enter a cost. Each one records its source and the date it was last
+          checked; after {VALUATION_REVIEW_INTERVAL_DAYS} days it is named as stale in every recommendation that uses it
+          rather than quietly trusted or dropped.
+        </p>
+        {profile.loyaltyValuations.length === 0 ? (
+          <EmptyState
+            description="Until a point value is recorded, a stay paid with points or a certificate cannot be priced."
+            title="No valuations recorded"
+          />
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <th scope="col">Group</th>
+                <th scope="col">Figure</th>
+                <th scope="col">Value</th>
+                <th scope="col">Realization</th>
+                <th scope="col">Source</th>
+                <th scope="col">Reviewed</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {profile.loyaltyValuations.map((valuation) => (
+                <tr key={valuation.id}>
+                  <td>{valuation.hotelGroup}</td>
+                  <td>{loyaltyValuationKindLabel(valuation.kind).label}</td>
+                  <td>
+                    {valuation.amount} {valuation.currency}
+                    <span className={styles.stacked}>Quoted as of {formatCalendarDate(valuation.asOf)}</span>
+                  </td>
+                  <td>{valuation.realizationRate}</td>
+                  <td>{valuation.sourceName}</td>
+                  <td>{formatCalendarDate(valuation.lastReviewedAt)}</td>
+                  <td>
+                    <LabelStamp
+                      value={
+                        isValuationStale(valuation, now)
+                          ? { label: "Past review", tone: "caution" }
+                          : { label: "Current", tone: "positive" }
+                      }
+                    />
+                    <span className={styles.stacked}>Due {formatCalendarDate(valuationReviewDueAt(valuation))}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </Card>
+
+      <Form action={saveLoyaltyValuation}>
+        <PageHeader
+          description="A realization rate below 1 is for a traveler who clears fewer awards than the market assumes. It adjusts the quoted price and never applies to points."
+          eyebrow="Add or update valuation"
+          level={2}
+          title="Sourced valuation"
+        />
+        <FieldGrid>
+          <Field htmlFor="valuationHotelGroup" label="Hotel group">
+            <select id="valuationHotelGroup" name="hotelGroup">
+              {HOTEL_GROUPS.map((group) => (
+                <option key={group} value={group}>
+                  {group}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field htmlFor="valuationKind" label="Figure">
+            <select id="valuationKind" name="kind">
+              {VALUATION_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {loyaltyValuationKindLabel(kind).label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field hint="Per point, or per certificate" htmlFor="valuationAmount" label="Market value">
+            <input id="valuationAmount" min="0.000001" name="amount" placeholder="0.017" required step="any" type="number" />
+          </Field>
+          <Field htmlFor="valuationCurrency" label="Currency">
+            <select defaultValue={profile.defaultCurrency} id="valuationCurrency" name="currency">
+              {SUPPORTED_CURRENCIES.map((currency) => (
+                <option key={currency} value={currency}>
+                  {currency}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field hint="1 trusts the quote" htmlFor="valuationRealizationRate" label="Realization rate">
+            <input
+              defaultValue="1"
+              id="valuationRealizationRate"
+              max="1"
+              min="0.01"
+              name="realizationRate"
+              step="0.01"
+              type="number"
+            />
+          </Field>
+          <Field htmlFor="valuationSourceName" label="Source">
+            <input id="valuationSourceName" name="sourceName" placeholder="Points guy valuations" required />
+          </Field>
+          <Field htmlFor="valuationAsOf" label="Quoted as of">
+            <input defaultValue={new Date().toISOString().slice(0, 10)} id="valuationAsOf" name="asOf" required type="date" />
+          </Field>
+          <Field htmlFor="valuationLastReviewedAt" label="Last reviewed">
+            <input
+              defaultValue={new Date().toISOString().slice(0, 10)}
+              id="valuationLastReviewedAt"
+              name="lastReviewedAt"
+              required
+              type="date"
+            />
+          </Field>
+        </FieldGrid>
+        <FormActions>
+          <Button type="submit">Save valuation</Button>
         </FormActions>
       </Form>
 

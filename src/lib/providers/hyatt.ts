@@ -4,6 +4,7 @@ import {
   isHyattReservationDetailUrl,
   parseHyattAccountBookingsFromSnapshots
 } from "@/lib/providers/hyattAccount";
+import { inferRoomMatch } from "@/lib/evidence";
 import { normalizeBrowserEvidencePayload, parseHyattEvidenceFromTextWithMetadata } from "@/lib/providers/hyattEvidence";
 import { extractHyattHotelCode } from "@/lib/providers/hyattUrls";
 import {
@@ -25,13 +26,19 @@ const bookingPrice: BookingPriceProvider = {
   name: "hyatt-browser-companion",
   buildLaunchUrl: buildHyattBookingSearchUrl,
   inferLoginState: inferHyattLoginState,
+  selectComparableAwards(inventory, input) {
+    return awardsWithOneUndisputedPrice(inventory, input.roomType);
+  },
   planAction(snapshot, input) {
     return planBrowserAgentAction({
       controls: snapshot.controls,
       pageText: snapshot.pageText,
       pageTitle: snapshot.pageTitle,
       sourceUrl: snapshot.sourceUrl,
-      targetHotelName: input.hotelName
+      targetHotelName: input.hotelName,
+      /* The award leg is the one that has not been walked yet. */
+      wantsAwardRates:
+        input.inventoryTypes.includes("award") && !(input.capturedModes ?? []).includes("award")
     });
   },
   parseSnapshot(snapshot, input) {
@@ -102,8 +109,20 @@ const bookingPrice: BookingPriceProvider = {
     });
     const inventory = normalized.candidates.map((candidate) => toDraft(candidate, snapshot.sourceUrl));
     const action = bookingPrice.planAction(snapshot, input);
-    const observations = inventory.filter(
-      (candidate) => candidate.inventoryType === "award" || (action.action === "import" && candidate.cashTotal !== null)
+    /*
+     * One bar for both inventory types: a rate becomes an observation only
+     * when it is a complete price for the stay.
+     *
+     * Cash has always been held to this — a room-list `Avg/Night` is a
+     * transient inventory fact. Awards were not, so once the points extractor
+     * started working a single room list wrote a dozen observations, including
+     * points-plus-cash rates whose cash half is not even priced yet.
+     */
+    const comparableAwards = awardsWithOneUndisputedPrice(inventory, input.roomType);
+    const observations = inventory.filter((candidate) =>
+      candidate.inventoryType === "award"
+        ? comparableAwards.includes(candidate)
+        : action.action === "import" && candidate.cashTotal !== null
     );
     const requested = new Set(input.inventoryTypes);
     const selected = observations.filter(
@@ -193,6 +212,14 @@ export function buildHyattBookingSearchUrl(input: BookingPriceInput) {
     location: `${input.hotelName} ${input.city}`,
     rooms: "1"
   });
+  /*
+   * Sent, but not relied on. A real run opened this exact URL with
+   * `usePoints=true` and got cash rates back, so the mode is entered by
+   * pressing the page's own "Use Points" switch (see planBrowserAgentAction).
+   * The parameter stays because Hyatt's search results may still read it, and
+   * because dropping it would change a launch URL on no evidence — but
+   * nothing downstream may treat it as proof the page is in points mode.
+   */
   if (input.inventoryTypes.includes("award")) {
     params.set("usePoints", "true");
   }
@@ -201,6 +228,40 @@ export function buildHyattBookingSearchUrl(input: BookingPriceInput) {
   }
   const location = encodeURIComponent(`${input.hotelName} ${input.city}`);
   return `https://www.hyatt.com/search/hotels/en-US/${location}?${params.toString()}`;
+}
+
+/*
+ * The awards this booking can actually be compared against.
+ *
+ * A points room list prices every room at once, so without this a single
+ * capture writes an observation for each of them and the traveller is handed
+ * four rooms they did not book. Room comparability is decided by the same
+ * function the evidence layer already uses, so the filter and the grading
+ * cannot drift apart into two different ideas of "the same room".
+ *
+ * The one-price rule below is not a claim that Hyatt contradicts itself. It
+ * guards flattening: an expanded rate panel is a carousel, and its slides can
+ * collapse into one run of text where a heading from one slide sits beside a
+ * price from another. Two different stay prices for one room means the capture
+ * cannot say which is the room's rate, so neither is used.
+ */
+function awardsWithOneUndisputedPrice(inventory: readonly ParsedObservationDraft[], bookedRoomType: string) {
+  const byRoom = new Map<string, ParsedObservationDraft[]>();
+  for (const candidate of inventory) {
+    if (candidate.inventoryType !== "award" || candidate.points === null || candidate.pointsBasis !== "stay_total") {
+      continue;
+    }
+    /* Exact only. A club-access or view variant is a different room at a
+     * different price, and a points list offers all of them at once. */
+    if (inferRoomMatch(bookedRoomType, candidate.roomTypeRaw).match !== "exact") {
+      continue;
+    }
+    const room = (candidate.roomTypeRaw ?? "").trim().toLowerCase();
+    byRoom.set(room, [...(byRoom.get(room) ?? []), candidate]);
+  }
+  return [...byRoom.values()]
+    .filter((group) => new Set(group.map((candidate) => candidate.points)).size === 1)
+    .map((group) => group[0]);
 }
 
 function toDraft(
@@ -220,6 +281,7 @@ function toDraft(
     inventoryType: candidate.inventoryType,
     loyaltyEligible: true,
     points: candidate.pointsPrice,
+    pointsBasis: candidate.pointsBasis,
     ratePlanName: candidate.ratePlanName,
     rawRateName: candidate.rawRateName,
     roomTypeRaw: candidate.roomTypeRaw,

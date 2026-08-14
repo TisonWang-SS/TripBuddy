@@ -1,3 +1,4 @@
+import type { PointsBasis } from "@prisma/client";
 import { HYATT_CURRENCY_PATTERN, normalizeHyattCurrency } from "@/lib/providers/hyattCurrency";
 
 export type BrowserEvidenceCandidateInput = {
@@ -8,6 +9,7 @@ export type BrowserEvidenceCandidateInput = {
   fees?: number | null;
   feesIncluded?: boolean | null;
   inventoryType?: "award" | "cash";
+  pointsBasis?: PointsBasis;
   pointsPrice?: number | null;
   ratePlanName?: string | null;
   rawRateName?: string | null;
@@ -35,6 +37,7 @@ export type NormalizedBrowserEvidenceCandidate = {
   fees: number | null;
   feesIncluded: boolean | null;
   inventoryType: "award" | "cash";
+  pointsBasis: PointsBasis;
   pointsPrice: number | null;
   ratePlanName: string | null;
   rawRateName: string | null;
@@ -115,16 +118,34 @@ export function parseHyattEvidenceFromTextWithMetadata(text: string, sourceUrl: 
   }
 
   for (const award of extractAwardRates(normalizedText)) {
+    /*
+     * A free-night award is payable in points alone, so a nightly figure times
+     * the nights is the whole price — there is no tax still to be discovered,
+     * which is what makes this different from a nightly cash rate and is why
+     * this one does not need to be walked to a payment summary.
+     *
+     * Points plus cash is not completable this way. Its cash half is quoted
+     * before tax exactly like any other nightly cash rate, so it stays a
+     * nightly figure and anything comparing spans refuses it.
+     */
+    /*
+     * Read from the card rather than from which regex happened to match: the
+     * same 12,000 is printed twice on an expanded card, and deduplication
+     * keeps whichever came first, so a rule that depended on the matching
+     * pattern decided the price by accident.
+     */
+    const wholeStay = award.kind === "free_night" && inferPointsBasis(award) === "per_night";
     candidates.push({
       breakfastIncluded: hasBreakfastIncluded(award.context),
       cancellationPolicyRaw: extractPolicyText(award.context),
       currency: finalTotal?.currency ?? "USD",
-      feesIncluded: false,
+      feesIncluded: wholeStay ? true : false,
       inventoryType: "award",
-      pointsPrice: award.points,
+      pointsBasis: wholeStay ? "stay_total" : inferPointsBasis(award),
+      pointsPrice: wholeStay ? award.points * nights : award.points,
       ratePlanName: extractRateName(award.context),
-      roomTypeRaw: extractRoomName(award.context),
-      taxesIncluded: false,
+      roomTypeRaw: extractAwardRoomName(award.precedingText) ?? extractRoomName(award.context),
+      taxesIncluded: wholeStay ? true : false,
       totalPrice: 0
     });
   }
@@ -151,6 +172,11 @@ function normalizeBrowserEvidenceCandidate(candidate: BrowserEvidenceCandidateIn
     fees: numericOrNull(candidate.fees),
     feesIncluded: candidate.feesIncluded === true || Boolean(candidate.fees) ? true : candidate.feesIncluded === false ? false : null,
     inventoryType,
+    /* Only the two definite values are trusted; anything else, including a
+     * value a model proposed, falls back to the refusing default. */
+    pointsBasis: candidate.pointsBasis === "per_night" || candidate.pointsBasis === "stay_total"
+      ? candidate.pointsBasis
+      : "unknown",
     pointsPrice,
     ratePlanName: candidate.ratePlanName?.trim() || null,
     rawRateName: candidate.rawRateName?.trim() || candidate.ratePlanName?.trim() || null,
@@ -275,17 +301,95 @@ function extractHyattVisibleRateCandidates(text: string) {
   return rates;
 }
 
+/*
+ * Two shapes, because Hyatt writes award prices two ways.
+ *
+ * The obvious one puts the unit next to the number. The room list does not:
+ * it renders "From World of Hyatt Free Night Award 12,000 +1 more rates
+ * Points/Night", so the amount is separated from its unit by the rate count.
+ * Reading only the adjacent form returned nothing at all from a page that was
+ * entirely award rates, which is how a points check looked like a hotel with
+ * no award availability.
+ */
+const ADJACENT_AWARD_PATTERN = /([0-9][0-9,]{3,8})\s*(?:points|pts)(\s*(?:Avg\s*\/\s*Night|point\s*\/\s*night|points\s*\/\s*night|pts\s*\/\s*night))?/gi;
+/* Anchored on the unit label itself, which is the one thing that makes the
+ * number a points figure rather than any other four-digit number nearby. */
+const UNIT_LABELLED_AWARD_PATTERN = /([0-9][0-9,]{3,8})(?=.{0,40}?Points\s*\/\s*Night)/gi;
+
+/*
+ * Which award a figure belongs to, decided by the label that introduces it.
+ *
+ * One Hyatt card offers both: "World of Hyatt Free Night Award from 12,000"
+ * and "Points Plus Cash from 6,000 + $91". They are not interchangeable —
+ * the second buys the same night for half the points because the rest is
+ * cash — so reading the numbers without their labels makes a points-plus-cash
+ * rate look like an extraordinarily cheap redemption.
+ */
+function classifyAwardRate(precedingText: string, followingText: string): "free_night" | "points_plus_cash" | "unknown" {
+  /*
+   * Keyed on the shape of the quote rather than on the nearest label. Both
+   * awards are printed on one card, so the label before a number belongs to
+   * whichever rate was named last, which is not the same thing as the rate
+   * this number states. A points-plus-cash quote always carries its cash half
+   * immediately behind it — "6,000 + $91" — and nothing else does.
+   */
+  /* The currency mark is required: "+1 more rates" is a rate count, not cash. */
+  if (/^.{0,12}?\+\s*[^\s0-9]{1,3}\s*[0-9]/.test(followingText)) {
+    return "points_plus_cash";
+  }
+  return /Free\s*Night\s*Award|World\s*of\s*Hyatt/i.test(precedingText) ? "free_night" : "unknown";
+}
+
 function extractAwardRates(text: string) {
-  const pattern = /([0-9][0-9,]{3,8})\s*(?:points|pts)(?:\s*(?:Avg\s*\/\s*Night|point\s*\/\s*night|points\s*\/\s*night|pts\s*\/\s*night))?/gi;
-  const rates: Array<{ context: string; points: number }> = [];
-  for (const match of text.matchAll(pattern)) {
-    const index = match.index ?? 0;
-    rates.push({
-      context: text.slice(Math.max(0, index - 700), Math.min(text.length, index + 900)),
-      points: Math.round(parseAmount(match[1]))
-    });
+  const rates: Array<{
+    context: string;
+    kind: ReturnType<typeof classifyAwardRate>;
+    perNightSuffix: boolean;
+    points: number;
+    precedingText: string;
+  }> = [];
+  const seen = new Set<number>();
+  for (const [pattern, perNightByLabel] of [
+    [ADJACENT_AWARD_PATTERN, false],
+    [UNIT_LABELLED_AWARD_PATTERN, true]
+  ] as const) {
+    for (const match of text.matchAll(pattern)) {
+      const index = match.index ?? 0;
+      if (seen.has(index)) {
+        continue;
+      }
+      seen.add(index);
+      rates.push({
+        context: text.slice(Math.max(0, index - 700), Math.min(text.length, index + 900)),
+        kind: classifyAwardRate(
+          text.slice(Math.max(0, index - 90), index),
+          text.slice(index + match[1].length, index + match[1].length + 24)
+        ),
+        perNightSuffix: perNightByLabel || Boolean(match[2]),
+        points: Math.round(parseAmount(match[1])),
+        precedingText: text.slice(Math.max(0, index - 700), index)
+      });
+    }
   }
   return rates;
+}
+
+/*
+ * Whether a points figure covers the stay or one night, and nothing in between.
+ *
+ * "25,000 points" is the identical string on a room list, where it is nightly,
+ * and on an award summary, where it is the whole stay. Getting this wrong does
+ * not blur a comparison against cash, it reverses it, so anything short of a
+ * visible statement resolves to `unknown` and the comparison refuses.
+ */
+function inferPointsBasis(award: { context: string; perNightSuffix: boolean }): PointsBasis {
+  if (award.perNightSuffix || /(?:Avg\s*\/\s*Night|Average\s*\/\s*Night|per\s*night|\/\s*night)/i.test(award.context)) {
+    return "per_night";
+  }
+  if (/Total\s+Points|Points\s+Total|Total\s+Awards?|Points\s+Due|Points\s+Required|Redeem(?:ing)?\s+[0-9]/i.test(award.context)) {
+    return "stay_total";
+  }
+  return "unknown";
 }
 
 function extractHyattDetailRateCandidates(text: string, nights: number) {
@@ -367,6 +471,26 @@ function extractRoomName(text: string) {
   return "Hyatt room";
 }
 
+/*
+ * The room heading that introduces an award, taken as the last room-shaped
+ * phrase before the price. The generic extractor reads a window around the
+ * figure and on a points room list that window is mostly Hyatt's booking
+ * furniture, which produced room names like "ECT 1 King Bed" and "CREDIT CARD
+ * REQUIRED Sign In or Join to book SELECT 1 King Bed" — labels that no longer
+ * match the same room captured on the cash side.
+ */
+function extractAwardRoomName(precedingText: string) {
+  /*
+   * Searched behind the figure only. A card's heading precedes its price, so
+   * looking at the window on both sides picked up the *next* room's heading
+   * and paired every price with the wrong room — the club room's 34,000 came
+   * back labelled as the standard king.
+   */
+  const pattern = /([0-9]\s+(?:King|Queen|Twin|Double)\s+Beds?(?:\s+with\s+[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?)?)/g;
+  const matches = [...precedingText.matchAll(pattern)];
+  return matches.length > 0 ? cleanLabel(matches[matches.length - 1][1]) : null;
+}
+
 function extractRateName(text: string) {
   const patterns = [
     /(Members Save More[^.]{0,80})/i,
@@ -388,9 +512,24 @@ function extractRateName(text: string) {
   return null;
 }
 
+/*
+ * Bounded at the card it belongs to.
+ *
+ * Hyatt's flattened room list has no sentence punctuation, so a policy read
+ * "until the next full stop" ran on into the following room's card. The terms
+ * decide whether an award is comparable at all, so text from a different room
+ * must not be able to reach that judgement.
+ */
+const POLICY_CARD_BOUNDARY =
+  /\b(?:Sign In or Join to book|SELECT\s*&\s*BOOK|View Room Details|Choose Your Rate|Looking for room details|[0-9]\s+(?:King|Queen|Twin|Double)\s+Beds?)\b/i;
+
 function extractPolicyText(text: string) {
   const match = text.match(/((?:Cancellation|Cancel|Deposit|Refund)[^.]{0,260})/i);
-  return match ? cleanLabel(match[1]) : "Policy not captured";
+  if (!match) {
+    return "Policy not captured";
+  }
+  const boundary = match[1].search(POLICY_CARD_BOUNDARY);
+  return cleanLabel(boundary > 0 ? match[1].slice(0, boundary) : match[1]);
 }
 
 function hasBreakfastIncluded(text: string) {

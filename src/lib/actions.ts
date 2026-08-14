@@ -3,8 +3,10 @@
 import type {
   BookingBaselineType,
   CancellationMatch,
+  CertificateKind,
   CollectionMethod,
   InventoryType,
+  LoyaltyValuationKind,
   RoomMatch,
   SourceType
 } from "@prisma/client";
@@ -16,6 +18,7 @@ import { parseCalendarDate } from "@/lib/dateSemantics";
 import { prisma } from "@/lib/db";
 import { buildObservationEvidence } from "@/lib/evidence";
 import { toJson } from "@/lib/json";
+import { validateValuationDraft } from "@/lib/loyaltyValuation";
 import { createRecommendationForBooking } from "@/lib/recommendations";
 import {
   convertMoneyToSystemCurrency,
@@ -91,6 +94,8 @@ function bookingBaseline(formData: FormData) {
   const baselineCashTotal = optionalNumberValue(formData, "baselineCashTotal");
   const baselinePoints = optionalNumberValue(formData, "baselinePoints");
   const baselineAwardLabel = optionalValue(formData, "baselineAwardLabel");
+  const baselineAwardKind = certificateKindValue(value(formData, "baselineAwardKind"));
+  const baselineAwardCount = optionalNumberValue(formData, "baselineAwardCount");
   if (baselineType === "cash" && baselineCashTotal === null) {
     throw new Error("A cash booking baseline requires a cash total.");
   }
@@ -100,12 +105,29 @@ function bookingBaseline(formData: FormData) {
   if (baselineType === "certificate" && !baselineAwardLabel) {
     throw new Error("A certificate booking baseline requires an award label.");
   }
+  if (baselineType === "certificate" && baselineAwardCount !== null && baselineAwardCount < 1) {
+    throw new Error("A certificate booking baseline spends at least one certificate.");
+  }
+  const structuredCertificate = baselineType === "certificate" && baselineAwardKind !== null && baselineAwardCount !== null;
   return {
+    baselineAwardCount: structuredCertificate ? Math.round(baselineAwardCount!) : null,
+    baselineAwardKind: structuredCertificate ? baselineAwardKind : null,
     baselineAwardLabel: baselineType === "certificate" ? baselineAwardLabel : null,
     baselineCashTotal: baselineType === "cash" || baselineType === "points" ? baselineCashTotal : null,
     baselinePoints: baselineType === "points" ? Math.round(baselinePoints!) : null,
     baselineType
   };
+}
+
+function certificateKindValue(raw: string): CertificateKind | null {
+  return raw === "free_night" || raw === "suite_upgrade" ? raw : null;
+}
+
+function loyaltyValuationKindValue(raw: string): LoyaltyValuationKind {
+  if (raw === "point" || raw === "free_night" || raw === "suite_upgrade") {
+    return raw;
+  }
+  throw new Error("A valuation kind must be a point, free-night, or suite-upgrade value.");
 }
 
 export async function createBooking(formData: FormData) {
@@ -366,6 +388,8 @@ export async function promoteObservationToBooking(formData: FormData) {
   await prisma.hotelBooking.update({
     where: { id: bookingId },
     data: {
+      baselineAwardCount: null,
+      baselineAwardKind: null,
       baselineAwardLabel: null,
       baselineCashTotal: observation.inventoryType === "cash" ? converted!.amount : convertedCopay?.amount ?? null,
       baselinePoints: observation.inventoryType === "award" ? observation.points : null,
@@ -426,16 +450,48 @@ export async function updateProfile(formData: FormData) {
     create: { ...profileData, id: DEFAULT_PROFILE_ID }
   });
   for (const group of HOTEL_GROUPS) {
-    const data = {
-      pointValue: numberValue(formData, `${group}_pointValue`),
-      tier: value(formData, `${group}_tier`)
-    };
+    const data = { tier: value(formData, `${group}_tier`) };
     await prisma.loyaltyAccount.upsert({
       where: { profileId_hotelGroup: { hotelGroup: group, profileId: DEFAULT_PROFILE_ID } },
       update: data,
       create: { ...data, hotelGroup: group, profileId: DEFAULT_PROFILE_ID }
     });
   }
+  revalidatePath("/profile");
+  revalidatePath("/");
+}
+
+export async function saveLoyaltyValuation(formData: FormData) {
+  /* Rejected rather than coerced: forcing a point's rate to 1 would let a
+   * traveler believe they had set an adjustment the product ignores. */
+  const draft = validateValuationDraft({
+    amount: numberValue(formData, "amount", Number.NaN),
+    asOf: parseCalendarDate(value(formData, "asOf")),
+    currency: supportedCurrencyValue(formData.get("currency")),
+    hotelGroup: value(formData, "hotelGroup"),
+    kind: loyaltyValuationKindValue(value(formData, "kind")),
+    lastReviewedAt: parseCalendarDate(value(formData, "lastReviewedAt")),
+    realizationRate: numberValue(formData, "realizationRate", 1),
+    sourceName: value(formData, "sourceName")
+  });
+  if (!HOTEL_GROUPS.includes(draft.hotelGroup as (typeof HOTEL_GROUPS)[number])) {
+    throw new Error("A valuation must belong to a supported hotel group.");
+  }
+  const data = {
+    amount: draft.amount,
+    asOf: draft.asOf,
+    currency: draft.currency,
+    lastReviewedAt: draft.lastReviewedAt,
+    realizationRate: draft.realizationRate,
+    sourceName: draft.sourceName
+  };
+  await prisma.loyaltyValuation.upsert({
+    where: {
+      profileId_hotelGroup_kind: { hotelGroup: draft.hotelGroup, kind: draft.kind, profileId: DEFAULT_PROFILE_ID }
+    },
+    update: data,
+    create: { ...data, hotelGroup: draft.hotelGroup, kind: draft.kind, profileId: DEFAULT_PROFILE_ID }
+  });
   revalidatePath("/profile");
   revalidatePath("/");
 }

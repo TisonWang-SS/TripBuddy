@@ -503,6 +503,8 @@ function toObservationDraft(candidate: LlmEvidenceCandidate, sourceUrl: string):
   return {
     breakfastIncluded: candidate.breakfastIncluded,
     cancellationPolicyRaw: candidate.cancellationPolicyRaw,
+    /* Same rule as the replay path: the model never asserts a points span. */
+    pointsBasis: "unknown" as const,
     cashBase: candidate.staySubtotal?.amount ?? (candidate.cashTotal ? null : candidate.averageNightlyRate?.amount ?? null),
     cashCopay: candidate.inventoryType === "award" ? candidate.cashCopay?.amount ?? null : null,
     cashCurrency: primaryCurrency,

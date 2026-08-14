@@ -53,7 +53,18 @@ describe("persistent browser price-check flow", () => {
         defaultCurrency: "USD",
         id: "primary",
         loyaltyAccounts: {
-          create: { hotelGroup: "Hyatt", pointValue: 0.017, tier: "Member" }
+          create: { hotelGroup: "Hyatt", tier: "Member" }
+        },
+        loyaltyValuations: {
+          create: {
+            amount: 0.017,
+            asOf: new Date("2026-08-01T00:00:00.000Z"),
+            currency: "USD",
+            hotelGroup: "Hyatt",
+            kind: "point",
+            lastReviewedAt: new Date("2026-08-01T00:00:00.000Z"),
+            sourceName: "Points guy valuations"
+          }
         },
         name: "Integration Traveler"
       }
@@ -117,6 +128,29 @@ describe("persistent browser price-check flow", () => {
     expect(await prisma.priceObservation.count({ where: { bookingId: booking.id } })).toBe(0);
     expect((await prisma.priceCheckRun.findUnique({ where: { id: first.runId } }))?.status).toBe("running");
 
+    /*
+     * Both inventory types were requested, so the first summary does not end
+     * the run: Hyatt shows one mode per page, and the comparison needs both
+     * inside this one capture.
+     */
+    const firstSummary = await captureBookingPriceTask(first.taskId, {
+      snapshot: {
+        capturedAt: new Date().toISOString(),
+        controls: [],
+        pageText:
+          "Price Summary Total Cash USD 990.00 Taxes & Fees USD 90.00 1 King Bed Cancellation Policy 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE",
+        pageTitle: "Hyatt price summary",
+        sourceUrl: "https://www.hyatt.com/booking/summary?checkinDate=2026-09-10&checkoutDate=2026-09-13"
+      }
+    });
+    const switchAction = (firstSummary as { action?: { action: string; url: string } }).action;
+    expect(switchAction?.action).toBe("navigate");
+    /* The launch leg carried usePoints; the second one must drop it for cash. */
+    expect(switchAction?.url).toContain("https://www.hyatt.com/");
+    expect(switchAction?.url).not.toContain("usePoints");
+    expect(first.launchUrl).toContain("usePoints=true");
+    expect(await prisma.priceObservation.count({ where: { bookingId: booking.id } })).toBe(0);
+
     const completed = await captureBookingPriceTask(first.taskId, {
       snapshot: {
         capturedAt: new Date().toISOString(),
@@ -127,9 +161,17 @@ describe("persistent browser price-check flow", () => {
         sourceUrl: "https://www.hyatt.com/booking/summary?checkinDate=2026-09-10&checkoutDate=2026-09-13"
       }
     });
-    expect(completed?.status).toBe("succeeded");
-    expect(await prisma.priceObservation.count({ where: { bookingId: booking.id } })).toBe(2);
-    expect(await prisma.observationEvidence.count()).toBe(2);
+    /*
+     * The room list's "25,000 points" states no unit and no award, so nothing
+     * says whether it prices the stay. It stays evidence, and the run reports
+     * that the award rates it was asked for never became comparable.
+     */
+    expect(completed?.status).toBe("partial");
+    await expect(prisma.priceCheckRun.findUniqueOrThrow({ where: { id: first.runId } })).resolves.toMatchObject({
+      summary: expect.stringContaining("No award rate was visible on the pages this run reached.")
+    });
+    expect(await prisma.priceObservation.count({ where: { bookingId: booking.id } })).toBe(1);
+    expect(await prisma.observationEvidence.count()).toBe(1);
     expect(await prisma.recommendation.count({ where: { bookingId: booking.id } })).toBe(1);
     await expect(prisma.watchPlan.findUniqueOrThrow({ where: { bookingId: booking.id } })).resolves.toMatchObject({
       consecutiveFailures: 0,
@@ -158,7 +200,7 @@ describe("persistent browser price-check flow", () => {
       errorMessage: "Hyatt page became unreadable."
     });
     expect((await prisma.priceCheckRun.findUnique({ where: { id: failed.runId } }))?.status).toBe("failed");
-    expect(await prisma.priceObservation.count({ where: { bookingId: booking.id } })).toBe(2);
+    expect(await prisma.priceObservation.count({ where: { bookingId: booking.id } })).toBe(1);
     await expect(prisma.watchPlan.findUniqueOrThrow({ where: { bookingId: booking.id } })).resolves.toMatchObject({
       consecutiveFailures: 1,
       lastAttemptedAt: expect.any(Date)
@@ -239,18 +281,26 @@ describe("persistent browser price-check flow", () => {
         sourceUrl: "https://www.hyatt.com/shop/rooms/tyoph?checkinDate=2031-09-10&checkoutDate=2031-09-13"
       }
     });
-    const completed = await captureBookingPriceTask(started.taskId, {
-      snapshot: {
-        capturedAt: new Date().toISOString(),
-        controls: [],
-        pageText:
-          "Price Summary Total Cash USD 900.00 Taxes & Fees USD 90.00 1 King Bed Cancellation Policy FULL PREPAYMENT/NO REFUND/NO CHANGES",
-        pageTitle: "Hyatt price summary",
-        sourceUrl: "https://www.hyatt.com/booking/summary?checkinDate=2031-09-10&checkoutDate=2031-09-13"
-      }
-    });
+    const summarySnapshot = {
+      capturedAt: new Date().toISOString(),
+      controls: [],
+      pageText:
+        "Price Summary Total Cash USD 900.00 Taxes & Fees USD 90.00 1 King Bed Cancellation Policy FULL PREPAYMENT/NO REFUND/NO CHANGES",
+      pageTitle: "Hyatt price summary",
+      sourceUrl: "https://www.hyatt.com/booking/summary?checkinDate=2031-09-10&checkoutDate=2031-09-13"
+    };
+    /* First summary switches modes; the second one imports. */
+    await captureBookingPriceTask(started.taskId, { snapshot: summarySnapshot });
+    const completed = await captureBookingPriceTask(started.taskId, { snapshot: summarySnapshot });
 
-    expect(completed?.status).toBe("succeeded");
+    /*
+     * Award rates were requested and none were visible, so the run reports
+     * what it actually obtained rather than a clean success.
+     */
+    expect(completed?.status).toBe("partial");
+    await expect(prisma.priceCheckRun.findUniqueOrThrow({ where: { id: started.runId } })).resolves.toMatchObject({
+      summary: expect.stringContaining("No award rate was visible on the pages this run reached.")
+    });
     const observation = await prisma.priceObservation.findFirstOrThrow({
       where: { bookingId: booking.id, inventoryType: "cash" },
       include: { evidence: true }
@@ -348,6 +398,382 @@ describe("persistent browser price-check flow", () => {
     expect(breakdown.baseline).not.toHaveProperty("benefitValue");
     expect(breakdown.baseline).not.toHaveProperty("eliteProgressValue");
     expect(breakdown.candidate.promotionValue).toBe(0);
+  });
+
+  /*
+   * The whole point of walking two modes. A free-night award needs no payment
+   * summary — points carry no tax — so the award leg finishes on the room list
+   * and hands over to cash, and one capture ends up holding both sides.
+   */
+  it("finishes the award leg once the rate card shows its terms, and compares it with the cash total", async () => {
+    const booking = await prisma.hotelBooking.create({
+      data: {
+        baselineCashTotal: 900,
+        baselineType: "cash",
+        bookingChannel: "direct",
+        checkIn: new Date("2035-09-10T00:00:00.000Z"),
+        checkOut: new Date("2035-09-12T00:00:00.000Z"),
+        city: "Kuala Lumpur",
+        currency: "USD",
+        guests: 1,
+        hotelGroup: "Hyatt",
+        hotelName: "Grand Hyatt Kuala Lumpur",
+        loyaltyEligible: true,
+        roomType: "1 King Bed",
+        watchPlan: { create: { awardEnabled: true, cashEnabled: true, enabled: true } }
+      }
+    });
+    const started = await new BrowserCompanionPriceCheckRunner().run({ bookingId: booking.id, trigger: "manual" });
+
+    const switched = await captureBookingPriceTask(started.taskId, {
+      snapshot: {
+        capturedAt: new Date().toISOString(),
+        controls: [],
+        /* The expanded rate card, which is where Hyatt prints the terms. */
+        pageText:
+          "SELECT A ROOM 1 King Bed View Room Details From World of Hyatt Free Night Award 12,000 +1 more rates Points/Night " +
+          "Cancellation Policy 11:59PM HOTEL TIME 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE Deposit Policy CREDIT CARD REQUIRED SELECT & BOOK",
+        pageTitle: "Hyatt rooms",
+        sourceUrl: "https://www.hyatt.com/shop/rooms/kuagh?checkinDate=2035-09-10&checkoutDate=2035-09-12"
+      }
+    });
+    /* No summary was reached, and none is owed. */
+    expect((switched as { action?: { action: string } }).action?.action).toBe("navigate");
+
+    await captureBookingPriceTask(started.taskId, {
+      snapshot: {
+        capturedAt: new Date().toISOString(),
+        controls: [],
+        /* Room naming copied from a real Hyatt summary, which prints the room
+         * beside the stay dates — the two sides must agree on the room. */
+        pageText:
+          "Grand Hyatt Kuala Lumpur 1 King Bed Thu, Sep 10, 2035 - Sat, Sep 12, 2035 " +
+          "Price Summary Total Cash USD 600.00 Taxes & Fees USD 60.00 Cancellation Policy 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE",
+        pageTitle: "Hyatt price summary",
+        sourceUrl: "https://www.hyatt.com/booking/summary?checkinDate=2035-09-10&checkoutDate=2035-09-12"
+      }
+    });
+
+    const saved = await prisma.priceObservation.findMany({ where: { bookingId: booking.id } });
+    const award = saved.find((observation) => observation.inventoryType === "award");
+    const cash = saved.find((observation) => observation.inventoryType === "cash");
+
+    /* Two nights at 12,000 points a night, with nothing left to discover. */
+    expect(award).toMatchObject({ points: 24_000, pointsBasis: "stay_total" });
+    expect(cash).toMatchObject({ cashTotal: 600 });
+    expect(award?.priceCheckRunId).toBe(cash?.priceCheckRunId);
+
+    const breakdown = JSON.parse(
+      (await prisma.recommendation.findFirstOrThrow({
+        where: { bookingId: booking.id },
+        orderBy: { generatedAt: "desc" }
+      })).costBreakdownJson
+    );
+    expect(breakdown.redemption).toMatchObject({
+      cashTotal: 600,
+      points: 24_000,
+      pointValue: 0.017,
+      valuePerPoint: 0.025,
+      verdict: "redeem"
+    });
+  });
+
+  /*
+   * The import path used to take every award in the run's evidence directly,
+   * so the points side was exempt from the completeness and room rules the
+   * cash side has always met — and a filter added to the provider changed
+   * nothing about what was stored.
+   */
+  it("stores only the awards the provider considers comparable, not every one it ever saw", async () => {
+    const booking = await prisma.hotelBooking.create({
+      data: {
+        baselineCashTotal: 900,
+        baselineType: "cash",
+        bookingChannel: "direct",
+        checkIn: new Date("2036-09-10T00:00:00.000Z"),
+        checkOut: new Date("2036-09-12T00:00:00.000Z"),
+        city: "Kuala Lumpur",
+        currency: "USD",
+        guests: 1,
+        hotelGroup: "Hyatt",
+        hotelName: "Grand Hyatt Kuala Lumpur",
+        loyaltyEligible: true,
+        roomType: "1 King Bed",
+        watchPlan: { create: { awardEnabled: true, cashEnabled: true, enabled: true } }
+      }
+    });
+    const started = await new BrowserCompanionPriceCheckRunner().run({ bookingId: booking.id, trigger: "manual" });
+
+    await captureBookingPriceTask(started.taskId, {
+      snapshot: {
+        capturedAt: new Date().toISOString(),
+        controls: [],
+        pageText:
+          "SELECT A ROOM 1 King Bed Relax here. View Room Details From World of Hyatt Free Night Award 12,000 +1 more rates Points/Night " +
+          "Cancellation Policy 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE SELECT & BOOK " +
+          "2 Twin Beds Twin beds. View Room Details From World of Hyatt Free Night Award 12,000 +1 more rates Points/Night " +
+          "Cancellation Policy 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE SELECT & BOOK " +
+          "1 King Bed with Club Access Lounge access. View Room Details From World of Hyatt Club Point Free Night Award 17,000 +1 more rates Points/Night " +
+          "Cancellation Policy 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE SELECT & BOOK",
+        pageTitle: "Hyatt rooms",
+        sourceUrl: "https://www.hyatt.com/shop/rooms/kuagh?checkinDate=2036-09-10&checkoutDate=2036-09-12"
+      }
+    });
+    await captureBookingPriceTask(started.taskId, {
+      snapshot: {
+        capturedAt: new Date().toISOString(),
+        controls: [],
+        pageText:
+          "Grand Hyatt Kuala Lumpur 1 King Bed Thu, Sep 10, 2036 - Sat, Sep 12, 2036 " +
+          "Price Summary Total Cash USD 600.00 Taxes & Fees USD 60.00 Cancellation Policy 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE",
+        pageTitle: "Hyatt price summary",
+        sourceUrl: "https://www.hyatt.com/booking/summary?checkinDate=2036-09-10&checkoutDate=2036-09-12"
+      }
+    });
+
+    const saved = await prisma.priceObservation.findMany({ where: { bookingId: booking.id } });
+
+    /* Three rooms were priced in points; one is the booked room. */
+    expect(saved.filter((observation) => observation.inventoryType === "award").map((observation) => observation.roomTypeRaw))
+      .toEqual(["1 King Bed"]);
+    expect(saved.filter((observation) => observation.inventoryType === "cash")).toHaveLength(1);
+  });
+
+  /*
+   * A price with no terms is an observation that is blocked on unknown
+   * cancellation equivalence — captured, but unusable. The award leg keeps
+   * going until the rate card states them.
+   */
+  it("does not finish the award leg on a price the page has not stated terms for", async () => {
+    const booking = await prisma.hotelBooking.create({
+      data: {
+        baselineCashTotal: 900,
+        baselineType: "cash",
+        bookingChannel: "direct",
+        checkIn: new Date("2037-09-10T00:00:00.000Z"),
+        checkOut: new Date("2037-09-12T00:00:00.000Z"),
+        city: "Kuala Lumpur",
+        currency: "USD",
+        guests: 1,
+        hotelGroup: "Hyatt",
+        hotelName: "Grand Hyatt Kuala Lumpur",
+        loyaltyEligible: true,
+        roomType: "1 King Bed",
+        watchPlan: { create: { awardEnabled: true, cashEnabled: true, enabled: true } }
+      }
+    });
+    const started = await new BrowserCompanionPriceCheckRunner().run({ bookingId: booking.id, trigger: "manual" });
+
+    const roomListOnly = await captureBookingPriceTask(started.taskId, {
+      snapshot: {
+        capturedAt: new Date().toISOString(),
+        controls: [],
+        /* The room list prints the points and nothing about cancelling. */
+        pageText:
+          "SELECT A ROOM 1 King Bed View Room Details From World of Hyatt Free Night Award 12,000 +1 more rates Points/Night SELECT & BOOK",
+        pageTitle: "Hyatt rooms",
+        sourceUrl: "https://www.hyatt.com/shop/rooms/kuagh?checkinDate=2037-09-10&checkoutDate=2037-09-12"
+      }
+    });
+
+    expect((roomListOnly as { action?: { action: string } }).action?.action).not.toBe("navigate");
+    await expect(prisma.browserTask.findUniqueOrThrow({ where: { id: started.taskId } })).resolves.toMatchObject({
+      contextJson: expect.stringContaining('"capturedModes":[]')
+    });
+  });
+
+  it("keeps a summary the first leg already reached when the second mode fails", async () => {
+    const booking = await prisma.hotelBooking.create({
+      data: {
+        baselineCashTotal: 1200,
+        baselineType: "cash",
+        bookingChannel: "direct",
+        checkIn: new Date("2034-09-10T00:00:00.000Z"),
+        checkOut: new Date("2034-09-13T00:00:00.000Z"),
+        city: "Tokyo",
+        currency: "USD",
+        guests: 2,
+        hotelGroup: "Hyatt",
+        hotelName: "Andaz Tokyo",
+        loyaltyEligible: true,
+        roomType: "1 King Bed",
+        watchPlan: { create: { awardEnabled: true, cashEnabled: true, enabled: true } }
+      }
+    });
+    const started = await new BrowserCompanionPriceCheckRunner().run({ bookingId: booking.id, trigger: "manual" });
+
+    const switched = await captureBookingPriceTask(started.taskId, {
+      snapshot: {
+        capturedAt: new Date().toISOString(),
+        controls: [],
+        pageText:
+          "Price Summary Total Cash USD 810.00 Taxes & Fees USD 60.00 1 King Bed Cancellation Policy 2 DAYS BFR ARRV OR PAY 1 NIGHT FEE",
+        pageTitle: "Hyatt price summary",
+        sourceUrl: "https://www.hyatt.com/booking/summary?checkinDate=2034-09-10&checkoutDate=2034-09-13"
+      }
+    });
+    expect((switched as { action?: { action: string } }).action?.action).toBe("navigate");
+    expect(await prisma.priceObservation.count({ where: { bookingId: booking.id } })).toBe(0);
+
+    /* The second leg never arrives. The first leg's proven total must survive. */
+    await captureBookingPriceTask(started.taskId, {
+      errorCode: "task_timeout",
+      errorMessage: "Hyatt did not reach a pre-payment price summary before the task timed out."
+    });
+
+    const saved = await prisma.priceObservation.findMany({ where: { bookingId: booking.id } });
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({ cashTotal: 810, inventoryType: "cash" });
+    expect((await prisma.priceCheckRun.findUnique({ where: { id: started.runId } }))?.status).toBe("partial");
+  });
+
+  it("prices a certificate baseline from its sourced valuation and lowers confidence when that figure is stale", async () => {
+    await prisma.loyaltyValuation.create({
+      data: {
+        amount: 300,
+        asOf: new Date("2020-01-01T00:00:00.000Z"),
+        currency: "USD",
+        hotelGroup: "Award Group",
+        kind: "free_night",
+        lastReviewedAt: new Date("2020-01-01T00:00:00.000Z"),
+        profileId: "primary",
+        realizationRate: 0.8,
+        sourceName: "Award trading desk"
+      }
+    });
+    const booking = await prisma.hotelBooking.create({
+      data: {
+        baselineAwardCount: 1,
+        baselineAwardKind: "free_night",
+        baselineAwardLabel: "1 Free Night",
+        baselineType: "certificate",
+        bookingChannel: "direct",
+        checkIn: new Date("2033-10-10T00:00:00.000Z"),
+        checkOut: new Date("2033-10-11T00:00:00.000Z"),
+        city: "Tokyo",
+        currency: "USD",
+        guests: 2,
+        hotelGroup: "Award Group",
+        hotelName: "Award Group Tokyo",
+        loyaltyEligible: true,
+        roomType: "1 King Bed"
+      }
+    });
+    await prisma.priceObservation.create({
+      data: {
+        bookingId: booking.id,
+        cashCurrency: "USD",
+        cashTotal: 200,
+        inventoryType: "cash",
+        loyaltyEligible: true,
+        roomTypeRaw: "1 King Bed",
+        sourceName: "Award Group official site",
+        sourceType: "direct",
+        evidence: {
+          create: {
+            blockersJson: "[]",
+            cancellationMatch: "same_or_better",
+            cancellationMatchReason: "Same test policy.",
+            currencyComparable: true,
+            feesIncluded: "yes",
+            loyaltyEligibility: "eligible",
+            qualityLevel: "high",
+            roomMatch: "exact",
+            roomMatchReason: "Exact test room.",
+            sourceVerified: true,
+            taxesIncluded: "yes",
+            warningsJson: "[]"
+          }
+        }
+      }
+    });
+
+    const recommendation = await createRecommendationForBooking(booking.id);
+    const breakdown = JSON.parse(recommendation!.costBreakdownJson);
+
+    expect(breakdown.baseline.certificateValue).toBe(240);
+    expect(breakdown.baseline.effectiveCost).toBe(240);
+    expect(recommendation).toMatchObject({ estimatedSavings: 40, qualityLevel: "medium" });
+    expect(JSON.parse(recommendation!.warningsJson)).toContain(
+      "The Award Group free-night award value (Award trading desk, reviewed Jan 1, 2020) is past its 180-day review date and was used as recorded."
+    );
+  });
+
+  it("compares cash against points within one capture and refuses to across two", async () => {
+    await prisma.loyaltyValuation.create({
+      data: {
+        amount: 0.017,
+        asOf: new Date("2033-01-01T00:00:00.000Z"),
+        currency: "USD",
+        hotelGroup: "Redemption Group",
+        kind: "point",
+        lastReviewedAt: new Date("2033-01-01T00:00:00.000Z"),
+        profileId: "primary",
+        sourceName: "Points guy valuations"
+      }
+    });
+    const booking = await prisma.hotelBooking.create({
+      data: {
+        baselineCashTotal: 700,
+        baselineType: "cash",
+        bookingChannel: "direct",
+        checkIn: new Date("2033-11-10T00:00:00.000Z"),
+        checkOut: new Date("2033-11-11T00:00:00.000Z"),
+        city: "Tokyo",
+        currency: "USD",
+        guests: 2,
+        hotelGroup: "Redemption Group",
+        hotelName: "Redemption Group Tokyo",
+        loyaltyEligible: true,
+        roomType: "1 King Bed"
+      }
+    });
+    const sharedCapture = await createCapture(booking.id, "capture-shared");
+    await createRedemptionObservation(booking.id, sharedCapture, { cashTotal: 500, inventoryType: "cash" });
+    await createRedemptionObservation(booking.id, sharedCapture, {
+      inventoryType: "award",
+      points: 25_000,
+      pointsBasis: "stay_total"
+    });
+
+    const compared = JSON.parse((await createRecommendationForBooking(booking.id))!.costBreakdownJson);
+
+    expect(compared.redemption).toMatchObject({
+      cashTotal: 500,
+      points: 25_000,
+      pointValue: 0.017,
+      valuePerPoint: 0.02,
+      verdict: "redeem"
+    });
+
+    const separate = await prisma.hotelBooking.create({
+      data: {
+        baselineCashTotal: 700,
+        baselineType: "cash",
+        bookingChannel: "direct",
+        checkIn: new Date("2033-11-20T00:00:00.000Z"),
+        checkOut: new Date("2033-11-21T00:00:00.000Z"),
+        city: "Tokyo",
+        currency: "USD",
+        guests: 2,
+        hotelGroup: "Redemption Group",
+        hotelName: "Redemption Group Osaka",
+        loyaltyEligible: true,
+        roomType: "1 King Bed"
+      }
+    });
+    await createRedemptionObservation(separate.id, await createCapture(separate.id, "capture-cash"), {
+      cashTotal: 500,
+      inventoryType: "cash"
+    });
+    await createRedemptionObservation(separate.id, await createCapture(separate.id, "capture-award"), {
+      inventoryType: "award",
+      points: 25_000
+    });
+
+    const uncompared = JSON.parse((await createRecommendationForBooking(separate.id))!.costBreakdownJson);
+
+    expect(uncompared.redemption).toBeUndefined();
   });
 
   it("replays stored snapshots through the LLM extractor without duplicating corroborated facts", async () => {
@@ -793,6 +1219,76 @@ describe("persistent browser price-check flow", () => {
     expect(await prisma.priceObservation.count()).toBe(observationCount);
   });
 });
+
+/** One page visit: the unit a cash rate and an award rate must share to be compared. */
+async function createCapture(bookingId: string, id: string) {
+  const expiresAt = new Date("2033-12-01T00:00:00.000Z");
+  await prisma.browserTask.create({
+    data: {
+      contextJson: "{}",
+      expiresAt,
+      hotelGroup: "Redemption Group",
+      id: `task-${id}`,
+      kind: "booking_price_check",
+      launchUrl: "https://example.test/rates"
+    }
+  });
+  await prisma.priceCheckRun.create({
+    data: {
+      bookingId,
+      browserTaskId: `task-${id}`,
+      expiresAt,
+      id,
+      inventoryTypesJson: '["cash","award"]',
+      providerName: "test-provider",
+      trigger: "manual"
+    }
+  });
+  return id;
+}
+
+async function createRedemptionObservation(
+  bookingId: string,
+  priceCheckRunId: string,
+  overrides: {
+    cashTotal?: number;
+    inventoryType: "cash" | "award";
+    points?: number;
+    pointsBasis?: "stay_total" | "per_night" | "unknown";
+  }
+) {
+  return prisma.priceObservation.create({
+    data: {
+      bookingId,
+      cashCurrency: "USD",
+      cashTotal: overrides.cashTotal ?? null,
+      inventoryType: overrides.inventoryType,
+      loyaltyEligible: true,
+      points: overrides.points ?? null,
+      pointsBasis: overrides.pointsBasis ?? "unknown",
+      priceCheckRunId,
+      roomTypeRaw: "1 King Bed",
+      sourceName: "Redemption Group official site",
+      sourceType: "direct",
+      evidence: {
+        create: {
+          blockersJson: "[]",
+          cancellationMatch: "same_or_better",
+          cancellationMatchReason: "Same test policy.",
+          currencyComparable: true,
+          feesIncluded: "yes",
+          loyaltyEligibility: "eligible",
+          qualityLevel: "high",
+          roomMatch: "exact",
+          roomMatchReason: "Exact test room.",
+          sourceVerified: true,
+          taxesIncluded: "yes",
+          warningsJson: "[]"
+        }
+      }
+    }
+  });
+}
 
 function accountSnapshot(pageText: string, suffix: string) {
   return {

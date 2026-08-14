@@ -2,6 +2,7 @@ const ACCOUNT_STATE_KEY = "tripbuddyAccountState";
 const AUTO_RELOAD_STATE_KEY = "tripbuddyAutoReloadState";
 const AUTO_RELOAD_AFTER_MS = 15000;
 const TASK_TIMEOUT_MS = 120000;
+const UNCHANGED_PRESS_LIMIT = 3;
 const CONTROL_ATTRIBUTE = "data-tripbuddy-control-id";
 const TASK_PROTOCOL = globalThis.TripBuddyTaskProtocol;
 const SAFETY_RULES = globalThis.TripBuddySafetyRules;
@@ -72,12 +73,39 @@ async function runCurrentTask(force = false) {
 async function runBookingPriceTask(endpoint, taskId) {
   showStatus("TripBuddy is waiting for visible Hyatt rate evidence...");
   const startedAt = rememberAutoReloadTaskStart(taskId);
+  /*
+   * A control that does not advance is a different fact from a slow page.
+   *
+   * Pressing a control and never looking at the result meant a rate button
+   * that Hyatt refuses to act on was retried until the task ran out of time,
+   * and the run then reported `task_timeout` — "slow" as the explanation for
+   * "this control does not move". The page state is compared instead, so the
+   * run can say which control it pressed and what the page said about it.
+   */
+  let lastSignature = "";
+  let lastPressedLabel = "";
+  let unchangedPresses = 0;
   while (Date.now() - startedAt < TASK_TIMEOUT_MS) {
     const readable = await waitForReadablePage(15000);
     if (!readable) {
       return reportFailure(endpoint, taskId, "empty_page", "Hyatt did not expose a readable page document.");
     }
     const snapshot = buildPageSnapshot();
+    const signature = pageStateSignature(snapshot);
+    if (lastPressedLabel && signature === lastSignature) {
+      unchangedPresses += 1;
+      if (unchangedPresses >= UNCHANGED_PRESS_LIMIT) {
+        return reportFailure(
+          endpoint,
+          taskId,
+          "control_did_not_advance",
+          `Hyatt did not change after TripBuddy pressed "${lastPressedLabel}" ${unchangedPresses} times.${describeBlockedRateCard(snapshot)}`
+        );
+      }
+    } else {
+      unchangedPresses = 0;
+    }
+    lastSignature = signature;
     const response = await postCapture(endpoint, taskId, { snapshot });
     if (["succeeded", "partial", "failed"].includes(response.status)) {
       showStatus(response.errorMessage || `TripBuddy price check ${response.status}.`);
@@ -90,6 +118,15 @@ async function runBookingPriceTask(endpoint, taskId) {
     if (action.action === "stop") {
       return reportFailure(endpoint, taskId, "navigation_stopped", action.reason);
     }
+    if (action.action === "navigate") {
+      const url = safeHyattTaskUrl(action.url);
+      if (!url) {
+        return reportFailure(endpoint, taskId, "unsafe_navigation", "TripBuddy refused to follow a navigation target it did not build.");
+      }
+      showStatus(action.reason);
+      location.href = url;
+      return null;
+    }
     if (action.action === "click") {
       const element = document.querySelector(`[${CONTROL_ATTRIBUTE}="${cssEscape(action.elementId)}"]`);
       if (!element || !isVisible(element)) {
@@ -101,16 +138,36 @@ async function runBookingPriceTask(endpoint, taskId) {
         return reportFailure(endpoint, taskId, "unsafe_control", `TripBuddy refused to click an unsafe control: ${label}`);
       }
       showStatus(action.reason);
+      lastPressedLabel = label;
       activateSafeControl(element);
       await delay(1800);
       continue;
     }
+    lastPressedLabel = "";
     if (autoReloadStalledHyattRoomPage(taskId, snapshot, action, Date.now() - startedAt)) {
       return null;
     }
     await delay(Math.min(Math.max(action.milliseconds || 1200, 500), 4000));
   }
   return reportFailure(endpoint, taskId, "task_timeout", "Hyatt did not reach a pre-payment price summary before the task timed out.");
+}
+
+/* Cheap and stable: enough to tell "the page moved" from "it did not". */
+function pageStateSignature(snapshot) {
+  const text = String(snapshot?.pageText || "");
+  const controls = (snapshot?.controls || []).map((control) => control.label).join("|");
+  return `${snapshot?.sourceUrl || ""}::${text.length}::${text.slice(0, 400)}::${controls.length}`;
+}
+
+/*
+ * Quotes the page rather than diagnosing it. If Hyatt printed a reason this
+ * rate cannot be taken, that sentence is worth far more to the reader than
+ * any guess this extension could make about why a button did nothing.
+ */
+function describeBlockedRateCard(snapshot) {
+  const text = String(snapshot?.pageText || "").replace(/\s+/g, " ");
+  const requirement = text.match(/(?:Sign In or Join to book|CREDIT CARD REQUIRED|Members? only|Sign in to book)/i);
+  return requirement ? ` The visible rate card says: "${requirement[0]}".` : "";
 }
 
 async function runHotelSearchTask(endpoint, taskId, hotelSearchMode) {
@@ -353,8 +410,18 @@ function buildAccountSnapshot() {
   };
 }
 
+/*
+ * Links, buttons, and the toggles that change what a page is showing.
+ *
+ * Switches were missing here, and the gap was invisible until a real run: the
+ * rooms page decides between cash and points with an on-page "Use Points"
+ * switch, so a planner that only ever saw links and buttons could not tell
+ * that the control existed, let alone that nothing had pressed it.
+ */
 function collectControls() {
-  const visible = Array.from(document.querySelectorAll('a[href], button, [role="button"]')).filter(isVisible);
+  const visible = Array.from(
+    document.querySelectorAll('a[href], button, [role="button"], [role="switch"], [role="checkbox"], input[type="checkbox"]')
+  ).filter(isVisible);
   const dialogControls = visible.filter((element) => element.closest('[role="dialog"], [aria-modal="true"], dialog'));
   const prioritized = [...dialogControls, ...visible.filter((element) => !dialogControls.includes(element))];
   return prioritized
@@ -365,11 +432,28 @@ function collectControls() {
         context: controlContext(element),
         elementId,
         href: element instanceof HTMLAnchorElement ? element.href : null,
-        label: controlLabel(element)
+        label: controlLabel(element),
+        /* Null for anything that is not a toggle, so "off" stays distinct from
+         * "not a toggle" and the planner never presses an already-on switch. */
+        pressed: controlPressedState(element)
       };
     })
     .filter((control) => control.label)
     .slice(0, 100);
+}
+
+function controlPressedState(element) {
+  const role = element.getAttribute("role");
+  /* Duck-typed rather than `instanceof`: the same collector is exercised in a
+   * bare sandbox where the DOM constructors do not exist. */
+  if (element.tagName === "INPUT" && element.type === "checkbox") {
+    return Boolean(element.checked);
+  }
+  if (role !== "switch" && role !== "checkbox") {
+    return null;
+  }
+  const checked = element.getAttribute("aria-checked") ?? element.getAttribute("aria-pressed");
+  return checked === null ? null : checked === "true";
 }
 
 function controlContext(element) {
@@ -385,10 +469,31 @@ function controlContext(element) {
 }
 
 function controlLabel(element) {
-  return String(element.getAttribute("aria-label") || element.innerText || element.textContent || "")
+  return String(element.getAttribute("aria-label") || element.innerText || element.textContent || associatedLabelText(element) || "")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 240);
+}
+
+/*
+ * A checkbox has no text of its own, so without this every switch on the page
+ * collapses to an empty label and is dropped before the planner sees it.
+ */
+function associatedLabelText(element) {
+  const describedBy = element.getAttribute("aria-labelledby");
+  if (describedBy) {
+    const labelled = describedBy
+      .split(/\s+/)
+      .map((id) => document.getElementById(id)?.innerText || "")
+      .join(" ")
+      .trim();
+    if (labelled) {
+      return labelled;
+    }
+  }
+  const id = element.getAttribute("id");
+  const forLabel = id ? document.querySelector(`label[for="${cssEscape(id)}"]`) : null;
+  return forLabel?.innerText || element.closest("label")?.innerText || "";
 }
 
 function isVisible(element) {
@@ -609,6 +714,22 @@ async function waitForCondition(check, timeoutMs) {
 
 function pageText() {
   return document.body?.innerText?.replace(/\s+/g, " ").trim() || "";
+}
+
+/*
+ * A navigation target is only followed when it is an https Hyatt URL. The
+ * server composes these from the booking, so this is a second gate rather than
+ * the only one — but the content script must not become a way for whatever is
+ * on the page to steer the tab somewhere else.
+ */
+function safeHyattTaskUrl(value) {
+  let url;
+  try {
+    url = new URL(String(value || ""), location.href);
+  } catch {
+    return "";
+  }
+  return url.protocol === "https:" && /(^|\.)hyatt\.com$/i.test(url.hostname) ? url.href : "";
 }
 
 function normalizeEndpoint(value) {

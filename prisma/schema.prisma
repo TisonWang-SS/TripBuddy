@@ -18,6 +18,22 @@ enum BookingBaselineType {
   certificate
 }
 
+/// A loyalty figure with an observable market price. Subjective benefits are
+/// deliberately absent: they are shown, never priced (ADR 0003).
+enum LoyaltyValuationKind {
+  point
+  free_night
+  suite_upgrade
+}
+
+/// The certificate kinds a stay can be paid with. A subset of
+/// LoyaltyValuationKind by construction, so a certificate kind is always a
+/// valuation kind and never the other way round.
+enum CertificateKind {
+  free_night
+  suite_upgrade
+}
+
 enum BrowserTaskKind {
   booking_price_check
   hotel_search
@@ -58,6 +74,16 @@ enum SourceType {
 enum InventoryType {
   cash
   award
+}
+
+/// Whether a captured points figure covers the whole stay or one night.
+/// Cash evidence proves this by reaching a final total with taxes and fees;
+/// award evidence has no equivalent gate, so an unproven figure stays
+/// `unknown` and is refused rather than assumed to be either one.
+enum PointsBasis {
+  stay_total
+  per_night
+  unknown
 }
 
 enum LoginState {
@@ -166,6 +192,7 @@ model UserProfile {
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
   loyaltyAccounts        LoyaltyAccount[]
+  loyaltyValuations      LoyaltyValuation[]
   creditCardBenefits     CreditCardBenefit[]
   hotelSearchSessions    HotelSearchSession[]
 }
@@ -175,12 +202,36 @@ model LoyaltyAccount {
   profileId  String
   hotelGroup String
   tier       String
-  pointValue Float       @default(0.005)
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
   profile    UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
   @@unique([profileId, hotelGroup])
+}
+
+/// What a point or a certificate is worth, with the source that says so and
+/// the date it was last checked, following CurrencyConversionRate. A valuation
+/// past its review date is still used and named as stale; it never silently
+/// vanishes and never silently stands in for a current figure.
+model LoyaltyValuation {
+  id              String               @id @default(cuid())
+  profileId       String
+  hotelGroup      String
+  kind            LoyaltyValuationKind
+  /// Market value of one unit: one point, or one certificate.
+  amount          Float
+  currency        SupportedCurrency
+  /// Adjustment relative to the market price, not a second probability on top
+  /// of it. 1 trusts the quote; below 1 is a traveler who clears fewer awards.
+  realizationRate Float                @default(1)
+  sourceName      String
+  asOf            DateTime
+  lastReviewedAt  DateTime
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  profile         UserProfile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, hotelGroup, kind])
 }
 
 model CreditCardBenefit {
@@ -212,6 +263,11 @@ model HotelBooking {
   baselineCashTotal    Float?
   baselinePoints       Int?
   baselineAwardLabel   String?
+  /// What the certificate baseline actually spends. Absent on an imported
+  /// certificate stay, whose label is prose; an unstructured certificate is
+  /// named as unpriced rather than counted as one free night.
+  baselineAwardKind    CertificateKind?
+  baselineAwardCount   Int?
   currency             SupportedCurrency   @default(USD)
   bookingChannel       SourceType          @default(direct)
   /// Local wall-clock deadline stored as an instant; read using the user's local timezone.
@@ -325,6 +381,7 @@ model PriceObservation {
   cashTotal             Float?
   cashCurrency          String?
   points                Int?
+  pointsBasis           PointsBasis            @default(unknown)
   cashCopay             Float?
   cashCopayCurrency     String?
   rawRateName           String?

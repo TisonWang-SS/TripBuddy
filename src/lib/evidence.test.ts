@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildObservationEvidence } from "@/lib/evidence";
+import { buildObservationEvidence, inferRoomMatch } from "@/lib/evidence";
 
 const base = {
   bookingCancellationDeadline: new Date(2026, 8, 8),
@@ -155,5 +155,25 @@ describe("observation evidence", () => {
     expect(buildObservationEvidence({ ...base, loginState: "unknown" }).loginState).toBe("unknown");
     expect(buildObservationEvidence({ ...base, collectionMethod: "manual" }).loginState).toBe("unknown");
     expect(buildObservationEvidence({ ...base, loginState: "member", sourceType: "ota" }).loginState).toBe("not_required");
+  });
+});
+
+describe("room equivalence", () => {
+  it("treats an entitlement variant as a different room, not as the booked one", () => {
+    /* Substring containment used to call these the same room, so a club-access
+     * upgrade at a higher price was graded as an exact match for a standard
+     * king — and both the cash and the points side inherited that. */
+    expect(inferRoomMatch("1 King Bed", "1 King Bed with Club Access").match).toBe("similar");
+    expect(inferRoomMatch("1 King Bed with Club Access", "1 King Bed with Club Access").match).toBe("exact");
+  });
+
+  it("still ignores wording that only formats the same room", () => {
+    expect(inferRoomMatch("1 King Bed", "King Bed").match).toBe("exact");
+    expect(inferRoomMatch("1 King Bed", "1 King Bed").match).toBe("exact");
+  });
+
+  it("keeps unrelated rooms apart", () => {
+    expect(inferRoomMatch("1 King Bed", "2 Twin Beds").match).toBe("unknown");
+    expect(inferRoomMatch("1 King Bed", "Room not captured").match).toBe("unknown");
   });
 });

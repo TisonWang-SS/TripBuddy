@@ -341,6 +341,9 @@ function observationToDraft(observation: {
     breakfastIncluded: observation.breakfastIncluded,
     cancellationPolicyRaw: observation.cancellationPolicyRaw,
     cashBase: observation.cashBase,
+    /* A model may read figures off a page; it may not decide what span one
+     * covers. That is exactly the judgement the basis guard exists to refuse. */
+    pointsBasis: "unknown" as const,
     cashCopay: observation.cashCopay,
     cashCurrency: observation.cashCurrency,
     cashFees: observation.cashFees,

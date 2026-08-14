@@ -45,6 +45,10 @@ export function parseBookingPriceContext(value: string): BookingPriceInput | nul
     bookingId: context.bookingId,
     bookingUrl: typeof context.bookingUrl === "string" ? context.bookingUrl : null,
     cancellationDeadline,
+    /* Dropping this on the way back in would let a run switch modes forever. */
+    capturedModes: Array.isArray(context.capturedModes)
+      ? context.capturedModes.filter((item): item is "cash" | "award" => item === "cash" || item === "award")
+      : [],
     checkIn,
     checkOut,
     city: stringValue(context.city),
@@ -157,7 +161,8 @@ function parseSanitizedControls(value: unknown): SanitizedBrowserSnapshot["contr
     return [{
       context: stringValue(item.context).slice(0, 300),
       href: typeof item.href === "string" && item.href.length > 0 ? item.href.slice(0, 300) : null,
-      label: item.label.slice(0, 200)
+      label: item.label.slice(0, 200),
+      pressed: typeof item.pressed === "boolean" ? item.pressed : null
     }];
   });
 }
@@ -182,6 +187,9 @@ function parseObservationDraft(value: unknown): ParsedObservationDraft | null {
     inventoryType: value.inventoryType,
     loyaltyEligible: nullableBoolean(value.loyaltyEligible),
     points: nullableInteger(value.points),
+    /* Only the two definite values survive a round trip; anything else is the
+     * refusing default, so a stale or hand-edited draft cannot claim a basis. */
+    pointsBasis: value.pointsBasis === "per_night" || value.pointsBasis === "stay_total" ? value.pointsBasis : "unknown",
     ratePlanName: nullableString(value.ratePlanName),
     rawRateName: nullableString(value.rawRateName),
     roomTypeRaw: nullableString(value.roomTypeRaw),

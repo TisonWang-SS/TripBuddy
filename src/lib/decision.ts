@@ -1,4 +1,12 @@
-import type { EvidenceQuality, RecommendationVerdict, RiskLevel, SourceType } from "@prisma/client";
+import type { CertificateKind, EvidenceQuality, PointsBasis, RecommendationVerdict, RiskLevel, SourceType } from "@prisma/client";
+import {
+  effectiveUnitValue,
+  findValuation,
+  isValuationStale,
+  missingValuationBlocker,
+  staleValuationWarning,
+  type SourcedValuation
+} from "@/lib/loyaltyValuation";
 
 export type DecisionProfile = {
   caresAboutBreakfast: boolean;
@@ -29,8 +37,13 @@ export type DecisionBooking = {
 
 export type DecisionLoyaltyAccount = {
   hotelGroup: string;
-  pointValue: number;
   tier: string;
+};
+
+/** What a certificate baseline spends. Absent when the booking never says. */
+export type DecisionCertificateBaseline = {
+  count: number;
+  kind: CertificateKind;
 };
 
 export type DecisionLoyaltyRule = {
@@ -63,6 +76,8 @@ export type DecisionPromotion = {
 
 export type CostBreakdown = {
   cashPrice: number;
+  /** Sourced value of the certificates this stay spends. A cost, like points. */
+  certificateValue: number;
   creditCardValue: number;
   effectiveCost: number;
   earnedPointsValue: number;
@@ -214,17 +229,31 @@ function validateDecisionOutput(value: unknown, providerName: string): DecisionO
   };
 }
 
+/*
+ * Valuations arrive already expressed in the booking's currency: converting
+ * them is the caller's job, because a conversion that is not on record is a
+ * blocker rather than something to assume here.
+ */
 export function calculateStayCost(input: {
   booking: DecisionBooking;
   cashPrice: number;
+  certificate?: DecisionCertificateBaseline | null;
   creditCards: DecisionCreditCardBenefit[];
-  loyaltyAccount?: DecisionLoyaltyAccount | null;
   loyaltyEligible: boolean;
   loyaltyRule?: DecisionLoyaltyRule | null;
   points: number;
   promotions: DecisionPromotion[];
+  valuations: readonly SourcedValuation[];
 }) {
-  const pointValue = input.loyaltyAccount?.pointValue ?? 0;
+  /* Points take the quoted value as is. A realization rate is a certificate
+   * concept and the write boundary rejects one on a point valuation, so
+   * reading `amount` here keeps that boundary visible instead of quietly
+   * discounting points if a rate ever reached storage another way. */
+  const pointValuation = findValuation(input.valuations, "point");
+  const pointValue = pointValuation?.amount ?? 0;
+  const certificateValuation = input.certificate ? findValuation(input.valuations, input.certificate.kind) : null;
+  const certificateValue =
+    input.certificate && certificateValuation ? input.certificate.count * effectiveUnitValue(certificateValuation) : 0;
   const basePoints = input.loyaltyRule?.basePointsPerUsd ?? 0;
   const bonusRate = input.loyaltyRule?.bonusRate ?? 0;
   const earnedPointsValue = input.loyaltyEligible
@@ -245,12 +274,72 @@ export function calculateStayCost(input: {
   );
   return {
     cashPrice: input.cashPrice,
+    certificateValue,
     creditCardValue,
-    effectiveCost: input.cashPrice + redemptionPointsValue - earnedPointsValue - promotionValue - creditCardValue,
+    effectiveCost:
+      input.cashPrice + redemptionPointsValue + certificateValue - earnedPointsValue - promotionValue - creditCardValue,
     earnedPointsValue,
     promotionValue,
     redemptionPointsValue
   } satisfies CostBreakdown;
+}
+
+/*
+ * What the arithmetic above had to assume, said out loud.
+ *
+ * Spending an unpriced point or certificate is a blocker: valuing it at zero
+ * makes a stay look free, which is the one direction a cost model must never
+ * fail in. Earning an unpriced point is only a warning, because a missing
+ * upside understates both sides rather than manufacturing a saving.
+ */
+export function valuationIssues(input: {
+  certificate?: DecisionCertificateBaseline | null;
+  earnsPoints: boolean;
+  hotelGroup: string;
+  now?: Date;
+  points: number;
+  pointsBasis?: PointsBasis;
+  valuations: readonly SourcedValuation[];
+}) {
+  const now = input.now ?? new Date();
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  let stale = false;
+  const pointValuation = findValuation(input.valuations, "point");
+
+  /*
+   * A nightly points rate priced as if it covered the stay understates the
+   * cost by the number of nights, which points the recommendation the wrong
+   * way — the same failure the cash side already refuses when it treats an
+   * `Avg/Night` starting price as a discovery hint rather than a total.
+   */
+  if (input.points > 0 && input.pointsBasis !== undefined && input.pointsBasis !== "stay_total") {
+    blockers.push(
+      input.pointsBasis === "per_night"
+        ? "The points rate covers one night rather than the stay, so it cannot be compared with a stay total."
+        : "The points rate does not show whether it covers the stay or one night."
+    );
+  }
+
+  if (input.points > 0 && !pointValuation) {
+    blockers.push(missingValuationBlocker(input.hotelGroup, "point"));
+  } else if (input.earnsPoints && !pointValuation) {
+    warnings.push(`No ${input.hotelGroup} point value is recorded, so the points this stay earns are not priced.`);
+  }
+  if (input.certificate) {
+    const certificateValuation = findValuation(input.valuations, input.certificate.kind);
+    if (!certificateValuation) {
+      blockers.push(missingValuationBlocker(input.hotelGroup, input.certificate.kind));
+    } else if (isValuationStale(certificateValuation, now)) {
+      warnings.push(staleValuationWarning(certificateValuation));
+      stale = true;
+    }
+  }
+  if (pointValuation && (input.points > 0 || input.earnsPoints) && isValuationStale(pointValuation, now)) {
+    warnings.push(staleValuationWarning(pointValuation));
+    stale = true;
+  }
+  return { blockers, stale, warnings };
 }
 
 type EntitlementInput = {

@@ -103,6 +103,24 @@ const TRIGGERS: Record<string, Label> = {
   due_queue: { label: "Due queue", tone: "neutral" }
 };
 
+const LOYALTY_VALUATION_KINDS: Record<string, Label> = {
+  point: { label: "Point value", tone: "neutral" },
+  free_night: { label: "Free-night award value", tone: "neutral" },
+  suite_upgrade: { label: "Suite upgrade award value", tone: "neutral" }
+};
+
+const CERTIFICATE_KINDS: Record<string, Label> = {
+  free_night: { label: "Free-night award", tone: "info" },
+  suite_upgrade: { label: "Suite upgrade award", tone: "info" }
+};
+
+const REDEMPTION_VERDICTS: Record<string, Label> = {
+  redeem: { label: "Points beat cash", tone: "positive" },
+  pay_cash: { label: "Cash beats points", tone: "info" },
+  even: { label: "Points match cash", tone: "neutral" },
+  not_compared: { label: "Not compared", tone: "neutral" }
+};
+
 /** Turns an unmapped storage value into sentence-case copy. */
 export function humanize(value: string) {
   const spaced = value.replace(/[_-]+/g, " ").trim();
@@ -175,4 +193,16 @@ export function baselineTypeLabel(value: string | null | undefined) {
 
 export function triggerLabel(value: string | null | undefined) {
   return resolve(TRIGGERS, value, UNKNOWN);
+}
+
+export function loyaltyValuationKindLabel(value: string | null | undefined) {
+  return resolve(LOYALTY_VALUATION_KINDS, value, UNKNOWN);
+}
+
+export function certificateKindLabel(value: string | null | undefined) {
+  return resolve(CERTIFICATE_KINDS, value, UNKNOWN);
+}
+
+export function redemptionVerdictLabel(value: string | null | undefined) {
+  return resolve(REDEMPTION_VERDICTS, value, REDEMPTION_VERDICTS.not_compared);
 }

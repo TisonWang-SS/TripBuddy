@@ -226,6 +226,19 @@
   margin-top: var(--space-3);
 }
 
+/* Cash against points: a stamped conclusion over the two figures behind it. */
+.redemption {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: var(--desk-rule-hair) dashed var(--desk-rule);
+}
+
+.redemptionFigures {
+  margin: var(--space-2) 0 0;
+  color: var(--desk-muted);
+  font-size: var(--desk-text-sm);
+}
+
 /* ------------------------------------------------------------ observation -- */
 
 .sub {

@@ -39,6 +39,8 @@ describe("hotel provider registry", () => {
     expect(url).toContain("/shop/rooms/tyogh");
     expect(url).toContain("checkinDate=2026-09-10");
     expect(url).toContain("currency=USD");
+    /* Asserts only that the parameter is composed. Hyatt was observed to
+     * ignore it on /shop/rooms, so this proves nothing about the page mode. */
     expect(url).toContain("usePoints=true");
     expect(extractHyattHotelCode(url)).toBe("tyogh");
   });
@@ -119,16 +121,99 @@ describe("hotel provider registry", () => {
     });
   });
 
-  it("emits final cash totals and explicit points as observation-ready", () => {
+  it("emits a final cash total as observation-ready and keeps an unplaceable points figure as inventory", () => {
     const provider = getBookingPriceProvider("Hyatt")!;
     const parsed = provider.parseSnapshot(
       snapshot("Price Summary Total Cash MYR3,031.23 Taxes & Fees MYR224.53 1 King Bed Cancellation Policy Free cancellation 25,000 points"),
       { ...input, currency: "MYR" }
     );
+
+    expect(parsed.observations).toEqual([
+      expect.objectContaining({ cashTotal: 3031.23, feesIncluded: true, inventoryType: "cash", taxesIncluded: true })
+    ]);
+    /*
+     * The points figure is real evidence and is kept, but nothing on this page
+     * says whether it covers the stay or a night, so it is not yet a price the
+     * product can compare — the same bar a room-list cash rate has always met.
+     */
+    expect(parsed.inventory).toEqual(
+      expect.arrayContaining([expect.objectContaining({ inventoryType: "award", points: 25000, pointsBasis: "unknown" })])
+    );
+  });
+
+  it("names an award with the room heading that introduces it, not the next card's", () => {
+    const provider = getBookingPriceProvider("Hyatt")!;
+    const parsed = provider.parseSnapshot(
+      snapshot(
+        "SELECT A ROOM 1 King Bed Relax in this room. View Room Details From World of Hyatt Free Night Award 12,000 +1 more rates Points/Night SELECT & BOOK " +
+          "1 King Bed with Club Access Stunning views. View Room Details From World of Hyatt Club Point Free Night Award 17,000 +1 more rates Points/Night SELECT & BOOK"
+      ),
+      input
+    );
+
+    /* Three nights on this fixture's URL: 12,000 and 17,000 a night. Read from
+     * inventory, which keeps every room, so this pins the naming rather than
+     * the separate rule about which rooms are comparable. */
+    expect(
+      parsed.inventory
+        .filter((candidate) => candidate.inventoryType === "award")
+        .map((candidate) => [candidate.roomTypeRaw, candidate.points])
+    ).toEqual([
+      ["1 King Bed", 36_000],
+      ["1 King Bed with Club Access", 51_000]
+    ]);
+  });
+
+  it("keeps only the awards comparable to the booked room, not every room on the page", () => {
+    const provider = getBookingPriceProvider("Hyatt")!;
+    const pointsRoomList = snapshot(
+      "SELECT A ROOM 1 King Bed Relax here. View Room Details From World of Hyatt Free Night Award 12,000 +1 more rates Points/Night SELECT & BOOK " +
+        "2 Twin Beds Twin beds here. View Room Details From World of Hyatt Free Night Award 12,000 +1 more rates Points/Night SELECT & BOOK " +
+        "1 King Bed with Club Access Lounge access. View Room Details From World of Hyatt Club Point Free Night Award 17,000 +1 more rates Points/Night SELECT & BOOK"
+    );
+
+    /* A points room list prices every room at once; the booking is for one.
+     * A club-access variant is a different room, not the booked one. */
+    expect(
+      provider.parseSnapshot(pointsRoomList, input).observations.map((observation) => observation.roomTypeRaw)
+    ).toEqual(["1 King Bed"]);
+    expect(
+      provider.parseSnapshot(pointsRoomList, { ...input, roomType: "2 Twin Beds" }).observations.map((observation) => observation.roomTypeRaw)
+    ).toEqual(["2 Twin Beds"]);
+    expect(
+      provider
+        .parseSnapshot(pointsRoomList, { ...input, roomType: "1 King Bed with Club Access" })
+        .observations.map((observation) => observation.roomTypeRaw)
+    ).toEqual(["1 King Bed with Club Access"]);
+    /* Every room stays in the run's evidence either way. */
+    expect(provider.parseSnapshot(pointsRoomList, input).inventory.length).toBe(3);
+  });
+
+  it("keeps a room out of the comparison when the page quotes it two different prices", () => {
+    const provider = getBookingPriceProvider("Hyatt")!;
+    const parsed = provider.parseSnapshot(
+      snapshot(
+        "SELECT A ROOM 1 King Bed Relax here. View Room Details From World of Hyatt Free Night Award 17,000 +1 more rates Points/Night SELECT & BOOK " +
+          "1 King Bed Choose Your Rate World of Hyatt Free Night Award from 12,000 From 12,000 Points/Night SELECT"
+      ),
+      input
+    );
+
+    expect(parsed.observations.filter((observation) => observation.inventoryType === "award")).toEqual([]);
+    /* Still evidence; just not a price the product will act on. */
+    expect(parsed.inventory.filter((candidate) => candidate.inventoryType === "award").length).toBeGreaterThan(1);
+  });
+
+  it("emits a points figure the page places on the stay as observation-ready", () => {
+    const provider = getBookingPriceProvider("Hyatt")!;
+    const parsed = provider.parseSnapshot(
+      snapshot("Price Summary 1 King Bed Total Points 50,000 points Taxes & Fees MYR224.53"),
+      { ...input, currency: "MYR" }
+    );
+
     expect(parsed.observations).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ cashTotal: 3031.23, feesIncluded: true, inventoryType: "cash", taxesIncluded: true }),
-        expect.objectContaining({ inventoryType: "award", points: 25000 })
+        expect.objectContaining({ inventoryType: "award", points: 50000, pointsBasis: "stay_total" })
       ])
     );
   });

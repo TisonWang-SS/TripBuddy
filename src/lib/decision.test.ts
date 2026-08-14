@@ -6,8 +6,26 @@ import {
   entitlementLossWarnings,
   type DecisionInput,
   type RecommendationDecider,
-  unconfirmedPromotionWarnings
+  unconfirmedPromotionWarnings,
+  valuationIssues
 } from "@/lib/decision";
+import type { SourcedValuation } from "@/lib/loyaltyValuation";
+
+const NOW = new Date("2026-08-13T00:00:00Z");
+
+function valuation(overrides: Partial<SourcedValuation> = {}): SourcedValuation {
+  return {
+    amount: 0.01,
+    asOf: new Date("2026-07-01T00:00:00Z"),
+    currency: "USD",
+    hotelGroup: "Hyatt",
+    kind: "point",
+    lastReviewedAt: new Date("2026-07-01T00:00:00Z"),
+    realizationRate: 1,
+    sourceName: "Points guy valuations",
+    ...overrides
+  };
+}
 
 const booking = {
   baselineCashTotal: 1000,
@@ -40,11 +58,11 @@ function cost(cashPrice: number, points = 0) {
     booking,
     cashPrice,
     creditCards: [],
-    loyaltyAccount: { hotelGroup: "Hyatt", pointValue: 0.01, tier: "Member" },
     loyaltyEligible: true,
     loyaltyRule: null,
     points,
-    promotions: []
+    promotions: [],
+    valuations: [valuation()]
   });
 }
 
@@ -74,6 +92,111 @@ describe("decision boundary", () => {
     expect(cost(0, 25000).effectiveCost).toBe(250);
   });
 
+  it("prices a spent certificate at its quoted value adjusted by the realization rate", () => {
+    const breakdown = calculateStayCost({
+      booking,
+      cashPrice: 0,
+      certificate: { count: 2, kind: "free_night" },
+      creditCards: [],
+      loyaltyEligible: true,
+      loyaltyRule: null,
+      points: 0,
+      promotions: [],
+      valuations: [valuation({ amount: 300, kind: "free_night", realizationRate: 0.8 })]
+    });
+
+    expect(breakdown.certificateValue).toBe(480);
+    expect(breakdown.effectiveCost).toBe(480);
+  });
+
+  it("blocks a stay that spends an unpriced figure and only warns about an unpriced one it earns", () => {
+    const spending = valuationIssues({
+      certificate: { count: 1, kind: "free_night" },
+      earnsPoints: true,
+      hotelGroup: "Hyatt",
+      now: NOW,
+      points: 25000,
+      valuations: []
+    });
+    const earning = valuationIssues({
+      earnsPoints: true,
+      hotelGroup: "Hyatt",
+      now: NOW,
+      points: 0,
+      valuations: []
+    });
+
+    expect(spending.blockers).toEqual([
+      "No Hyatt point value is recorded, so this stay cannot be priced.",
+      "No Hyatt free-night award value is recorded, so this stay cannot be priced."
+    ]);
+    expect(earning.blockers).toEqual([]);
+    expect(earning.warnings).toEqual([
+      "No Hyatt point value is recorded, so the points this stay earns are not priced."
+    ]);
+  });
+
+  it("blocks a nightly points rate from being priced as if it covered the stay", () => {
+    const nightly = valuationIssues({
+      earnsPoints: false,
+      hotelGroup: "Hyatt",
+      now: NOW,
+      points: 12_000,
+      pointsBasis: "per_night",
+      valuations: [valuation()]
+    });
+    const unknown = valuationIssues({
+      earnsPoints: false,
+      hotelGroup: "Hyatt",
+      now: NOW,
+      points: 12_000,
+      pointsBasis: "unknown",
+      valuations: [valuation()]
+    });
+    const wholeStay = valuationIssues({
+      earnsPoints: false,
+      hotelGroup: "Hyatt",
+      now: NOW,
+      points: 24_000,
+      pointsBasis: "stay_total",
+      valuations: [valuation()]
+    });
+
+    expect(nightly.blockers).toEqual([
+      "The points rate covers one night rather than the stay, so it cannot be compared with a stay total."
+    ]);
+    expect(unknown.blockers).toEqual(["The points rate does not show whether it covers the stay or one night."]);
+    expect(wholeStay.blockers).toEqual([]);
+  });
+
+  it("keeps using a valuation past its review date and names it as stale", () => {
+    const stale = valuation({ lastReviewedAt: new Date("2026-01-01T00:00:00Z") });
+    const breakdown = calculateStayCost({
+      booking,
+      cashPrice: 0,
+      creditCards: [],
+      loyaltyEligible: true,
+      loyaltyRule: null,
+      points: 25000,
+      promotions: [],
+      valuations: [stale]
+    });
+    const issues = valuationIssues({
+      earnsPoints: false,
+      hotelGroup: "Hyatt",
+      now: NOW,
+      points: 25000,
+      valuations: [stale]
+    });
+
+    expect(breakdown.redemptionPointsValue).toBe(250);
+    expect(issues.blockers).toEqual([]);
+    expect(issues.stale).toBe(true);
+    expect(issues.warnings).toEqual([
+      "The Hyatt point value (Points guy valuations, reviewed Jan 1, 2026) is past its 180-day review date and was used as recorded."
+    ]);
+  });
+
   it("uses the best eligible payment card instead of stacking multiple cards", () => {
     const breakdown = calculateStayCost({
       booking,
@@ -82,11 +205,11 @@ describe("decision boundary", () => {
         { cashBackRate: 0.02, hotelGroup: null, pointMultiplier: 0 },
         { cashBackRate: 0, hotelGroup: "Hyatt", pointMultiplier: 4 }
       ],
-      loyaltyAccount: { hotelGroup: "Hyatt", pointValue: 0.01, tier: "Member" },
       loyaltyEligible: true,
       loyaltyRule: null,
       points: 0,
-      promotions: []
+      promotions: [],
+      valuations: [valuation()]
     });
     expect(breakdown.creditCardValue).toBe(40);
   });
@@ -106,21 +229,21 @@ describe("decision boundary", () => {
       booking,
       cashPrice: 1000,
       creditCards: [],
-      loyaltyAccount: { hotelGroup: "Hyatt", pointValue: 0.01, tier: "Globalist" },
       loyaltyEligible: true,
       loyaltyRule,
       points: 0,
-      promotions: []
+      promotions: [],
+      valuations: [valuation()]
     });
     const candidateCost = calculateStayCost({
       booking,
       cashPrice: 1000,
       creditCards: [],
-      loyaltyAccount: { hotelGroup: "Hyatt", pointValue: 0.01, tier: "Globalist" },
       loyaltyEligible: false,
       loyaltyRule,
       points: 0,
-      promotions: []
+      promotions: [],
+      valuations: [valuation()]
     });
     const warnings = entitlementLossWarnings({
       baseline: { breakfastIncluded: false, loyaltyEligible: true, loyaltyRule },
@@ -160,21 +283,21 @@ describe("decision boundary", () => {
       booking,
       cashPrice: 1000,
       creditCards: [],
-      loyaltyAccount: null,
       loyaltyEligible: true,
       loyaltyRule,
       points: 0,
-      promotions: []
+      promotions: [],
+      valuations: []
     });
     const candidateCost = calculateStayCost({
       booking,
       cashPrice: 1000,
       creditCards: [],
-      loyaltyAccount: null,
       loyaltyEligible: false,
       loyaltyRule,
       points: 0,
-      promotions: []
+      promotions: [],
+      valuations: []
     });
 
     expect(warnings).toEqual([]);
@@ -196,11 +319,11 @@ describe("decision boundary", () => {
       booking,
       cashPrice: 1000,
       creditCards: [],
-      loyaltyAccount: null,
       loyaltyEligible: true,
       loyaltyRule: null,
       points: 0,
-      promotions: [promotion]
+      promotions: [promotion],
+      valuations: []
     });
 
     expect(breakdown.promotionValue).toBe(0);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planBrowserAgentAction, type BrowserAgentSnapshot } from "@/lib/providers/hyattBrowser";
+import { isHyattUsePointsControl, planBrowserAgentAction, type BrowserAgentSnapshot } from "@/lib/providers/hyattBrowser";
 
 describe("browser agent planner", () => {
   it("opens the matching Hyatt View Rates result from a city search snapshot", () => {
@@ -491,5 +491,89 @@ describe("browser agent planner", () => {
     ).toMatchObject({
       action: "import"
     });
+  });
+});
+
+describe("switching Hyatt into points", () => {
+  const roomList = {
+    pageText: "SELECT A ROOM 1 King Bed Members Save More $155 Avg/Night SELECT & BOOK",
+    sourceUrl: "https://www.hyatt.com/shop/rooms/kuagh?checkinDate=2026-09-10&checkoutDate=2026-09-12",
+    targetHotelName: "Grand Hyatt Kuala Lumpur"
+  };
+  const pointsToggle = { context: "Accessible Room Use Points", elementId: "toggle-1", label: "Use Points", pressed: false };
+  const selectAndBook = { context: "Members Save More $155 Avg/Night", elementId: "book-1", label: "SELECT & BOOK", pressed: null };
+
+  it("presses the visible Use Points switch before reading a room rate", () => {
+    const action = planBrowserAgentAction({
+      ...roomList,
+      controls: [pointsToggle, selectAndBook],
+      wantsAwardRates: true
+    });
+
+    expect(action).toMatchObject({ action: "click", elementId: "toggle-1" });
+  });
+
+  it("leaves an already-on switch alone rather than toggling back to cash", () => {
+    const action = planBrowserAgentAction({
+      ...roomList,
+      controls: [{ ...pointsToggle, pressed: true }, selectAndBook],
+      wantsAwardRates: true
+    });
+
+    expect(action).toMatchObject({ action: "click", elementId: "book-1" });
+  });
+
+  it("never presses it on the leg that owes a cash total", () => {
+    const action = planBrowserAgentAction({
+      ...roomList,
+      controls: [pointsToggle, selectAndBook],
+      wantsAwardRates: false
+    });
+
+    expect(action).toMatchObject({ action: "click", elementId: "book-1" });
+  });
+
+  /*
+   * Hyatt remembers the switch across navigation, so the cash leg arrived at a
+   * room list still showing points, walked an award card, and stopped on the
+   * rate control Hyatt greys out for anonymous redemption — a cash check that
+   * came back with no cash in it.
+   */
+  it("switches back to cash when the leg that owes a cash total finds points still on", () => {
+    const action = planBrowserAgentAction({
+      ...roomList,
+      controls: [{ ...pointsToggle, pressed: true }, selectAndBook],
+      wantsAwardRates: false
+    });
+
+    expect(action).toMatchObject({ action: "click", elementId: "toggle-1" });
+  });
+
+  it("does not mistake Hyatt's marketing copy for the switch", () => {
+    expect(isHyattUsePointsControl("Use Points")).toBe(true);
+    expect(isHyattUsePointsControl("Points")).toBe(true);
+    expect(isHyattUsePointsControl("Earn 5,000 Bonus Points")).toBe(false);
+    expect(isHyattUsePointsControl("Points View")).toBe(false);
+  });
+});
+
+describe("reading a points room list", () => {
+  const pointsRoomList =
+    "SELECT A ROOM 1 King Bed View Room Details From World of Hyatt Free Night Award 12,000 +1 more rates Points/Night SELECT & BOOK " +
+    "1 King Bed with Club Access View Room Details From World of Hyatt Club Point Free Night Award 17,000 +1 more rates Points/Night SELECT & BOOK";
+
+  it("selects the cheapest award room instead of stalling on a page with no cash price", () => {
+    const action = planBrowserAgentAction({
+      controls: [
+        { context: "From World of Hyatt Club Point Free Night Award 17,000 +1 more rates Points/Night", elementId: "club", label: "SELECT & BOOK", pressed: null },
+        { context: "From World of Hyatt Free Night Award 12,000 +1 more rates Points/Night", elementId: "king", label: "SELECT & BOOK", pressed: null }
+      ],
+      pageText: pointsRoomList,
+      sourceUrl: "https://www.hyatt.com/shop/rooms/kuagh?checkinDate=2026-09-10&checkoutDate=2026-09-12",
+      targetHotelName: "Grand Hyatt Kuala Lumpur",
+      wantsAwardRates: true
+    });
+
+    expect(action).toMatchObject({ action: "click", elementId: "king" });
   });
 });

@@ -60,10 +60,20 @@ export default async function WatchPlanPage({ params }: { params: Promise<{ id: 
           <CheckField
             defaultChecked={booking.watchPlan?.awardEnabled ?? true}
             id="awardEnabled"
-            label="Check award availability"
+            label="Check award rates (opens Hyatt in points mode)"
             name="awardEnabled"
           />
         </FieldGrid>
+        {/*
+          Not a preference pair: Hyatt's rooms page is either cash or points,
+          and the mode is fixed in the URL this check launches. Ticking award
+          therefore decides the whole run, which the labels above must not let
+          a reader discover only from the result.
+        */}
+        <Notice tone="info">
+          Hyatt shows one mode per page, so ticking award rates puts the whole check in points mode. Leave it unticked to
+          collect a cash total.
+        </Notice>
 
         <FieldGrid>
           <Field htmlFor="normalCadenceHours" label="Normal reminder cadence (hours)">

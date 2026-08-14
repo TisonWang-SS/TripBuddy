@@ -301,21 +301,46 @@ function classifyQuality(input: {
   return "medium";
 }
 
-function inferRoomMatch(currentRoomType: string, observedRoomType: string | null) {
-  const current = normalizeComparableRoom(currentRoomType);
-  const observed = normalizeComparableRoom(observedRoomType ?? "");
-  if (!current || !observed || /not captured|unknown/.test(observed)) {
+/*
+ * Compared as sets of meaningful words, not by one name containing the other.
+ *
+ * Containment made "1 King Bed" an exact match for "1 King Bed with Club
+ * Access", which is a different room at a different price — a substring test
+ * cannot tell a formatting difference from an added entitlement. Comparing
+ * what each name actually says keeps "King Bed" and "1 King Bed" equivalent
+ * while holding the club room apart as the upgrade it is.
+ */
+export function inferRoomMatch(currentRoomType: string, observedRoomType: string | null) {
+  const observedText = normalizeComparableRoom(observedRoomType ?? "");
+  const current = comparableRoomTokens(currentRoomType);
+  const observed = comparableRoomTokens(observedRoomType ?? "");
+  if (current.size === 0 || observed.size === 0 || /not captured|unknown/.test(observedText)) {
     return { match: "unknown" as const, reason: "Observed room type was not captured." };
   }
-  if (current === observed || current.includes(observed) || observed.includes(current)) {
+  if (current.size === observed.size && [...current].every((token) => observed.has(token))) {
     return { match: "exact" as const, reason: "The normalized room names match." };
   }
   for (const token of ["king", "queen", "twin", "double", "suite"]) {
-    if (current.includes(token) && observed.includes(token)) {
-      return { match: "similar" as const, reason: `Both room names contain ${token}.` };
+    if (current.has(token) && observed.has(token)) {
+      const extra = [...observed].filter((word) => !current.has(word));
+      return {
+        match: "similar" as const,
+        reason: extra.length > 0
+          ? `Both room names contain ${token}, but the candidate also states ${extra.join(" ")}.`
+          : `Both room names contain ${token}.`
+      };
     }
   }
   return { match: "unknown" as const, reason: "The room names are not equivalent enough to infer a match." };
+}
+
+/* Bed counts and connecting words describe formatting, not a different room. */
+function comparableRoomTokens(value: string) {
+  return new Set(
+    normalizeComparableRoom(value)
+      .split(" ")
+      .filter((token) => token && token !== "with" && token !== "and" && !/^\d+$/.test(token))
+  );
 }
 
 function normalizeComparableRoom(value: string) {

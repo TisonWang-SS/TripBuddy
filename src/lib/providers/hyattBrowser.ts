@@ -9,6 +9,8 @@ export type BrowserAgentControlSnapshot = {
   elementId: string;
   href?: string | null;
   label: string;
+  /** Toggle state; null when the control is not a toggle at all. */
+  pressed?: boolean | null;
 };
 
 export type BrowserAgentSnapshot = {
@@ -18,11 +20,22 @@ export type BrowserAgentSnapshot = {
   pageTitle?: string | null;
   sourceUrl?: string | null;
   targetHotelName?: string | null;
+  /** Whether this leg of the run is the one that owes an award rate. */
+  wantsAwardRates?: boolean;
 };
 
 export type BrowserAgentAction =
   | { action: "click"; elementId: string; reason: string; rememberRoomList?: boolean }
   | { action: "import"; reason: string }
+  /**
+   * Go to a URL this product built, in the tab the task already owns.
+   *
+   * Only ever a URL the server composed from the booking, never one read off
+   * the page: navigation the page can choose is navigation an attacker can
+   * choose. The task itself survives because it lives in tab session storage,
+   * which is how the existing click-through and auto-reload already resume.
+   */
+  | { action: "navigate"; reason: string; url: string }
   | { action: "stop"; reason: string }
   | { action: "wait"; milliseconds: number; reason: string };
 
@@ -97,11 +110,59 @@ export function planBrowserAgentAction(snapshot: BrowserAgentSnapshot): BrowserA
     return { action: "wait", milliseconds: 1500, reason: "Waiting for a safe Hyatt cart continue control." };
   }
 
+  /*
+   * Points are a switch on the page, not a parameter in the URL.
+   *
+   * A real run settled this: the rooms page was opened with `usePoints=true`
+   * and rendered cash anyway, while the visible text carried a "Use Points"
+   * control that nothing had pressed. So the mode is only ever entered by
+   * pressing it, and only while it is off — pressing an already-on switch
+   * would put the run back into cash and quietly return the wrong inventory.
+   */
   if (hasRoomListRateToken(pageText)) {
-    const roomRate = chooseLowestAmountControl(
-      withCardText(controls.filter((control) => isHyattRoomRateSelectControl(control.label)), pageText),
-      new RegExp(`(?:${HYATT_CURRENCY_PATTERN})\\s*[0-9][0-9,]*(?:\\.\\d{2})?\\s*(?:Avg\\s*\\/\\s*Night|Average\\s*\\/\\s*Night|per\\s*night|\\/\\s*night)`, "i")
+    const wantsAward = snapshot.wantsAwardRates === true;
+    const pointsToggle = controls.find(
+      (control) => isHyattUsePointsControl(control.label) && control.pressed === !wantsAward
     );
+    if (pointsToggle) {
+      /*
+       * Both directions. Hyatt remembers the switch across navigation, so the
+       * cash leg arrived at a room list still showing points, walked an award
+       * card, and stopped on the rate control Hyatt greys out for anonymous
+       * redemption — a cash check that returned no cash at all.
+       */
+      return {
+        action: "click",
+        elementId: pointsToggle.elementId,
+        reason: wantsAward
+          ? "Switch Hyatt's visible room rates to points."
+          : "Switch Hyatt's visible room rates back to cash."
+      };
+    }
+  }
+
+  if (hasRoomListRateToken(pageText)) {
+    /*
+     * Rank by whatever unit the page is quoting. A points room list prints no
+     * cash amount at all, so ranking only by cash found nothing to click and
+     * the run sat on the room list until it timed out — with the switch
+     * correctly flipped and the award rates plainly on screen.
+     */
+    const selectControls = withCardText(
+      controls.filter((control) => isHyattRoomRateSelectControl(control.label)),
+      pageText
+    );
+    const roomRate =
+      chooseLowestAmountControl(
+        selectControls,
+        new RegExp(`(?:${HYATT_CURRENCY_PATTERN})\\s*[0-9][0-9,]*(?:\\.\\d{2})?\\s*(?:Avg\\s*\\/\\s*Night|Average\\s*\\/\\s*Night|per\\s*night|\\/\\s*night)`, "i")
+      ) ??
+      chooseLowestAmountControl(
+        selectControls,
+        new RegExp(HYATT_POINTS_RATE_PATTERN, "i"),
+        () => 0,
+        extractLowestPointsAmount
+      );
     if (roomRate) {
       return { action: "click", elementId: roomRate.elementId, reason: "Select the lowest visible Hyatt room rate.", rememberRoomList: true };
     }
@@ -223,7 +284,10 @@ function withCardText(controls: BrowserAgentControlSnapshot[], pageText: string)
 function chooseLowestAmountControl(
   controls: BrowserAgentControlSnapshot[],
   requiredContextPattern: RegExp,
-  priority: (control: BrowserAgentControlSnapshot) => number = () => 0
+  priority: (control: BrowserAgentControlSnapshot) => number = () => 0,
+  /* Cash by default. A points room list quotes no currency at all, so reading
+   * the amount has to follow whichever unit the page is actually using. */
+  extractAmount: (text: string) => number | null = extractLowestAmount
 ) {
   return controls
     .map((control) => {
@@ -231,7 +295,7 @@ function chooseLowestAmountControl(
       if (!requiredContextPattern.test(context)) {
         return null;
       }
-      const amount = extractLowestAmount(`${control.label} ${context}`);
+      const amount = extractAmount(`${control.label} ${context}`);
       return amount === null ? null : { ...control, amount, priority: priority(control) };
     })
     .filter((control): control is BrowserAgentControlSnapshot & { amount: number; priority: number } => control !== null)
@@ -257,13 +321,25 @@ function isHyattSearchUrl(sourceUrl: string) {
   }
 }
 
+/*
+ * Deliberately narrow. This control changes what inventory the whole run
+ * reports, so a loose match ("points" appears in Hyatt's marketing copy and in
+ * its search placeholder text) would be a way to press the wrong thing.
+ */
+export function isHyattUsePointsControl(label: string) {
+  return /^(?:use\s+points|points)$/i.test(compact(label));
+}
+
 function isHyattEmptySnapshot(snapshot: BrowserAgentSnapshot) {
   return /hyatt\.com/i.test(snapshot.sourceUrl ?? "") && !snapshot.pageTitle && compact(snapshot.pageText).length === 0;
 }
 
+/** The points unit Hyatt's room list actually prints beside an award rate. */
+const HYATT_POINTS_RATE_PATTERN = `[0-9][0-9,]{3,8}(?:.{0,40}?Points\\s*\\/\\s*Night|\\s*(?:points|pts))`;
+
 function hasRoomListRateToken(text: string) {
   return new RegExp(`(?:${HYATT_CURRENCY_PATTERN})\\s*[0-9][0-9,]*(?:\\.\\d{2})?\\s*(?:Avg\\s*\\/\\s*Night|Average\\s*\\/\\s*Night|per\\s*night|\\/\\s*night)`, "i").test(text) ||
-    /[0-9][0-9,]{3,8}\s*(?:points|pts)/i.test(text);
+    new RegExp(HYATT_POINTS_RATE_PATTERN, "i").test(text);
 }
 
 function hasFinalTotalToken(text: string) {
@@ -350,6 +426,18 @@ function extractLowestAmount(text: string) {
   const pattern = new RegExp(`(?:${HYATT_CURRENCY_PATTERN})\\s*([0-9][0-9,]*(?:\\.\\d{2})?)`, "gi");
   const amounts = [...text.matchAll(pattern)]
     .map((match) => Number(match[1].replace(/,/g, "")))
+    .filter((amount) => Number.isFinite(amount));
+  return amounts.length > 0 ? Math.min(...amounts) : null;
+}
+
+/*
+ * Anchored on "Points/Night" rather than on any four-digit number: a room card
+ * also carries square metres, review counts and a rate count.
+ */
+function extractLowestPointsAmount(text: string) {
+  const pattern = new RegExp(`([0-9][0-9,]{3,8})(?=.{0,40}?Points\\s*\\/\\s*Night)|([0-9][0-9,]{3,8})\\s*(?:points|pts)`, "gi");
+  const amounts = [...text.matchAll(pattern)]
+    .map((match) => Number((match[1] ?? match[2]).replace(/,/g, "")))
     .filter((amount) => Number.isFinite(amount));
   return amounts.length > 0 ? Math.min(...amounts) : null;
 }

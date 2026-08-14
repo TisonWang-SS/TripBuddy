@@ -194,6 +194,45 @@ describe("Browser Companion behavior", () => {
     ]);
   });
 
+  /*
+   * The rooms page decides cash against points with a switch, and a collector
+   * that only saw links and buttons reported a page with no such control —
+   * which is how a points check ran four times without ever entering points.
+   */
+  it("captures a labelled switch with its state, not just links and buttons", () => {
+    const toggle = {
+      checked: false,
+      closest: vi.fn(() => null),
+      getAttribute: vi.fn((name: string) => (name === "id" ? "use-points" : null)),
+      getBoundingClientRect: () => ({ height: 20, width: 40 }),
+      innerText: "",
+      parentElement: null,
+      setAttribute: vi.fn(),
+      tagName: "INPUT",
+      textContent: "",
+      type: "checkbox"
+    };
+    /*
+     * Selector-aware on purpose: a mock that answers every query would pass
+     * even if the collector had never asked for a checkbox, which is exactly
+     * the bug this test exists to prevent.
+     */
+    const querySelectorAll = vi.fn((selector: string) => (/input\[type="checkbox"\]|role="switch"/.test(selector) ? [toggle] : []));
+    const context = contentContext({
+      HTMLAnchorElement: class TestAnchor {},
+      document: {
+        getElementById: vi.fn(() => null),
+        querySelector: vi.fn(() => ({ innerText: "Use Points" })),
+        querySelectorAll
+      },
+      getComputedStyle: () => ({ display: "block", visibility: "visible" })
+    });
+
+    expect(vm.runInContext("collectControls()", context)).toMatchObject([
+      { label: "Use Points", pressed: false }
+    ]);
+  });
+
   it("returns visible Hyatt sign-in evidence through the task protocol", async () => {
     const location = {
       hash: "",
@@ -558,5 +597,57 @@ describe("Browser Companion behavior", () => {
     expect(sendMessage).not.toHaveBeenCalled();
     expect(statusBox.textContent).toBe("Open the Hyatt tab launched by TripBuddy first.");
     expect(importButton.disabled).toBe(false);
+  });
+
+  /*
+   * From a real run: Hyatt's award rate card opened, TripBuddy pressed SELECT
+   * twelve times, the page never changed, and the only thing reported was a
+   * timeout. The card itself said why it would not move.
+   */
+  it("reports a control that does not advance instead of retrying it into a timeout", async () => {
+    const control = {
+      closest: vi.fn(() => null),
+      /* Only the control-id attribute answers; an aria-label here would be
+       * read as the button's text and hide what the run actually pressed. */
+      getAttribute: vi.fn((name: string) => (name === "data-tripbuddy-control-id" ? "select-1" : null)),
+      getBoundingClientRect: () => ({ height: 20, width: 100 }),
+      innerText: "SELECT",
+      parentElement: null,
+      setAttribute: vi.fn(),
+      textContent: "SELECT"
+    };
+    const pageText = "Choose Your Rate World of Hyatt Free Night Award from 12,000 Points/Night Sign In or Join to book SELECT";
+    const posted: Array<Record<string, unknown>> = [];
+    const context = contentContext({
+      HTMLAnchorElement: class TestAnchor {},
+      document: {
+        body: { innerText: pageText },
+        querySelector: vi.fn(() => control),
+        querySelectorAll: vi.fn(() => [control]),
+        title: "Hyatt rooms"
+      },
+      getComputedStyle: () => ({ display: "block", visibility: "visible" })
+    });
+    vm.runInContext(`
+      waitForReadablePage = async () => true;
+      showStatus = () => {};
+      delay = async () => {};
+      activateSafeControl = () => {};
+      postCapture = async (endpoint, taskId, body) => {
+        globalThis.__posted.push(body);
+        return body.errorCode
+          ? { status: "failed" }
+          : { status: "running", action: { action: "click", elementId: "select-1", reason: "Select the lowest visible Hyatt rate plan." } };
+      };
+    `, context);
+    context.__posted = posted;
+
+    await vm.runInContext('runBookingPriceTask("http://localhost:3000", "price-task")', context);
+
+    const failure = posted.find((body) => body.errorCode);
+    expect(failure).toMatchObject({ errorCode: "control_did_not_advance" });
+    expect(String(failure?.errorMessage)).toContain('pressed "SELECT"');
+    /* Quotes the page's own reason rather than guessing at one. */
+    expect(String(failure?.errorMessage)).toContain("Sign In or Join to book");
   });
 });

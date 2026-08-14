@@ -145,7 +145,8 @@ describe("browser task JSON codecs", () => {
     expect(parsed[0].controls[0]).toEqual({
       context: "Members Save More $99 Avg/Night",
       href: "https://www.hyatt.com/shop/rooms/nrtzt",
-      label: "Book Now"
+      label: "Book Now",
+      pressed: null
     });
     expect(parsed[0].controls[1].context).toHaveLength(300);
     expect(parsed[0].controls[1].href).toHaveLength(300);

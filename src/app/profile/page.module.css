@@ -15,6 +15,15 @@
   border-top: 0;
 }
 
+/* A figure's provenance sits under the figure rather than in its own column. */
+.stacked {
+  display: block;
+  margin-top: 2px;
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+}
+
 .programName {
   margin: 0 0 var(--space-3);
   color: var(--desk-ink);

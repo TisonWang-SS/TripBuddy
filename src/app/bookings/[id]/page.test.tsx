@@ -135,4 +135,53 @@ describe("booking detail page", () => {
     expect(screen.getAllByText("$1,200").length).toBeGreaterThan(1);
     expect(screen.getAllByText("$1,100").length).toBeGreaterThan(1);
   });
+
+  it("shows the certificate component and states the redemption conclusion with both figures", async () => {
+    const { prisma } = await import("@/lib/db");
+    const base = (await prisma.hotelBooking.findUnique({ where: { id: "booking-1" } })) as never as {
+      recommendations: { costBreakdownJson: string }[];
+    };
+    const cost = {
+      cashPrice: 0,
+      certificateValue: 240,
+      creditCardValue: 0,
+      effectiveCost: 240,
+      earnedPointsValue: 0,
+      promotionValue: 0,
+      redemptionPointsValue: 0
+    };
+    vi.mocked(prisma.hotelBooking.findUnique).mockResolvedValueOnce({
+      ...base,
+      recommendations: [
+        {
+          ...base.recommendations[0],
+          costBreakdownJson: JSON.stringify({
+            baseline: cost,
+            candidate: { ...cost, certificateValue: 0, cashPrice: 200, effectiveCost: 200 },
+            redemption: {
+              captureId: "run-1",
+              cashTotal: 500,
+              copay: 0,
+              currency: "USD",
+              points: 25_000,
+              pointValue: 0.017,
+              reason: null,
+              roomLabel: "1 King Bed",
+              valuePerPoint: 0.02,
+              verdict: "redeem"
+            }
+          })
+        }
+      ]
+    } as never);
+
+    render(await BookingDetailPage({ params: Promise.resolve({ id: "booking-1" }) }));
+
+    expect(screen.getByText("Certificate value spent")).toBeInTheDocument();
+    expect(screen.getByText("Points beat cash")).toBeInTheDocument();
+    expect(screen.queryByText("redeem")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/\$500 cash against 25,000 points returns 0\.0200 USD per point, against a recorded 0\.017 USD\./)
+    ).toBeInTheDocument();
+  });
 });

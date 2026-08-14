@@ -11,6 +11,7 @@ import {
   cancellationMatchLabel,
   collectionMethodLabel,
   evidenceQualityLabel,
+  redemptionVerdictLabel,
   riskLevelLabel,
   roomMatchLabel,
   runStatusLabel,
@@ -18,6 +19,7 @@ import {
   verdictLabel
 } from "@/lib/labels";
 import { parseRecommendationCostBreakdown } from "@/lib/recommendationCodecs";
+import type { RedemptionComparison } from "@/lib/redemptionComparison";
 import { Button, buttonClassName, Card, EmptyState, Figure, Figures, LabelStamp, Table } from "@/ui";
 import styles from "./page.module.css";
 
@@ -99,6 +101,13 @@ export default async function BookingDetailPage({ params }: { params: Promise<{ 
               blockers={stringList(latestRecommendation.blockersJson)}
               warnings={stringList(latestRecommendation.warningsJson)}
             />
+            {/*
+              Cash against points is a conclusion, not a line item. It was
+              rendered inside the collapsed cost breakdown, where a reader who
+              had recorded a point value specifically to get this answer never
+              saw it — the disclosure said "Cost breakdown" and stayed shut.
+            */}
+            <RedemptionConclusion value={parseRecommendationCostBreakdown(latestRecommendation.costBreakdownJson)?.redemption} />
             <RecommendationCostBreakdown
               currency={latestRecommendation.currency}
               value={latestRecommendation.costBreakdownJson}
@@ -223,6 +232,13 @@ function RecommendationCostBreakdown({ currency, value }: { currency: string; va
     ["Promotion value", breakdown.baseline.promotionValue, breakdown.candidate.promotionValue],
     ["Credit-card value", breakdown.baseline.creditCardValue, breakdown.candidate.creditCardValue]
   ];
+  if (breakdown.baseline.certificateValue !== undefined && breakdown.candidate.certificateValue !== undefined) {
+    rows.splice(2, 0, [
+      "Certificate value spent",
+      breakdown.baseline.certificateValue,
+      breakdown.candidate.certificateValue
+    ]);
+  }
   if (breakdown.baseline.eliteProgressValue !== undefined && breakdown.candidate.eliteProgressValue !== undefined) {
     rows.push([
       "Elite progress value (historical)",
@@ -260,5 +276,29 @@ function RecommendationCostBreakdown({ currency, value }: { currency: string; va
         </tbody>
       </Table>
     </details>
+  );
+}
+
+/*
+ * Both figures, then the conclusion. A verdict without the cash total and the
+ * points beside it is an assertion the reader cannot check.
+ */
+function RedemptionConclusion({ value }: { value?: RedemptionComparison }) {
+  if (!value) {
+    return null;
+  }
+  return (
+    <div className={styles.redemption}>
+      <LabelStamp value={redemptionVerdictLabel(value.verdict)} />
+      {value.valuePerPoint !== null && value.points !== null && value.cashTotal !== null && value.currency ? (
+        <p className={styles.redemptionFigures}>
+          {formatMoney(value.cashTotal, value.currency)} cash against {value.points.toLocaleString("en-US")} points
+          {value.copay ? ` plus ${formatMoney(value.copay, value.currency)}` : ""} returns{" "}
+          {value.valuePerPoint.toFixed(4)} {value.currency} per point
+          {value.pointValue === null ? "" : `, against a recorded ${value.pointValue} ${value.currency}`}.
+        </p>
+      ) : null}
+      {value.reason ? <p className={styles.redemptionFigures}>{value.reason}</p> : null}
+    </div>
   );
 }
