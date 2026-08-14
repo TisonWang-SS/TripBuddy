@@ -222,6 +222,75 @@ function normalizeSerializedSearchArgs(raw: unknown) {
   };
 }
 
+/**
+ * The upgrade from a starting price to a price that can settle a budget.
+ *
+ * This existed only as a button beside each hotel, which put the judgement of
+ * *when* a total is needed on the reader: they had to know that an Avg/Night
+ * excludes taxes and fees, and press accordingly. As a capability the agent
+ * makes that call itself — a stated budget and a starting-price-only row is
+ * exactly the situation the loop should resolve without being asked.
+ *
+ * The stay conditions are read from the saved session rather than accepted as
+ * arguments. A total for slightly different dates than the search that produced
+ * the row is not comparable to it, and the task layer rejects the mismatch
+ * anyway; taking them from the session means there is nothing to mismatch.
+ */
+export const getTaxInclusiveTotal: Capability<
+  { hotelName: string; searchSessionId: string },
+  { launchUrl: string; searchSessionId: string; taskId: string }
+> = {
+  name: "get_tax_inclusive_total",
+  keywords: ["final total", "tax inclusive", "all in price", "total cost", "with taxes"],
+  summary:
+    "Open a Hyatt tab and capture one hotel's verified tax-inclusive total for a stay already found by search_hotels.",
+  effect: "browser_task",
+  params: [
+    {
+      description: "The hotel name exactly as it appears in the search results.",
+      name: "hotelName",
+      required: true,
+      type: "string"
+    },
+    {
+      description: "The search session the hotel was found in.",
+      name: "searchSessionId",
+      required: true,
+      type: "string"
+    }
+  ],
+  resultRoute({ searchSessionId }) {
+    return `/hotel-search?sessionId=${encodeURIComponent(searchSessionId)}`;
+  },
+  parseArgs(raw) {
+    const bag = argsBag(raw, ["hotelName", "searchSessionId"]);
+    return {
+      hotelName: requireString(bag, "hotelName"),
+      searchSessionId: requireString(bag, "searchSessionId")
+    };
+  },
+  async run({ hotelName, searchSessionId }) {
+    const session = await getHotelSearchSession(searchSessionId);
+    if (!session) {
+      throw new CapabilityArgsError("That hotel search session expired. Run the city search again before asking for a total.");
+    }
+    const known = session.results.hotels.some((hotel) => hotel.hotelName === hotelName);
+    if (!known) {
+      throw new CapabilityArgsError(`“${hotelName}” is not one of the hotels in that search. Name one from the results.`);
+    }
+    const task = await createHotelSearchTask({
+      ...session.query,
+      hotelName,
+      mode: "tax_inclusive_total",
+      searchSessionId
+    });
+    if (!task.launchUrl || !task.taskId) {
+      throw new Error("The tax-inclusive task was created but its launch state could not be read back.");
+    }
+    return { launchUrl: task.launchUrl, searchSessionId: task.searchSessionId, taskId: task.taskId };
+  }
+};
+
 export const getSearchSession: Capability<{ sessionId: string }, { session: HotelSearchSessionSnapshot | null }> = {
   name: "get_hotel_search_session",
   keywords: ["search results", "offers", "search session"],

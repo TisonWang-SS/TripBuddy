@@ -159,8 +159,22 @@ describe("surface composition", () => {
 
   /* A capability with no rendered form says so, rather than inventing one. */
   it("returns null for a capability it cannot render", () => {
-    expect(composeCapabilitySurface("run_price_check", { taskId: "t1" }, "s1")).toBeNull();
+    /*
+     * A tax-inclusive capture is read back as its session, so it has no surface
+     * of its own — the loop composes `get_hotel_search_session` from the reread.
+     */
+    expect(composeCapabilitySurface("get_tax_inclusive_total", { taskId: "t1" }, "s1")).toBeNull();
     expect(composeCapabilitySurface("not_a_capability", {}, "s1")).toBeNull();
+  });
+
+  /*
+   * Browser tasks the loop waited out do have a rendered form now: the
+   * conversation is where their outcome is reported, and a finished check that
+   * says nothing reads as one that did not run.
+   */
+  it("reports a finished browser task in the conversation", () => {
+    const surface = composeCapabilitySurface("run_price_check", { taskId: "t1" }, "s1");
+    expect(surface?.nodes[0]).toMatchObject({ component: "Message", props: { tone: "positive" } });
   });
 
   it("composes a standalone message", () => {

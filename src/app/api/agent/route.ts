@@ -1,5 +1,5 @@
 import { type AgentEvent, encodeAgentEvent } from "@/lib/agent/events";
-import { type AgentRunRequest, runAgentRequest } from "@/lib/agent/run";
+import { type AgentTurnRequest, runAgentTurn } from "@/lib/agent/loop";
 import { browserJson, sameOriginRequestError } from "@/lib/browserApi";
 
 export const dynamic = "force-dynamic";
@@ -17,15 +17,15 @@ export async function POST(request: Request) {
     return accessError;
   }
 
-  let payload: AgentRunRequest;
+  let payload: AgentTurnRequest;
   try {
-    payload = (await request.json()) as AgentRunRequest;
+    payload = (await request.json()) as AgentTurnRequest;
   } catch {
     return browserJson({ error: "The request body must be JSON." }, 400);
   }
-  /* Either a pressed button naming a capability, or a sentence to route. */
-  if (!hasText(payload?.capability) && !hasText(payload?.message)) {
-    return browserJson({ error: "Provide either a capability or a message." }, 400);
+  /* Either something the user said, or the press that resumes a held action. */
+  if (!hasText(payload?.message) && !hasText(payload?.confirm?.capability)) {
+    return browserJson({ error: "Provide either a message or a confirmed action." }, 400);
   }
 
   const encoder = new TextEncoder();
@@ -44,7 +44,11 @@ export async function POST(request: Request) {
         }
       };
 
-      await runAgentRequest(payload, emit);
+      /*
+       * A turn can wait on a Hyatt tab, so a reader that goes away must stop the
+       * run rather than leave it polling a task nobody is listening for.
+       */
+      await runAgentTurn(payload, emit, { signal: request.signal });
 
       if (open) {
         controller.close();

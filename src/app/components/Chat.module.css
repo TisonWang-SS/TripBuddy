@@ -1,0 +1,217 @@
+/*
+ * The conversation, laid out as a working desk rather than a messaging app:
+ * assistant prose is set in the body serif and left unboxed, because it is the
+ * page's main text. Only the user's own words and the result cards get a frame,
+ * so the eye can find the turn boundaries without a wall of bubbles.
+ */
+
+/*
+ * The page scrolls; the composer sticks to the bottom of it.
+ *
+ * The first version gave the feed its own scroller sized at `100dvh` minus a
+ * guess at the chrome above it. The guess was wrong, and being wrong pushed the
+ * send button off-screen — a composer you cannot reach is worse than one that
+ * scrolls. Sticky positioning needs no arithmetic to be right.
+ */
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 24rem;
+}
+
+.feed {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-5);
+  /* Room for the sticky composer, which the last card otherwise ends up under. */
+  padding-bottom: var(--space-4);
+}
+
+/* Empty state */
+
+.opening {
+  display: grid;
+  gap: var(--space-5);
+  align-content: center;
+  min-height: 12rem;
+  padding: var(--space-6) 0;
+}
+
+.openingLead {
+  margin: 0;
+  max-width: 46ch;
+  color: var(--desk-ink-2);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-md);
+  line-height: var(--desk-leading-body);
+}
+
+.openers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.opener {
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: var(--desk-rule-hair) solid var(--desk-rule);
+  border-radius: var(--desk-radius);
+  color: var(--desk-muted);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--desk-dur-short) var(--desk-ease-out),
+    color var(--desk-dur-short) var(--desk-ease-out);
+}
+
+.opener:hover {
+  border-color: var(--desk-accent);
+  color: var(--desk-ink);
+}
+
+.opener:focus-visible {
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: 2px;
+}
+
+/* Turns */
+
+.userRow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.user {
+  margin: 0;
+  max-width: 44ch;
+  padding: var(--space-3) var(--space-4);
+  background: var(--desk-paper-3);
+  border-left: var(--desk-rule-slab) solid var(--desk-accent);
+  color: var(--desk-ink);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-base);
+  line-height: var(--desk-leading-body);
+  white-space: pre-wrap;
+}
+
+.assistant {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--desk-ink);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-md);
+  line-height: var(--desk-leading-body);
+  white-space: pre-wrap;
+}
+
+.card {
+  max-width: 100%;
+}
+
+.status {
+  margin: 0;
+  color: var(--desk-muted);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* A slow pulse, so "working" reads as live without becoming a distraction. */
+.status::after {
+  content: "";
+  display: inline-block;
+  width: 0.4em;
+  height: 0.4em;
+  margin-left: 0.5em;
+  border-radius: 50%;
+  background: var(--desk-accent);
+  animation: pulse 1.4s var(--desk-ease-out) infinite;
+  vertical-align: middle;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status::after {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+.error {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: var(--desk-rule-slab) solid var(--desk-alert);
+  background: var(--desk-paper-2);
+  color: var(--desk-ink);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-base);
+  line-height: var(--desk-leading-body);
+}
+
+/* Composer */
+
+.composer {
+  display: grid;
+  gap: var(--space-2);
+  position: sticky;
+  bottom: var(--space-4);
+  padding: var(--space-3);
+  background: var(--desk-paper-2);
+  border: var(--desk-rule-slab) solid var(--desk-ink);
+  /* Opaque, because the feed scrolls underneath it. */
+  box-shadow: 0 var(--space-4) 0 var(--space-4) var(--desk-paper);
+}
+
+.input {
+  width: 100%;
+  padding: var(--space-2);
+  background: none;
+  border: 0;
+  color: var(--desk-ink);
+  font-family: var(--desk-font-body);
+  font-size: var(--desk-text-md);
+  line-height: var(--desk-leading-body);
+  resize: none;
+}
+
+.input:focus {
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--desk-neutral);
+}
+
+.composer:focus-within {
+  outline: var(--desk-rule-slab) solid var(--desk-focus);
+  outline-offset: 2px;
+}
+
+.composerEnd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.hint {
+  color: var(--desk-neutral);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-xs);
+}
+
+@media (max-width: 40rem) {
+  .hint {
+    display: none;
+  }
+}

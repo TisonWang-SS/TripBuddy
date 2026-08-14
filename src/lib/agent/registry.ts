@@ -1,8 +1,8 @@
 import { explainRecommendation, getBooking, getPriceHistory, listBookings } from "@/lib/agent/capabilities/bookings";
 import { importAccountBookings, listDueChecks, runPriceCheck } from "@/lib/agent/capabilities/checks";
-import { getSearchSession, searchHotels } from "@/lib/agent/capabilities/search";
+import { getSearchSession, getTaxInclusiveTotal, searchHotels } from "@/lib/agent/capabilities/search";
 import { getProfile, getSettings } from "@/lib/agent/capabilities/setup";
-import type { AnyCapability, CapabilityParam } from "@/lib/agent/types";
+import { type AnyCapability, type CapabilityParam, requiresConfirmation } from "@/lib/agent/types";
 
 export class UnknownCapabilityError extends Error {
   readonly code = "unknown_capability";
@@ -31,6 +31,7 @@ const CAPABILITIES: readonly AnyCapability[] = [
   runPriceCheck,
   importAccountBookings,
   searchHotels,
+  getTaxInclusiveTotal,
   getSearchSession,
   getProfile,
   getSettings
@@ -84,6 +85,17 @@ export function parseCapabilityArgs(name: string, rawArgs: unknown) {
 /** Where a capability's progress and result are meant to render, if anywhere. */
 export function capabilityResultRoute(capability: AnyCapability, args: unknown) {
   return capability.effect === "browser_task" ? capability.resultRoute(args) : null;
+}
+
+/** True when running this capability needs a press first. Unknown names need one. */
+export function requiresConfirmationByName(name: string) {
+  const capability = findCapability(name);
+  return capability === null || requiresConfirmation(capability);
+}
+
+/** True when this capability opens a Hyatt tab, whether or not it needs a press. */
+export function opensBrowserTab(name: string) {
+  return findCapability(name)?.effect === "browser_task";
 }
 
 /**

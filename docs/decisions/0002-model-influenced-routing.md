@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. Its final paragraph — reserving "the model writes prose to the user" for a separate decision — was taken up and superseded by [ADR 0005](0005-model-writes-advice.md). Everything else here still holds, and the router described below survives as the offline path.
 
 ## Context
 

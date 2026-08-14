@@ -2,14 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { streamAgentRun } from "@/lib/agent/client";
-import { extractSearchQuery } from "@/lib/agent/searchQuery";
-import type { AgentConversationMessage } from "@/lib/agent/types";
-import type { Surface } from "@/lib/agent/surface";
-import { launchUrlOf } from "@/lib/agent/surface";
-import { buttonClassName } from "@/ui";
 import styles from "./CommandBar.module.css";
-import { SurfaceRenderer } from "./SurfaceRenderer";
 
 export type Command = {
   /** Extra words the query should match, beyond the visible label. */
@@ -32,36 +25,20 @@ function matches(command: Command, query: string) {
 }
 
 /**
- * The command bar is the shell's primary entry point: the slab field is always
- * visible so the affordance is discoverable, and Cmd/Ctrl-K reaches it from
- * anywhere for people who already know.
+ * Jump-to-page, reachable from anywhere with Cmd/Ctrl-K.
  *
- * It navigates. Actions that open a Hyatt tab — price checks, account imports —
- * deliberately stay as buttons on the pages that own them, because those pages
- * are also where their progress and error notices render; firing them from a
- * palette that then closes would leave the result nowhere to land.
+ * It navigates and nothing else. It used to also route typed questions to the
+ * agent, which made sense while the palette was the only place you could type a
+ * sentence — but a run that ends by closing the palette leaves its answer
+ * nowhere to land. The conversation on `/` owns asking now, and it can hold a
+ * multi-step answer that a palette never could.
  */
-/**
- * What a typed question produced. A run that needs a press is held here rather
- * than acted on: the protocol reports `confirmation_required`, and the same
- * request is sent again only after the user agrees.
- */
-type Answer =
-  | { kind: "running"; question: string }
-  | { args: unknown; capability: string; kind: "confirm"; message: string; question: string }
-  | { kind: "clarify"; question: string; surface: Surface | null }
-  | { kind: "answered"; question: string; surface: Surface | null }
-  | { kind: "failed"; message: string; question: string };
-
 export function CommandBar({ commands }: { commands: readonly Command[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const [answer, setAnswer] = useState<Answer | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const confirmRef = useRef<HTMLButtonElement>(null);
-  const conversationRef = useRef<AgentConversationMessage[]>([]);
   const restoreRef = useRef<HTMLElement | null>(null);
   const listId = useId();
 
@@ -71,8 +48,6 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
     setOpen(false);
     setQuery("");
     setActive(0);
-    setAnswer(null);
-    conversationRef.current = [];
     restoreRef.current?.focus();
     restoreRef.current = null;
   }, []);
@@ -119,155 +94,9 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
     };
   }, [open]);
 
-  /*
-   * A pending confirmation takes the focus, so the next keystroke reaches the
-   * decision being asked about. Without this the field keeps focus and Enter
-   * re-routes the same sentence, which repaints the identical panel — the
-   * question looks unanswered and the press looks ignored.
-   *
-   * Moving focus rather than teaching the field to confirm is deliberate: the
-   * guard in `invokeCapability` wants a press on the control that opens the tab,
-   * not a second press of whatever key happened to be under a finger.
-   */
-  useEffect(() => {
-    if (answer?.kind === "confirm") {
-      confirmRef.current?.focus();
-    }
-    if (answer?.kind === "clarify") {
-      inputRef.current?.focus();
-    }
-  }, [answer?.kind]);
-
   function run(command: Command) {
     close();
     router.push(command.href);
-  }
-
-  /**
-   * Sends the typed words to be routed, and renders whatever surface comes back
-   * in place. Reads land here; anything that opens a Hyatt tab comes back as a
-   * surface pointing at the page that owns its progress and result.
-   *
-   * `browserTab` is a tab the caller already opened inside the click that
-   * started this, because Chrome only allows `window.open` during a gesture and
-   * the launch URL is not known until the run answers. Same arrangement as
-   * `RunPriceCheckButton`; it is closed again if the run produces no launch.
-   */
-  async function ask(
-    request: { args?: unknown; capability?: string; confirmed?: boolean; message?: string },
-    question: string,
-    browserTab: Window | null = null
-  ) {
-    setAnswer({ kind: "running", question });
-    let surface: Surface | null = null;
-    let capability = "";
-    let args: unknown = {};
-    let assistantText = "";
-    let failure: { code: string; message: string } | null = null;
-
-    try {
-      const conversation = conversationRef.current;
-      const requestWithConversation = conversation.length > 0 ? { ...request, conversation } : request;
-      await streamAgentRun(requestWithConversation, (event) => {
-        if (event.type === "TOOL_CALL_START") {
-          capability = event.toolCallName;
-        } else if (event.type === "TOOL_CALL_ARGS") {
-          args = JSON.parse(event.delta) as unknown;
-        } else if (event.type === "TEXT_MESSAGE_CONTENT") {
-          assistantText += event.delta;
-        } else if (event.type === "CUSTOM" && event.name === "surface") {
-          surface = event.value as Surface;
-        } else if (event.type === "RUN_ERROR") {
-          failure = { code: event.code, message: event.message };
-        }
-      });
-    } catch (error) {
-      browserTab?.close();
-      setAnswer({ kind: "failed", message: error instanceof Error ? error.message : "That request failed.", question });
-      return;
-    }
-
-    if (failure) {
-      browserTab?.close();
-      const { code, message } = failure;
-      setAnswer(
-        code === "confirmation_required"
-          ? { args, capability, kind: "confirm", message, question }
-          : { kind: "failed", message, question }
-      );
-      return;
-    }
-
-    if (typeof request.message === "string") {
-      const turns: AgentConversationMessage[] = [...conversationRef.current, { content: request.message, role: "user" }];
-      if (assistantText) {
-        turns.push({ content: assistantText, role: "assistant" });
-      }
-      conversationRef.current = turns.slice(-8);
-    }
-
-    const needsFollowUp = isClarificationSurface(surface, assistantText, capability);
-    if (needsFollowUp) {
-      /* The previous request is context, not a draft the user should edit. */
-      setQuery("");
-      setActive(0);
-    }
-
-    const launchUrl = launchUrlOf(surface);
-    if (browserTab) {
-      if (launchUrl) {
-        browserTab.location.href = launchUrl;
-      } else {
-        browserTab.close();
-      }
-    }
-    setAnswer(needsFollowUp ? { kind: "clarify", question, surface } : { kind: "answered", question, surface });
-  }
-
-  /**
-   * The press the confirmation guard is waiting for. The tab is opened here,
-   * empty, because this is the last moment Chrome still counts as a gesture.
-   */
-  function confirmLaunch(pending: Extract<Answer, { kind: "confirm" }>) {
-    const browserTab = window.open("about:blank", "_blank");
-    if (!browserTab) {
-      setAnswer({
-        kind: "failed",
-        message: "Chrome blocked the Hyatt tab. Allow pop-ups for TripBuddy and try again.",
-        question: pending.question
-      });
-      return;
-    }
-    void ask({ args: pending.args, capability: pending.capability, confirmed: true }, pending.question, browserTab);
-  }
-
-  const askable = query.trim().length > 0;
-  /* The ask row sits after the commands so one flat index still drives the keyboard. */
-  const optionCount = results.length + (askable ? 1 : 0);
-
-  function choose(index: number) {
-    const command = results[index];
-    if (command) {
-      run(command);
-      return;
-    }
-    if (askable) {
-      const question = query.trim();
-      const context = [...conversationRef.current.filter((turn) => turn.role === "user").map((turn) => turn.content), question].join("\n");
-      let browserTab: Window | null = null;
-      if (isHotelSearchRequest(context)) {
-        browserTab = window.open("about:blank", "_blank");
-        if (!browserTab) {
-          setAnswer({
-            kind: "failed",
-            message: "Chrome blocked the Hyatt tab. Allow pop-ups for TripBuddy and try again.",
-            question
-          });
-          return;
-        }
-      }
-      void ask({ message: question }, question, browserTab);
-    }
   }
 
   function onFieldKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -278,17 +107,20 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActive((index) => (optionCount === 0 ? 0 : (index + 1) % optionCount));
+      setActive((index) => (results.length === 0 ? 0 : (index + 1) % results.length));
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActive((index) => (optionCount === 0 ? 0 : (index - 1 + optionCount) % optionCount));
+      setActive((index) => (results.length === 0 ? 0 : (index - 1 + results.length) % results.length));
       return;
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      choose(active);
+      const command = results[active];
+      if (command) {
+        run(command);
+      }
     }
   }
 
@@ -301,7 +133,7 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
         <svg aria-hidden="true" fill="none" height="15" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" viewBox="0 0 24 24" width="15">
           <path d="m5 8 4 4-4 4M12 16h7" />
         </svg>
-        <span className={styles.triggerText}>Type a command — search, check, import</span>
+        <span className={styles.triggerText}>Jump to a page</span>
         <span className={styles.keys}>
           <kbd>⌘</kbd>
           <kbd>K</kbd>
@@ -321,16 +153,15 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
                 aria-autocomplete="list"
                 aria-controls={listId}
                 aria-expanded="true"
-                aria-label="Type a command"
+                aria-label="Jump to a page"
                 autoComplete="off"
                 className={styles.input}
                 onChange={(event) => {
                   setQuery(event.target.value);
                   setActive(0);
-                  setAnswer(null);
                 }}
                 onKeyDown={onFieldKeyDown}
-                placeholder={answer?.kind === "clarify" ? "Add the missing detail, then press Enter…" : "Type a command, or ask…"}
+                placeholder="Jump to a page…"
                 ref={inputRef}
                 role="combobox"
                 value={query}
@@ -338,34 +169,9 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
               <kbd>esc</kbd>
             </div>
 
-            {answer ? (
-              <div className={styles.answer}>
-                <p className={styles.answerQuestion}>{answer.question}</p>
-                {answer.kind === "running" ? <p className={styles.empty}>Working…</p> : null}
-                {answer.kind === "failed" ? <p className={styles.answerError}>{answer.message}</p> : null}
-                {answer.kind === "confirm" ? (
-                  <div className={styles.answerConfirm}>
-                    <p>{answer.message}</p>
-                    <button
-                      className={buttonClassName({ size: "sm" })}
-                      onClick={() => confirmLaunch(answer)}
-                      ref={confirmRef}
-                      type="button"
-                    >
-                      Open the Hyatt tab
-                    </button>
-                  </div>
-                ) : null}
-                {answer.kind === "clarify" ? (
-                  <p className={styles.answerFollowUp}>Add the missing detail in the field above, then press Enter to continue.</p>
-                ) : null}
-                {(answer.kind === "answered" || answer.kind === "clarify") && answer.surface ? <SurfaceRenderer surface={answer.surface} /> : null}
-              </div>
-            ) : null}
-
             <div className={styles.results} id={listId} role="listbox">
-              {results.length === 0 && !askable ? (
-                <p className={styles.empty}>Nothing matches “{query}”.</p>
+              {results.length === 0 ? (
+                <p className={styles.empty}>Nothing matches “{query}”. To ask a question, use the conversation on the desk.</p>
               ) : (
                 results.map((command, index) => {
                   const heading = command.group === lastGroup ? null : command.group;
@@ -389,21 +195,6 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
                   );
                 })
               )}
-
-              {askable ? (
-                <button
-                  aria-selected={active === results.length}
-                  className={active === results.length ? `${styles.item} ${styles.itemActive}` : styles.item}
-                  id={`${listId}-${results.length}`}
-                  onClick={() => choose(results.length)}
-                  onMouseMove={() => setActive(results.length)}
-                  role="option"
-                  type="button"
-                >
-                  <span className={styles.itemNo}>ask</span>
-                  <span className={styles.itemLabel}>“{query.trim()}”</span>
-                </button>
-              ) : null}
             </div>
 
             <div className={styles.foot}>
@@ -423,24 +214,4 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
       ) : null}
     </>
   );
-}
-
-function isClarificationSurface(surface: Surface | null, assistantText: string, capability: string) {
-  if (capability || !assistantText || !surface) {
-    return false;
-  }
-  const message = surface.nodes[0];
-  return message?.component === "Message" && message.props.tone === "neutral";
-}
-
-function isHotelSearchRequest(text: string) {
-  const search = extractSearchQuery(text);
-  const hasChineseDestination = /[\p{Script=Han}]{2,12}(?:的)?(?:酒店|旅馆|宾馆)/u.test(text);
-  const hasEnglishDestination = /(?:\b(?:in|at|for)\s+|\b)(?:[A-Z][\p{L}'-]*(?:\s+[A-Z][\p{L}'-]*){0,3})(?=\s+(?:hotels?|lodging)\b)/u.test(text);
-  const hasPointsIntent = search.priceMode === "points";
-  const hasCityAndDateShorthand = Boolean(search.city && search.checkIn);
-  return Boolean(search.checkIn)
-    && Boolean(search.city || hasChineseDestination || hasEnglishDestination)
-    && (hasPointsIntent || hasCityAndDateShorthand || /酒店|旅馆|宾馆|hotel|hotels|lodging/iu.test(text))
-    && (hasPointsIntent || hasCityAndDateShorthand || /查|查询|搜索|找|价格|房价|房费|availability|search|find|rate|rates?|price/iu.test(text));
 }

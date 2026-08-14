@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import DashboardPage, { dynamic } from "@/app/page";
+import DashboardPage, { dynamic } from "@/app/desk/page";
 
 const mocks = vi.hoisted(() => ({ findBookings: vi.fn() }));
 

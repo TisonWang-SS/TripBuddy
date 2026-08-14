@@ -24,6 +24,7 @@
 
 import type { BookingSummary, ObservationRecord, RecommendationExplanation } from "@/lib/agent/capabilities/bookings";
 import type { DueCheck } from "@/lib/agent/capabilities/checks";
+import { compareHotelSearchSession } from "@/lib/hotelSearchComparison";
 import type { HotelSearchSessionSnapshot } from "@/lib/hotelSearchSessions";
 import type { Tone } from "@/lib/labels";
 
@@ -32,6 +33,27 @@ export const SURFACE_VERSION = "tripbuddy-surface-1";
 export type FactItem = {
   label: string;
   value: string;
+};
+
+/**
+ * One recommendation. The model supplied `reason` and nothing else on this
+ * object: the label, the money, and the caveat are read from the stored result
+ * the pick points at.
+ *
+ * That split is the whole safety argument for letting a model advise (ADR 0005).
+ * It can be wrong about which hotel suits someone — a judgement the user can see
+ * and disagree with — but it cannot be wrong about what that hotel costs.
+ */
+export type AdvicePick = {
+  amount: number | null;
+  /** How to read `amount`: a nightly starting rate is not a stay total. */
+  amountBasis: "per_night" | "stay_total" | "points_per_night" | null;
+  currency: string | null;
+  href: string | null;
+  label: string;
+  /** Product-owned caveat, such as an unverified tax-inclusive total. */
+  note: string | null;
+  reason: string;
 };
 
 export type RunRecord = {
@@ -63,6 +85,10 @@ export type SurfaceNode =
   | { component: "PriceHistory"; key: string; props: { observations: readonly ObservationRecord[]; runs: readonly RunRecord[] } }
   | { component: "TaskLaunch"; key: string; props: { capability: string; launchUrl: string | null; resultRoute: string } }
   | { component: "HotelSearchResults"; key: string; props: { session: HotelSearchSessionSnapshot } }
+  /** Model-written reasoning beside product-written figures. See `AdvicePick`. */
+  | { component: "Advice"; key: string; props: { narrative: string; picks: readonly AdvicePick[] } }
+  /** Names a browser task the user has not yet agreed to start. */
+  | { component: "ConfirmAction"; key: string; props: { args: unknown; capability: string; detail: string; label: string } }
   | { component: "Facts"; key: string; props: { items: readonly FactItem[]; title: string } };
 
 export type SurfaceComponent = SurfaceNode["component"];
@@ -76,8 +102,8 @@ export type Surface = {
 /** Nodes that present evidence the reader must see before acting. */
 const EVIDENCE_COMPONENTS: readonly SurfaceComponent[] = ["EvidenceIssues", "RecommendationPanel"];
 
-/** Nodes carrying a control that changes stored data. */
-const ACTION_COMPONENTS: readonly SurfaceComponent[] = ["BaselineAction"];
+/** Nodes carrying a control that changes stored data or opens a Hyatt tab. */
+const ACTION_COMPONENTS: readonly SurfaceComponent[] = ["BaselineAction", "ConfirmAction"];
 
 export class SurfaceContractError extends Error {
   readonly code = "surface_contract_violated";
@@ -173,6 +199,109 @@ export function composeMessageSurface(surfaceId: string, text: string, tone: Ton
   return buildSurface(surfaceId, [{ component: "Message", key: "message", props: { text, tone } }]);
 }
 
+/** What a `ref` in a model's recommendation can point at. */
+export type AdviceSource = {
+  bookings: readonly BookingSummary[];
+  hotelSession: HotelSearchSessionSnapshot | null;
+  /** Ref anchor to stored identifier, merged across the tools this run used. */
+  refs: Readonly<Record<string, string>>;
+};
+
+/**
+ * Composes model reasoning and product figures into one node.
+ *
+ * A pick whose ref no longer resolves is dropped rather than rendered with an
+ * empty price. The narrative survives on its own — losing a row is a smaller
+ * failure than showing a recommendation with nothing behind it.
+ */
+export function composeAdviceSurface(
+  surfaceId: string,
+  narrative: string,
+  picks: readonly { reason: string; ref: string }[],
+  source: AdviceSource
+): Surface {
+  const resolved = picks
+    .map((pick) => resolvePick(pick, source))
+    .filter((pick): pick is AdvicePick => pick !== null);
+  return buildSurface(surfaceId, [
+    { component: "Advice", key: "advice", props: { narrative, picks: resolved } }
+  ]);
+}
+
+function resolvePick(pick: { reason: string; ref: string }, source: AdviceSource): AdvicePick | null {
+  const identifier = source.refs[pick.ref];
+  if (identifier === undefined) {
+    return null;
+  }
+
+  const booking = source.bookings.find((entry) => entry.bookingId === identifier);
+  if (booking) {
+    return {
+      amount: booking.baselineCashTotal,
+      amountBasis: booking.baselineCashTotal === null ? null : "stay_total",
+      currency: booking.currency,
+      href: `/bookings/${booking.bookingId}`,
+      label: booking.hotelName,
+      note: null,
+      reason: pick.reason
+    };
+  }
+
+  const hotel = source.hotelSession?.results.hotels.find((entry) => entry.hotelKey === identifier);
+  if (!hotel || !source.hotelSession) {
+    return null;
+  }
+  const row = compareHotelSearchSession(source.hotelSession).rows.find((entry) => entry.hotel.hotelKey === identifier);
+  const final = row?.finalOffer ?? null;
+  const starting = row?.startingOffer ?? null;
+
+  /*
+   * A verified tax-inclusive total is the only figure that can answer "does this
+   * fit my budget". Anything else is labelled as what it is, on the row itself,
+   * so a recommendation can never read as settled when its price is a starting
+   * rate that excludes taxes and fees.
+   */
+  if (final?.stayTotal !== null && final?.stayTotal !== undefined) {
+    return {
+      amount: final.stayTotal,
+      amountBasis: "stay_total",
+      currency: final.currency,
+      href: `/hotel-search?sessionId=${encodeURIComponent(source.hotelSession.id)}`,
+      label: hotel.hotelName,
+      note: null,
+      reason: pick.reason
+    };
+  }
+  if (starting?.startingPointsPerNight !== null && starting?.startingPointsPerNight !== undefined) {
+    return {
+      amount: starting.startingPointsPerNight,
+      amountBasis: "points_per_night",
+      currency: null,
+      href: `/hotel-search?sessionId=${encodeURIComponent(source.hotelSession.id)}`,
+      label: hotel.hotelName,
+      note: "Starting award rate. Room and rate-plan equivalence are not verified.",
+      reason: pick.reason
+    };
+  }
+  return {
+    amount: starting?.startingAvgNightlyRate ?? null,
+    amountBasis: starting?.startingAvgNightlyRate === null || starting === null ? null : "per_night",
+    currency: starting?.currency ?? null,
+    href: `/hotel-search?sessionId=${encodeURIComponent(source.hotelSession.id)}`,
+    label: hotel.hotelName,
+    note: "Starting price, before taxes and fees. A final total is still needed to settle a budget.",
+    reason: pick.reason
+  };
+}
+
+/** The card that asks for the press a browser task cannot start without. */
+export function composeConfirmSurface(
+  surfaceId: string,
+  input: { args: unknown; capability: string; detail: string; label: string }
+): Surface {
+  return buildSurface(surfaceId, [{ component: "ConfirmAction", key: "confirm", props: input }]);
+}
+
 function composeNodes(capability: string, result: unknown): SurfaceNode[] | null {
   switch (capability) {
     case "list_bookings": {
@@ -243,6 +372,27 @@ function composeNodes(capability: string, result: unknown): SurfaceNode[] | null
         ? [{ component: "HotelSearchResults", key: "hotel-search", props: { session } }]
         : [{ component: "Message", key: "missing", props: { text: "That hotel search session was not found or has expired.", tone: "caution" } }];
     }
+    /*
+     * Browser tasks the loop waited out. Their evidence lands in the booking's
+     * own records, so the conversation says what happened and points there —
+     * restating a stored verdict here would be a second copy that can drift.
+     */
+    case "run_price_check":
+      return [
+        {
+          component: "Message",
+          key: "checked",
+          props: { text: "The price check finished. Its evidence and verdict are on the booking.", tone: "positive" }
+        }
+      ];
+    case "import_account_bookings":
+      return [
+        {
+          component: "Message",
+          key: "imported",
+          props: { text: "The Hyatt account import finished. Your stays are on the desk.", tone: "positive" }
+        }
+      ];
     default:
       return null;
   }

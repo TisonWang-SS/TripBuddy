@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { HotelSearchResults } from "@/app/hotel-search/HotelSearchResults";
-import type { Surface, SurfaceNode } from "@/lib/agent/surface";
+import type { AdvicePick, Surface, SurfaceNode } from "@/lib/agent/surface";
 import { formatCalendarDate, formatLocalInstant, formatMoney } from "@/lib/format";
 import {
   evidenceQualityLabel,
@@ -24,20 +24,92 @@ import styles from "./SurfaceRenderer.module.css";
  * the whole point of a declarative payload is that rendering it cannot execute
  * anything the client did not already ship.
  */
-export function SurfaceRenderer({ surface }: { surface: Surface }) {
+/**
+ * `variant` says where this surface is being rendered.
+ *
+ * In a conversation the assistant's words are already a message bubble, so the
+ * nodes that carry the same prose — a Message, an Advice narrative — would print
+ * it twice. The surface stays self-contained for every other caller; only the
+ * duplication is suppressed.
+ */
+export type SurfaceVariant = "standalone" | "conversation";
+
+export function SurfaceRenderer({
+  onConfirm,
+  surface,
+  variant = "standalone"
+}: {
+  onConfirm?: (action: { args: unknown; capability: string }) => void;
+  surface: Surface;
+  variant?: SurfaceVariant;
+}) {
   return (
     <div className={styles.surface}>
       {surface.nodes.map((node) => (
-        <SurfaceNodeView key={node.key} node={node} />
+        <SurfaceNodeView key={node.key} node={node} onConfirm={onConfirm} variant={variant} />
       ))}
     </div>
   );
 }
 
-function SurfaceNodeView({ node }: { node: SurfaceNode }) {
+function SurfaceNodeView({
+  node,
+  onConfirm,
+  variant
+}: {
+  node: SurfaceNode;
+  onConfirm?: (action: { args: unknown; capability: string }) => void;
+  variant: SurfaceVariant;
+}) {
   switch (node.component) {
     case "Message":
-      return <Notice tone={node.props.tone}>{node.props.text}</Notice>;
+      return variant === "conversation" ? null : <Notice tone={node.props.tone}>{node.props.text}</Notice>;
+
+    case "Advice": {
+      const { narrative, picks } = node.props;
+      if (picks.length === 0) {
+        return variant === "conversation" ? null : <p className={styles.explanation}>{narrative}</p>;
+      }
+      return (
+        <Card eyebrow="Recommendation" title={picks.length === 1 ? "The one I'd take" : "What I'd compare"}>
+          {variant === "conversation" ? null : <p className={styles.explanation}>{narrative}</p>}
+          <div className={styles.list}>
+            {picks.map((pick) => (
+              <div className={styles.row} key={`${pick.label}-${pick.reason}`}>
+                <div>
+                  {pick.href ? (
+                    <Link className={styles.name} href={pick.href}>
+                      {pick.label}
+                    </Link>
+                  ) : (
+                    <span className={styles.name}>{pick.label}</span>
+                  )}
+                  <p className={styles.where}>{pick.reason}</p>
+                  {pick.note ? <p className={styles.caveat}>{pick.note}</p> : null}
+                </div>
+                <div className={styles.end}>
+                  <span className={styles.amount}>{priceOf(pick)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      );
+    }
+
+    case "ConfirmAction":
+      return (
+        <Card eyebrow="Needs your go-ahead" title="Open a Hyatt tab">
+          <p className={styles.explanation}>{node.props.detail}</p>
+          <button
+            className={buttonClassName({ size: "sm" })}
+            onClick={() => onConfirm?.({ args: node.props.args, capability: node.props.capability })}
+            type="button"
+          >
+            {node.props.label}
+          </button>
+        </Card>
+      );
 
     case "BookingList":
       return (
@@ -201,6 +273,27 @@ function SurfaceNodeView({ node }: { node: SurfaceNode }) {
        */
       return null;
   }
+}
+
+/**
+ * The figure beside a recommendation, formatted from stored data.
+ *
+ * Reads the basis rather than assuming one: a nightly starting rate and a
+ * tax-inclusive stay total are different claims, and a card that prints both as
+ * a bare number is how someone compares two prices that were never comparable.
+ */
+function priceOf(pick: AdvicePick) {
+  if (pick.amount === null) {
+    return "No price captured";
+  }
+  if (pick.amountBasis === "points_per_night") {
+    return `${pick.amount.toLocaleString("en-US")} pts/night`;
+  }
+  const money = formatMoney(pick.amount, pick.currency ?? "USD");
+  if (pick.amountBasis === "per_night") {
+    return `${money}/night`;
+  }
+  return money;
 }
 
 /** Exported for the run-status strip that sits above a surface. */

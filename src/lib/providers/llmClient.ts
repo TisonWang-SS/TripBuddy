@@ -31,11 +31,23 @@ export type LlmClientConfig = {
   model: string;
 };
 
+/** A turn in a multi-step exchange. Tool output is carried as a user turn. */
+export type LlmMessage = {
+  content: string;
+  role: "assistant" | "user";
+};
+
 export type JsonCompletionRequest = {
   maxTokens: number;
+  /**
+   * Supplied instead of `user` when the caller needs the model to see more than
+   * one turn — an agent loop reading its own earlier tool results, for example.
+   * The system prompt stays separate either way.
+   */
+  messages?: readonly LlmMessage[];
   system: string;
   timeoutMs?: number;
-  user: string;
+  user?: string;
 };
 
 export function readLlmConfigFromEnv(): LlmClientConfig {
@@ -60,12 +72,17 @@ export async function requestJsonCompletion(config: LlmClientConfig, request: Js
     );
   }
 
+  const turns = request.messages ?? (request.user === undefined ? [] : [{ content: request.user, role: "user" as const }]);
+  if (turns.length === 0) {
+    throw new LlmError("llm_empty_request", "A completion request must carry either a user message or a message list.");
+  }
+
   const fetchImpl = config.fetchImpl ?? fetch;
-  const response = await fetchImpl(`${config.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+  const response = await withTimeoutReported(() => fetchImpl(`${config.baseUrl.replace(/\/$/, "")}/chat/completions`, {
     body: JSON.stringify({
       messages: [
         { role: "system", content: request.system },
-        { role: "user", content: request.user }
+        ...turns.map((turn) => ({ role: turn.role, content: turn.content }))
       ],
       max_tokens: request.maxTokens,
       model: config.model,
@@ -79,7 +96,7 @@ export async function requestJsonCompletion(config: LlmClientConfig, request: Js
     },
     method: "POST",
     signal: AbortSignal.timeout(request.timeoutMs ?? 60_000)
-  });
+  }));
 
   const payload = await readResponsePayload(response);
   if (!response.ok) {
@@ -94,10 +111,42 @@ export async function requestJsonCompletion(config: LlmClientConfig, request: Js
   }
 }
 
+/** A timed-out request is its own failure, not an unreachable provider. */
+async function withTimeoutReported(send: () => Promise<Response>) {
+  try {
+    return await send();
+  } catch (error) {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new LlmError(
+        "llm_timeout",
+        "The language model did not respond in time. It may be busy; try again."
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Reads the body, distinguishing "the provider sent something odd" from "we
+ * stopped listening".
+ *
+ * The timeout signal aborts the body read as well as the request, so a slow
+ * response arrives as a 200 whose `json()` throws. Swallowing that returned null
+ * and the caller reported an unreadable response — which sends the reader
+ * looking at the provider's output for a problem that was a timeout. Observed
+ * live: two turns that each took exactly the configured 30s and then blamed the
+ * model's formatting.
+ */
 async function readResponsePayload(response: Response) {
   try {
     return (await response.json()) as unknown;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new LlmError(
+        "llm_timeout",
+        "The language model did not finish responding in time. It may be busy; try again."
+      );
+    }
     return null;
   }
 }

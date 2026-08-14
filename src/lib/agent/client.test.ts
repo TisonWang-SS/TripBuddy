@@ -25,7 +25,7 @@ const finished: AgentEvent = { runId: "run-1", timestamp: 2, type: "RUN_FINISHED
 
 async function collect(fetchImpl: typeof fetch) {
   const events: AgentEvent[] = [];
-  await streamAgentRun({ capability: "list_bookings" }, (event) => events.push(event), { fetchImpl });
+  await streamAgentRun({ message: "list my bookings" }, (event) => events.push(event), { fetchImpl });
   return events;
 }
 

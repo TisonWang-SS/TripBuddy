@@ -17,10 +17,13 @@ export const viewport: Viewport = {
   width: "device-width"
 };
 
-/* The visible fallback for anyone who has not found Cmd-K yet. */
+/*
+ * The conversation is the entry point, so the nav is what you reach for when you
+ * want to look at something again rather than ask for it.
+ */
 const navItems: readonly NavItem[] = [
-  { href: "/", label: "Desk" },
-  { href: "/hotel-search", label: "Hotel Search" },
+  { href: "/", label: "Ask" },
+  { href: "/desk", label: "Desk" },
   { href: "/bookings/new", label: "Add Booking" },
   { href: "/profile", label: "Profile" },
   { href: "/promotions", label: "Promotions" },
@@ -28,9 +31,9 @@ const navItems: readonly NavItem[] = [
 ];
 
 const commands: readonly Command[] = [
-  { group: "Desk", href: "/", keywords: "dashboard home watchlist stays bookings", label: "Open the desk" },
+  { group: "Desk", href: "/", keywords: "chat agent assistant question search", label: "Ask TripBuddy" },
+  { group: "Desk", href: "/desk", keywords: "dashboard home watchlist stays bookings queue", label: "Open the desk" },
   { group: "Desk", href: "/bookings/new", keywords: "create new stay reservation", label: "Add a booking" },
-  { group: "Find", href: "/hotel-search", keywords: "city rates comparable prices hyatt", label: "Search hotels in a city" },
   { group: "Set up", href: "/profile", keywords: "loyalty tier points value thresholds", label: "Profile values" },
   { group: "Set up", href: "/promotions", keywords: "bonus offers campaigns", label: "Promotions" },
   { group: "Set up", href: "/settings", keywords: "extractor llm currency preferences", label: "Settings" }

@@ -1,11 +1,11 @@
 import { type AgentEvent, parseAgentEvent, readAgentEventFrames } from "@/lib/agent/events";
-import type { AgentRunRequest } from "@/lib/agent/run";
+import type { AgentTurnRequest } from "@/lib/agent/loop";
 
 /*
  * Browser-side reader for the agent event stream.
  *
- * Replaces nothing yet — the Browser Companion's own polling is a separate step
- * that needs a real Hyatt validation before it can be removed.
+ * One turn of the conversation is one call here, and it stays open for as long
+ * as the turn takes — including while the server waits on a Hyatt tab.
  */
 
 export type AgentStreamOptions = {
@@ -14,7 +14,7 @@ export type AgentStreamOptions = {
 };
 
 export async function streamAgentRun(
-  request: AgentRunRequest,
+  request: AgentTurnRequest,
   onEvent: (event: AgentEvent) => void,
   options: AgentStreamOptions = {}
 ) {

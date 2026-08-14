@@ -36,11 +36,13 @@ The extractor uses DeepSeek's OpenAI-compatible Chat Completions endpoint with J
 
 After changing LLM configuration, run `npm run eval:llm-extractor:smoke` for one live fixture. Run the full opt-in shared-fixture comparison with `npm run eval:llm-extractor`; it compares against the checked-in deterministic baseline in `docs/evals/`. Both commands load `.env` explicitly.
 
-### Intent routing
+### The agent loop
 
-A request typed as a sentence is routed to one capability by the same provider. The model chooses an intent and never an outcome: it sees only the capability catalogue and the sentence, and everything it returns is validated before it runs. See [ADR 0002](docs/decisions/0002-model-influenced-routing.md).
+The conversation on `/` is the product's front door. The model gathers what you need, calls capabilities as tools, reads what came back, and advises on it — repeating until it can conclude or needs something only you can supply.
 
-Routing works with no API key, falling back to keyword matching over the same catalogue. Score both paths with `npm run eval:intent-router`; the deterministic router is the checked-in baseline that the model must match.
+It writes the reasoning; the product writes the numbers. A recommendation points at a row and the price beside it is read from stored data, and a money-sized figure in its prose must be one the tools produced. Every capability that opens a Hyatt tab waits for your press first. See [ADR 0005](docs/decisions/0005-model-writes-advice.md).
+
+With no API key the loop does not run: keyword routing picks one capability over the same catalogue and product copy answers. Score both paths with `npm run eval:intent-router`; the deterministic router is the checked-in baseline that the model must match. See [ADR 0002](docs/decisions/0002-model-influenced-routing.md).
 
 API references: [Create Chat Completion](https://api-docs.deepseek.com/api/create-chat-completion), [JSON Output](https://api-docs.deepseek.com/guides/json_mode/), and [Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode).
 
