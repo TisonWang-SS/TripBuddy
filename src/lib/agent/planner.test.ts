@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { observeToolResult } from "@/lib/agent/modelView";
 import { buildPlannerInstructions, parsePlannerOutput, planNextStep, type PlannerStep } from "@/lib/agent/planner";
+import { SEARCH_FRESHNESS_MINUTES } from "@/lib/agent/priorWork";
 import { LlmError } from "@/lib/providers/llmClient";
 
 /*
@@ -86,18 +87,90 @@ describe("planner validation", () => {
    * The grounding the router already applied, still applied. A date the user
    * never gave returns real hotels for a stay they never asked about.
    */
-  it("rejects a check-in date the user never stated", async () => {
-    await expect(
-      plan({
-        calls: [{ args: { checkIn: "2027-01-01", checkOut: "2027-01-03", city: "Tokyo", cityAsAsked: "东京" }, tool: "search_hotels" }],
+  it("rejects a check-in date the request cannot support", async () => {
+    const step = await plan({
+      calls: [{ args: { checkIn: "2027-01-01", checkOut: "2027-01-03", city: "Tokyo", cityAsAsked: "东京" }, tool: "search_hotels" }],
+      next: "tools"
+    });
+    expect(step).toMatchObject({ kind: "ask" });
+    /* And what the user reads is what to say next, not the router's diagnostic. */
+    expect((step as Extract<PlannerStep, { kind: "ask" }>).message).not.toMatch(/router|checkOut/i);
+    expect((step as Extract<PlannerStep, { kind: "ask" }>).message).toContain("入住日期");
+  });
+
+  /*
+   * Both of these came back from live use as "that date was not stated by the
+   * user", which the user could see was wrong — they had just stated it.
+   *
+   * Grounding reads every user turn joined together, so a date repeated across
+   * turns used to displace the real checkout and take a correct answer with it.
+   */
+  it("accepts a one-night checkout derived from a single stated date", async () => {
+    const step = await plan(
+      {
+        calls: [
+          {
+            args: { checkIn: "2026-09-01", checkOut: "2026-09-02", city: "Shanghai", cityAsAsked: "上海", priceMode: "points" },
+            tool: "search_hotels"
+          }
+        ],
         next: "tools"
-      })
-    ).rejects.toThrow(/not stated by the user/);
+      },
+      { conversation: [{ content: "上海，9月1日，酒店的积分价", role: "user" }] }
+    );
+    expect(step).toMatchObject({ kind: "tools" });
+  });
+
+  it("accepts a checkout the user stated, even when an earlier turn repeats the check-in", async () => {
+    const step = await plan(
+      {
+        calls: [
+          {
+            args: { checkIn: "2026-09-01", checkOut: "2026-09-02", city: "Shanghai", cityAsAsked: "上海", priceMode: "points" },
+            tool: "search_hotels"
+          }
+        ],
+        next: "tools"
+      },
+      {
+        conversation: [
+          { content: "上海，9月1日，酒店的积分价", role: "user" },
+          { content: "查一下9月1日到9月2日酒店的积分价", role: "user" }
+        ]
+      }
+    );
+    expect(step).toMatchObject({ kind: "tools" });
+  });
+
+  it("accepts a checkout derived from a stated stay length", async () => {
+    const step = await plan(
+      {
+        calls: [
+          { args: { checkIn: "2026-09-01", checkOut: "2026-09-04", city: "Tokyo", cityAsAsked: "东京" }, tool: "search_hotels" }
+        ],
+        next: "tools"
+      },
+      { conversation: [{ content: "9月1日东京住3晚", role: "user" }] }
+    );
+    expect(step).toMatchObject({ kind: "tools" });
+  });
+
+  /* Still refused: a length the request never gave. */
+  it("rejects a checkout the request gives no length for", async () => {
+    const step = await plan(
+      {
+        calls: [
+          { args: { checkIn: "2026-09-01", checkOut: "2026-09-08", city: "Tokyo", cityAsAsked: "东京" }, tool: "search_hotels" }
+        ],
+        next: "tools"
+      },
+      { conversation: [{ content: "9月1日东京的酒店", role: "user" }] }
+    );
+    expect(step).toMatchObject({ kind: "ask" });
   });
 
   it("rejects a budget whose quote does not occur in the request", async () => {
-    await expect(
-      plan({
+    const step = await plan({
         calls: [
           {
             args: {
@@ -112,8 +185,9 @@ describe("planner validation", () => {
           }
         ],
         next: "tools"
-      })
-    ).rejects.toThrow(/does not occur in the request/);
+    });
+    expect(step).toMatchObject({ kind: "ask" });
+    expect((step as Extract<PlannerStep, { kind: "ask" }>).message).toContain("预算");
   });
 
   /* Only one tab per step, whatever the plan wanted. */
@@ -193,6 +267,73 @@ describe("what the planner may say", () => {
     const step = await plan({ message: "我查不了航班。", next: "refuse" });
     expect((step as Extract<PlannerStep, { kind: "ask" | "refuse" }>).message).toContain("我查不了航班。");
     expect((step as Extract<PlannerStep, { kind: "ask" | "refuse" }>).message).toContain("TripBuddy only tracks Hyatt hotel bookings");
+  });
+});
+
+describe("what the planner is told it already has", () => {
+  const priorSearches = [
+    {
+      ageMinutes: 3,
+      checkIn: "2026-09-01",
+      checkOut: "2026-09-02",
+      city: "上海",
+      currency: "USD",
+      fresh: true,
+      hasBudget: false,
+      hotelCount: 12,
+      priceMode: "points",
+      sessionId: "sess-1"
+    }
+  ];
+
+  function sentBody(payload: unknown, input: Partial<Parameters<typeof planNextStep>[0]> = {}) {
+    let body: { messages: { content: string; role: string }[] } | null = null;
+    const fetchImpl = async (_url: string, init: { body: string }) => {
+      body = JSON.parse(init.body) as typeof body;
+      return new Response(
+        JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(payload) } }] }),
+        { headers: { "Content-Type": "application/json" }, status: 200 }
+      );
+    };
+    return planNextStep({
+      config: { ...config, fetchImpl: fetchImpl as unknown as typeof fetch },
+      conversation: [{ content: "我的预算在1000元一晚左右", role: "user" }],
+      observations: [],
+      referenceDate: new Date("2026-08-14T12:00:00"),
+      stepsRemaining: 4,
+      ...input
+    }).then(() => body!);
+  }
+
+  /*
+   * The reason this exists: tool results do not survive a turn, so a follow-up
+   * about a search the user just paid for could only be served by searching
+   * again. Live, "我的预算在1000元一晚左右" reopened Hyatt.
+   */
+  it("tells the model which searches this conversation already collected", async () => {
+    const body = await sentBody({ message: "好的。", next: "ask" }, { priorSearches });
+
+    const injected = body.messages.find((message) => message.content.includes("sess-1"));
+    expect(injected).toBeDefined();
+    expect(injected!.content).toContain("set_search_budget");
+    expect(JSON.parse(injected!.content).searches[0]).toMatchObject({ fresh: true, sessionId: "sess-1" });
+  });
+
+  it("injects no prior-work turn when there is none", async () => {
+    const body = await sentBody({ message: "好的。", next: "ask" });
+
+    /* The rule stays in the system prompt; only the data turn is conditional. */
+    expect(body.messages.slice(1).some((message) => message.content.includes('"searches"'))).toBe(false);
+  });
+
+  it("states the freshness rule in the instructions", async () => {
+    const body = await sentBody({ message: "好的。", next: "ask" }, { priorSearches });
+
+    const system = body.messages[0].content;
+    expect(system).toContain(`${SEARCH_FRESHNESS_MINUTES} minutes old`);
+    expect(system).toContain("Do not search again");
+    /* A different query is a different search, whatever is cached. */
+    expect(system).toContain("different search");
   });
 });
 

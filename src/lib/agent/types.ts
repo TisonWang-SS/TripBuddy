@@ -33,6 +33,17 @@ type CapabilityBase<TArgs, TResult> = {
   /** One line, written to be read by the router and shown in the command bar. */
   summary: string;
   /**
+   * An async check for conditions `parseArgs` cannot see, run before the user is
+   * asked to confirm anything. Returns the question to put to them, or null.
+   *
+   * This exists because a stored fact can make an otherwise valid call
+   * impossible — a budget in a currency the search is not priced in, say. Left
+   * to the handler, that surfaces after the press: the user has already agreed,
+   * a blank tab is already open, and what they get back is a wall. Asked here,
+   * it is a question they can answer.
+   */
+  precheck?(args: TArgs): Promise<string | null>;
+  /**
    * The words a person would use for this action. Used by the deterministic
    * router when no model is configured, and included in the model's catalogue.
    * Required so a new capability cannot be unreachable by keyword alone.

@@ -166,6 +166,50 @@ export function extractDates(text: string): string[] {
   return complete.sort((left, right) => left.start - right.start).map(({ value }) => value);
 }
 
+/**
+ * Every date the user's own wording could legitimately produce.
+ *
+ * This is the set a proposed search date is checked against, and it is a set
+ * rather than a single value on purpose. `extractSearchQuery` picks one reading
+ * of the request; grounding a model against that reading requires the
+ * deterministic extractor to be at least as good as the model at reading — and
+ * if it were, there would be no reason to run a model at all.
+ *
+ * The failure that showed this was mundane. Grounding sees every user turn
+ * joined together, so "9月1日" appearing in two turns made the second date slot
+ * a duplicate of the first, and a correct 9月2日 checkout was rejected as never
+ * having been stated. Enumerating candidates has no ordering to get wrong.
+ *
+ * What it still refuses is what it was built to refuse: a date with no basis in
+ * the request at all. A fabricated year, an invented month, or a checkout the
+ * request gives no length for are all outside this set.
+ */
+export function groundedDateCandidates(text: string, referenceDate = new Date()): Set<string> {
+  const candidates = new Set<string>();
+  const stated = [...extractDates(text), ...inferUpcomingDates(text, referenceDate)];
+  const nights = extractNights(text);
+
+  for (const date of stated) {
+    candidates.add(date);
+    /*
+     * One night is the documented default for a request that names a single
+     * date, so a checkout derived that way is as grounded as the date it came
+     * from — the planner is instructed to produce exactly this.
+     */
+    const singleNight = addCalendarDays(date, 1);
+    if (singleNight) {
+      candidates.add(singleNight);
+    }
+    if (nights !== undefined) {
+      const stayEnd = addCalendarDays(date, nights);
+      if (stayEnd) {
+        candidates.add(stayEnd);
+      }
+    }
+  }
+  return candidates;
+}
+
 export function addCalendarDays(value: string, days: number) {
   const date = parseCalendarDate(value);
   if (Number.isNaN(date.getTime())) {
@@ -192,7 +236,7 @@ function extractCity(text: string) {
   return undefined;
 }
 
-function extractNights(text: string) {
+export function extractNights(text: string) {
   const chinese = text.match(/住\s*(\d+|[一二两三四五六七八九十])\s*晚/);
   if (chinese) {
     return Number(chinese[1]) || CHINESE_NUMBERS[chinese[1]];

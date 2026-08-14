@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CapabilityArgsError } from "@/lib/agent/args";
 import type { AgentEvent } from "@/lib/agent/events";
 
 /*
@@ -13,6 +14,7 @@ import type { AgentEvent } from "@/lib/agent/events";
 
 const mocks = vi.hoisted(() => ({
   awaitBrowserTask: vi.fn(),
+  precheckCapability: vi.fn(async () => null as string | null),
   getHotelSearchSession: vi.fn(),
   invokeCapability: vi.fn(),
   isPlannerConfigured: vi.fn(() => true),
@@ -32,7 +34,7 @@ vi.mock("@/lib/hotelSearchSessions", () => ({ getHotelSearchSession: mocks.getHo
 vi.mock("@/lib/agent/router", () => ({ routeIntent: mocks.routeIntent }));
 vi.mock("@/lib/agent/registry", async () => {
   const actual = await vi.importActual<typeof import("@/lib/agent/registry")>("@/lib/agent/registry");
-  return { ...actual, invokeCapability: mocks.invokeCapability };
+  return { ...actual, invokeCapability: mocks.invokeCapability, precheckCapability: mocks.precheckCapability };
 });
 
 const { runAgentTurn } = await import("@/lib/agent/loop");
@@ -126,6 +128,31 @@ describe("agent loop", () => {
     vi.clearAllMocks();
     mocks.isPlannerConfigured.mockReturnValue(true);
     mocks.getHotelSearchSession.mockResolvedValue(session);
+    mocks.precheckCapability.mockResolvedValue(null);
+  });
+
+  /*
+   * The turn is the only place that can tell the model a search already exists:
+   * tool results do not survive a turn, and the server keeps no conversation.
+   * Live, a follow-up budget on a fresh search reopened Hyatt instead.
+   */
+  it("tells the planner about searches this conversation already collected", async () => {
+    mocks.planNextStep.mockResolvedValue({ kind: "answer", message: "Using what we already have.", picks: [] });
+
+    await collect({ message: "我的预算在1000元一晚左右", searchSessionIds: ["sess-1"] });
+
+    expect(mocks.getHotelSearchSession).toHaveBeenCalledWith("sess-1");
+    expect(mocks.planNextStep.mock.calls[0][0].priorSearches).toMatchObject([
+      { checkIn: "2026-09-01", city: "东京", sessionId: "sess-1" }
+    ]);
+  });
+
+  it("passes no prior searches when the conversation has produced none", async () => {
+    mocks.planNextStep.mockResolvedValue({ kind: "answer", message: "Nothing yet.", picks: [] });
+
+    await collect({ message: "有什么要处理的吗" });
+
+    expect(mocks.planNextStep.mock.calls[0][0].priorSearches).toEqual([]);
   });
 
   it("answers without tools when the planner already knows the answer", async () => {
@@ -226,6 +253,93 @@ describe("agent loop", () => {
 
     expect(mocks.invokeCapability).toHaveBeenCalledTimes(1);
     expect(surfaces(events).at(-1)?.nodes[0]).toMatchObject({ component: "ConfirmAction" });
+  });
+
+  /*
+   * A condition added to results already on the desk must not become a second
+   * trip to Hyatt for the same stay. Live, "我的预算在1000元一晚左右" after a
+   * finished search produced a fresh confirmation card for the identical city
+   * and dates.
+   */
+  it("applies a budget to an existing search without opening a tab", async () => {
+    mocks.invokeCapability.mockResolvedValue({ result: { session } });
+    mocks.planNextStep
+      .mockResolvedValueOnce({
+        calls: [
+          {
+            args: { budgetAmount: 1000, budgetQuote: "1000元一晚左右", searchSessionId: "sess-1" },
+            capability: "set_search_budget"
+          }
+        ],
+        kind: "tools"
+      })
+      .mockResolvedValueOnce({ kind: "answer", message: "按这个预算，还需要含税总价才能确认。", picks: [] });
+
+    const events = await collect({
+      conversation: [{ content: "上海 9月1日 酒店", role: "user" }],
+      message: "我的预算在1000元一晚左右"
+    });
+
+    expect(surfaces(events).some((surface) => surface.nodes[0]?.component === "ConfirmAction")).toBe(false);
+    expect(mocks.invokeCapability).toHaveBeenCalledWith("set_search_budget", expect.anything(), expect.anything());
+    expect(spoken(events)).toContain("含税总价");
+  });
+
+  /*
+   * A capability refusing its own arguments knows something the planner could
+   * not. Live, a budget stated in CNY against a USD-priced search failed the run
+   * with the provider's own wording, after the user had already pressed.
+   */
+  it("turns a capability's own argument refusal into a question", async () => {
+    mocks.invokeCapability.mockRejectedValue(
+      new CapabilityArgsError("These prices are in USD and the budget is in CNY. TripBuddy does not convert between them.")
+    );
+    mocks.planNextStep.mockResolvedValueOnce({
+      calls: [
+        {
+          args: { budgetAmount: 1000, budgetQuote: "1000元", currency: "CNY", searchSessionId: "sess-1" },
+          capability: "set_search_budget"
+        }
+      ],
+      kind: "tools"
+    });
+
+    const events = await collect({ message: "我的预算在1000元一晚左右" });
+
+    expect(events.at(-1)?.type).toBe("RUN_FINISHED");
+    expect(spoken(events)).toContain("does not convert");
+  });
+
+  /*
+   * And a browser task that cannot run as asked says so before the press, not
+   * after it — otherwise the user agrees, a blank tab opens, and the answer is a
+   * wall.
+   */
+  it("asks before offering to open a tab the capability would refuse", async () => {
+    mocks.precheckCapability.mockResolvedValue("Prices here are collected in USD, and you gave a budget in CNY.");
+    mocks.planNextStep.mockResolvedValue({
+      calls: [
+        {
+          args: {
+            budgetAmount: 1000,
+            budgetQuote: "1000元",
+            checkIn: "2026-09-01",
+            checkOut: "2026-09-03",
+            city: "Shanghai",
+            cityAsAsked: "上海",
+            currency: "CNY"
+          },
+          capability: "search_hotels"
+        }
+      ],
+      kind: "tools"
+    });
+
+    const events = await collect({ message: "查上海的酒店，预算1000元一晚" });
+
+    expect(surfaces(events).some((surface) => surface.nodes[0]?.component === "ConfirmAction")).toBe(false);
+    expect(mocks.invokeCapability).not.toHaveBeenCalled();
+    expect(spoken(events)).toContain("collected in USD");
   });
 
   /* Deterministic, and in front of the model rather than behind it. */

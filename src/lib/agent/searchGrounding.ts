@@ -12,7 +12,7 @@
  * rules. Two copies of a grounding check is two sets of gaps.
  */
 
-import { addCalendarDays, extractDates, extractSearchQuery } from "@/lib/agent/searchQuery";
+import { extractSearchQuery, groundedDateCandidates } from "@/lib/agent/searchQuery";
 import { LlmError } from "@/lib/providers/llmClient";
 
 export type ProposedCall = {
@@ -21,45 +21,35 @@ export type ProposedCall = {
 };
 
 /**
- * Grounds a proposed budget in the request, by checking the quote rather than
- * the number.
+ * Checks a proposed search date against every date the request could produce.
  *
- * This is the shape `llmEvidence.ts` already uses against a page snapshot: the
- * model reads freely but must cite the contiguous span it read from, and the
- * span is what gets verified. Checking the amount instead confuses two different
- * things — transcribing "一千" as 1000 creates no information and is legitimate,
- * while dividing a stay total by a night count creates a number the request
- * never contained. Matching digits would reject every spelled-out or non-Latin
- * amount, which is the wrong answer for a product whose entry point is natural
- * language.
+ * The rule is membership, not equality. An earlier version compared the model's
+ * date to the one `extractSearchQuery` picked, which quietly made the
+ * deterministic extractor the arbiter of how well a request can be read — and it
+ * reads worse than the model, which is why the model is there. Live, that
+ * rejected "9月1日到9月2日": grounding sees all user turns joined, the repeated
+ * "9月1日" filled the second date slot, and a correct checkout was reported to
+ * the user as a date they never stated.
  *
- * Arithmetic stays out of the model's hands for a separate and duller reason:
- * the product already holds the authoritative night count, so recomputing it
- * from a worse copy can only lose fidelity.
+ * Enumerating candidates keeps the protection that matters. A year the request
+ * never implies, a month it never names, or a checkout it gives no length for
+ * are all still outside the set, and still refused.
  */
 export function assertGroundedSearchDates(output: ProposedCall, request: string, referenceDate: Date) {
   if (output.capability !== "search_hotels" || !output.args || typeof output.args !== "object") {
     return;
   }
   const args = output.args as Record<string, unknown>;
-  const dates = extractDates(request);
-  const extracted = extractSearchQuery(request, { referenceDate });
+  const candidates = groundedDateCandidates(request, referenceDate);
   for (const key of ["checkIn", "checkOut"] as const) {
     const value = args[key];
     if (typeof value !== "string") {
       continue;
     }
-    const isExplicit = dates.includes(value);
-    const isNormalizedFromUserWording = !isExplicit && extracted[key] === value;
-    const isDerivedFromNights =
-      key === "checkOut" &&
-      extracted.checkIn !== undefined &&
-      extracted.nights !== undefined &&
-      addCalendarDays(extracted.checkIn, extracted.nights) === value;
-    if (!isExplicit && !isNormalizedFromUserWording && !isDerivedFromNights) {
+    if (!candidates.has(value)) {
       throw new LlmError(
         "router_ungrounded_date",
-        `The router returned ${key} ${value}, but that date was not stated by the user.`
+        `The router returned ${key} ${value}, which the request does not support. It states: ${[...candidates].sort().join(", ") || "no dates"}.`
       );
     }
   }

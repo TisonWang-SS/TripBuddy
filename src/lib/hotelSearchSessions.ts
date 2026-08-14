@@ -7,7 +7,7 @@ import {
   serializeHotelSearchSessionResults
 } from "@/lib/hotelSearchSessionCodecs";
 import { hotelStayNights } from "@/lib/hotelSearchBudget";
-import type { HotelSearchQuery, HotelSearchResult } from "@/lib/providers/types";
+import type { HotelSearchBudget, HotelSearchQuery, HotelSearchResult } from "@/lib/providers/types";
 
 export const HOTEL_SEARCH_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -100,6 +100,30 @@ export async function getHotelSearchSession(sessionId: string) {
     where: { expiresAt: { gt: new Date() }, id: sessionId }
   });
   return session ? serializeHotelSearchSession(session) : null;
+}
+
+/**
+ * Applies a budget to a search that has already been collected.
+ *
+ * A budget is a filter over results, not an input to fetching them: the rates
+ * Hyatt returns for a city and a set of dates do not depend on what the traveler
+ * is willing to pay. Storing it on the existing session is what lets "actually,
+ * around 1000 a night" be answered from what is already on the desk instead of
+ * opening Hyatt again for the same stay.
+ *
+ * Results are left untouched. Only the query changes, and `compareHotelSearchSession`
+ * re-derives every budget verdict from it.
+ */
+export async function applyHotelSearchBudget(sessionId: string, budget: HotelSearchBudget | null) {
+  const session = await getHotelSearchSession(sessionId);
+  if (!session) {
+    return null;
+  }
+  const updated = await prisma.hotelSearchSession.update({
+    data: { queryJson: serializeHotelSearchQuery({ ...session.query, budget }) },
+    where: { id: sessionId }
+  });
+  return serializeHotelSearchSession(updated);
 }
 
 export async function replaceOfficialSearchResults(input: {

@@ -10,7 +10,8 @@ import {
 } from "@/lib/agent/args";
 import type { Capability } from "@/lib/agent/types";
 import { createHotelSearchTask, supportedHotelSearchGroups } from "@/lib/hotelSearchTasks";
-import { getHotelSearchSession, type HotelSearchSessionSnapshot } from "@/lib/hotelSearchSessions";
+import { applyHotelSearchBudget, getHotelSearchSession, type HotelSearchSessionSnapshot } from "@/lib/hotelSearchSessions";
+import { getProfileSearchCurrency } from "@/lib/profilePreferences";
 import type { HotelSearchBudget, HotelSearchPriceMode } from "@/lib/providers/types";
 
 /* Computed once: the registry is static metadata, and the list is provider-driven. */
@@ -108,6 +109,26 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
   ],
   resultRoute() {
     return "/hotel-search";
+  },
+  /*
+   * The provider refuses a currency the profile is not set to, but only once the
+   * task is being created — after the press. Asked here, "1000元 while the desk
+   * shows USD" is a question with two answers the user can actually give,
+   * instead of a failure on a tab they just opened.
+   */
+  async precheck({ currency }) {
+    if (!currency) {
+      return null;
+    }
+    const profileCurrency = await getProfileSearchCurrency();
+    if (currency === profileCurrency) {
+      return null;
+    }
+    return (
+      `Prices here are collected in ${profileCurrency}, and you gave a budget in ${currency}. TripBuddy does not convert between ` +
+      `them, because a rate it invented would decide whether a hotel fits your budget. Either give the amount in ${profileCurrency}, ` +
+      `or change the display currency in Profile and ask again.`
+    );
   },
   parseArgs(raw) {
     const bag = argsBag(normalizeSerializedSearchArgs(raw), [
@@ -221,6 +242,127 @@ function normalizeSerializedSearchArgs(raw: unknown) {
     ...(value.quote === undefined ? {} : { budgetQuote: value.quote })
   };
 }
+
+/**
+ * A condition added to a search that already ran.
+ *
+ * This exists because the loop had no way to say "same search, one more
+ * constraint". A traveler who sees the results and then adds "around 1000 a
+ * night" was met with a fresh browser task for the identical city and dates —
+ * a second press, a second tab, and the same rates back. A budget filters what
+ * was collected; it is not an input to collecting it.
+ *
+ * A read, so it needs no confirmation: nothing is fetched and nothing is opened.
+ */
+export const setSearchBudget: Capability<
+  {
+    budget: HotelSearchBudget | null;
+    currency?: string;
+    searchSessionId: string;
+  },
+  { session: HotelSearchSessionSnapshot | null }
+> = {
+  name: "set_search_budget",
+  keywords: ["budget", "under", "at most", "around", "per night", "cheaper than", "within"],
+  summary:
+    "Apply or change a budget on a hotel search that already has results, and re-judge those results against it. Does not open a browser.",
+  effect: "read",
+  params: [
+    {
+      description: "The search session to filter. Use the sessionId from an earlier search result.",
+      name: "searchSessionId",
+      required: true,
+      type: "string"
+    },
+    {
+      description: "The amount the request states, in digits even if the user spelled it out; never multiplied by nights.",
+      name: "budgetAmount",
+      required: false,
+      type: "number"
+    },
+    {
+      description:
+        "One short, contiguous, exact substring of the request containing the budget as the user wrote it. Required whenever budgetAmount is given.",
+      name: "budgetQuote",
+      required: false,
+      type: "string"
+    },
+    {
+      description: "Whether the stated amount is per night or for the whole stay. Omit when the user gives no basis.",
+      enumValues: BUDGET_BASES,
+      name: "budgetBasis",
+      required: false,
+      type: "enum"
+    },
+    {
+      description: "Use approximate only for wording such as around, about, approximately, or 左右.",
+      enumValues: BUDGET_FLEXIBILITIES,
+      name: "budgetFlexibility",
+      required: false,
+      type: "enum"
+    },
+    {
+      description: "ISO currency code only when the user names one. It must match the currency the search was priced in.",
+      name: "currency",
+      required: false,
+      type: "string"
+    }
+  ],
+  parseArgs(raw) {
+    const bag = argsBag(normalizeSerializedSearchArgs(raw), [
+      "budgetAmount",
+      "budgetBasis",
+      "budgetFlexibility",
+      "budgetQuote",
+      "currency",
+      "searchSessionId"
+    ]);
+    const budgetAmount = optionalPositiveNumber(bag, "budgetAmount");
+    const statedBasis = optionalEnum(bag, "budgetBasis", BUDGET_BASES);
+    const statedFlexibility = optionalEnum(bag, "budgetFlexibility", BUDGET_FLEXIBILITIES);
+    const budgetQuote = optionalString(bag, "budgetQuote");
+    const currency = optionalString(bag, "currency")?.toUpperCase();
+    if (currency && !/^[A-Z]{3}$/.test(currency)) {
+      throw new CapabilityArgsError(`"currency" must be a three-letter ISO currency code; received ${currency}.`);
+    }
+    if (budgetAmount !== undefined && budgetQuote === undefined) {
+      throw new CapabilityArgsError('"budgetQuote" is required when a budget amount is supplied.');
+    }
+    return {
+      budget: budgetAmount === undefined
+        ? null
+        : {
+            amount: budgetAmount,
+            basis: statedBasis ?? "per_night",
+            basisAssumed: statedBasis === undefined,
+            flexibility: statedFlexibility ?? "maximum",
+            quote: budgetQuote ?? null
+          },
+      currency,
+      searchSessionId: requireString(bag, "searchSessionId")
+    };
+  },
+  async run({ budget, currency, searchSessionId }) {
+    const existing = await getHotelSearchSession(searchSessionId);
+    if (!existing) {
+      throw new CapabilityArgsError("That search has expired. Ask for the city and dates again and I will collect fresh prices.");
+    }
+    /*
+     * The product does not convert currencies, so a budget named in one the
+     * search was not priced in cannot be compared to anything. Refusing here
+     * with the two currencies named is what turns it into a question the user
+     * can act on, rather than a filter that silently compares 1000 CNY to a
+     * dollar figure.
+     */
+    if (currency && currency !== existing.query.currency) {
+      throw new CapabilityArgsError(
+        `These prices are in ${existing.query.currency} and the budget is in ${currency}. TripBuddy does not convert between them: ` +
+          `either give the budget in ${existing.query.currency}, or change the display currency in Profile and search again.`
+      );
+    }
+    return { session: await applyHotelSearchBudget(searchSessionId, budget) };
+  }
+};
 
 /**
  * The upgrade from a starting price to a price that can settle a budget.

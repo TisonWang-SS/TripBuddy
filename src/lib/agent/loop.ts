@@ -25,17 +25,20 @@
  *   made to answer from what it already has.
  */
 
+import { CapabilityArgsError } from "@/lib/agent/args";
 import { refusedAction } from "@/lib/agent/boundaries";
 import { awaitBrowserTask, BrowserTaskWaitError } from "@/lib/agent/browserTaskWait";
 import type { BookingSummary } from "@/lib/agent/capabilities/bookings";
 import type { AgentEvent } from "@/lib/agent/events";
 import { observeToolResult, type ToolObservation } from "@/lib/agent/modelView";
+import { loadPriorSearches } from "@/lib/agent/priorWork";
 import { isPlannerConfigured, planNextStep, type PlannerStep } from "@/lib/agent/planner";
 import {
   capabilityResultRoute,
   invokeCapability,
   opensBrowserTab,
   parseCapabilityArgs,
+  precheckCapability,
   requireCapability
 } from "@/lib/agent/registry";
 import { routeIntent } from "@/lib/agent/router";
@@ -61,6 +64,15 @@ export type AgentTurnRequest = {
   confirm?: { args: unknown; capability: string };
   /** What the user just said. Absent on a confirmation press. */
   message?: string;
+  /**
+   * Searches earlier turns of this conversation produced.
+   *
+   * Held by the client because the server keeps no conversation of its own. The
+   * ids are re-read here rather than trusted as descriptions, so an expired one
+   * simply drops out and a session that has since gained a total is described as
+   * it now is.
+   */
+  searchSessionIds?: readonly string[];
 };
 
 export type AgentEventSink = (event: AgentEvent) => void;
@@ -118,6 +130,13 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
       return;
     }
 
+    /*
+     * What this conversation already paid for. Told to the model as summaries,
+     * so a follow-up about a search it just ran reaches `set_search_budget` or
+     * `get_hotel_search_session` instead of opening Hyatt a second time.
+     */
+    const priorSearches = await loadPriorSearches(request.searchSessionIds, now);
+
     const observations: ToolObservation[] = [];
     const source: AdviceSource = { bookings: [], hotelSession: null, refs: {} };
     /*
@@ -144,6 +163,7 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
         plan = await deliberate({
           conversation,
           observations,
+          priorSearches,
           referenceDate: options.referenceDate,
           stepsRemaining: MAX_TOOL_STEPS - step
         });
@@ -164,6 +184,17 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
          */
         if (opensBrowserTab(call.capability) && !spendAuthorisation(call.capability)) {
           const args = parseCapabilityArgs(call.capability, call.args);
+          /*
+           * Asked before the press, not after it. A capability that cannot run
+           * as asked should say so while the user still has a choice to make —
+           * not once they have agreed and a blank tab is already open.
+           */
+          const blocker = await precheckCapability(call.capability, args);
+          if (blocker) {
+            respond(blocker, composeMessageSurface(`${runId}-s${++messageCount}`, blocker, "caution"));
+            emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
+            return;
+          }
           emit({
             name: "surface",
             timestamp: now(),
@@ -179,13 +210,23 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
           return;
         }
 
-        const observed = await act(call, {
-          emit,
-          now,
-          runId,
-          signal: options.signal,
-          toolIndex: ++toolCount
-        });
+        let observed: ActedTool;
+        try {
+          observed = await act(call, { emit, now, runId, signal: options.signal, toolIndex: ++toolCount });
+        } catch (error) {
+          /*
+           * A capability refusing its own arguments is a question, not a failed
+           * run: it knows something the planner could not — an expired session,
+           * a budget in a currency the results are not priced in — and it wrote
+           * a sentence saying what to do about it.
+           */
+          if (error instanceof CapabilityArgsError) {
+            respond(error.message, composeMessageSurface(`${runId}-s${++messageCount}`, error.message, "caution"));
+            emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
+            return;
+          }
+          throw error;
+        }
         observations.push(observed.observation);
         mergeSource(source, observed);
         if (observed.surface) {
@@ -203,6 +244,7 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
     const final = await deliberate({
       conversation,
       observations,
+      priorSearches,
       referenceDate: options.referenceDate,
       stepsRemaining: 0
     });

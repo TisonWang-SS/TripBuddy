@@ -1,6 +1,6 @@
 import { explainRecommendation, getBooking, getPriceHistory, listBookings } from "@/lib/agent/capabilities/bookings";
 import { importAccountBookings, listDueChecks, runPriceCheck } from "@/lib/agent/capabilities/checks";
-import { getSearchSession, getTaxInclusiveTotal, searchHotels } from "@/lib/agent/capabilities/search";
+import { getSearchSession, getTaxInclusiveTotal, searchHotels, setSearchBudget } from "@/lib/agent/capabilities/search";
 import { getProfile, getSettings } from "@/lib/agent/capabilities/setup";
 import { type AnyCapability, type CapabilityParam, requiresConfirmation } from "@/lib/agent/types";
 
@@ -31,6 +31,7 @@ const CAPABILITIES: readonly AnyCapability[] = [
   runPriceCheck,
   importAccountBookings,
   searchHotels,
+  setSearchBudget,
   getTaxInclusiveTotal,
   getSearchSession,
   getProfile,
@@ -96,6 +97,15 @@ export function requiresConfirmationByName(name: string) {
 /** True when this capability opens a Hyatt tab, whether or not it needs a press. */
 export function opensBrowserTab(name: string) {
   return findCapability(name)?.effect === "browser_task";
+}
+
+/**
+ * Runs a capability's own pre-flight check, if it has one. Returns the question
+ * to put to the user, or null when nothing stands in the way.
+ */
+export async function precheckCapability(name: string, args: unknown) {
+  const capability = findCapability(name);
+  return capability?.precheck ? capability.precheck(args) : null;
 }
 
 /**

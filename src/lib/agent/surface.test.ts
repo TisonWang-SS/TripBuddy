@@ -167,6 +167,12 @@ describe("surface composition", () => {
     expect(composeCapabilitySurface("not_a_capability", {}, "s1")).toBeNull();
   });
 
+  /* Applying a budget shows the re-judged rows, not just an acknowledgement. */
+  it("re-renders the results when a budget is applied", () => {
+    const surface = composeCapabilitySurface("set_search_budget", { session: searchSession }, "s1");
+    expect(surface?.nodes[0]).toMatchObject({ component: "HotelSearchResults" });
+  });
+
   /*
    * Browser tasks the loop waited out do have a rendered form now: the
    * conversation is where their outcome is reported, and a finished check that

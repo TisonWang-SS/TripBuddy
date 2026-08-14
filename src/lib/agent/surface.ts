@@ -187,6 +187,23 @@ function composeLaunchNodes(capability: string, result: unknown, resultRoute: st
   ];
 }
 
+/**
+ * The search sessions a surface carries.
+ *
+ * The client collects these across a conversation and sends them back, which is
+ * how the next turn learns that a search already exists. Reading them off the
+ * rendered surface rather than a side channel keeps one rule: what the user was
+ * shown is what the agent is told it has.
+ */
+export function searchSessionIdsOf(surface: Surface | null): string[] {
+  return (surface?.nodes ?? [])
+    .filter(
+      (node): node is Extract<SurfaceNode, { component: "HotelSearchResults" }> =>
+        node.component === "HotelSearchResults"
+    )
+    .map((node) => node.props.session.id);
+}
+
 /** The Hyatt URL a surface says was launched, for a client holding a tab open for it. */
 export function launchUrlOf(surface: Surface | null) {
   const launch = surface?.nodes.find(
@@ -366,6 +383,13 @@ function composeNodes(capability: string, result: unknown): SurfaceNode[] | null
       const settings = result as Record<string, unknown>;
       return [{ component: "Facts", key: "settings", props: { items: factsFrom(settings), title: "Settings" } }];
     }
+    /*
+     * Applying a budget re-judges every row against it, so the results are shown
+     * again rather than merely reported as updated: the budget column is the
+     * whole point of having asked, and a card that only says "done" leaves the
+     * reader to go find what changed.
+     */
+    case "set_search_budget":
     case "get_hotel_search_session": {
       const { session } = result as { session: HotelSearchSessionSnapshot | null };
       return session

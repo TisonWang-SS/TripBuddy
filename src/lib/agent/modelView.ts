@@ -43,6 +43,7 @@ export type ToolObservation = {
 export function observeToolResult(capability: string, result: unknown): ToolObservation {
   switch (capability) {
     case "search_hotels":
+    case "set_search_budget":
     case "get_tax_inclusive_total":
     case "get_hotel_search_session": {
       const { session } = result as { session: HotelSearchSessionSnapshot | null };
