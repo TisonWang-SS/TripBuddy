@@ -53,6 +53,25 @@ describe("hotel search capabilities", () => {
     expect(() => searchHotels.parseArgs({ ...args, budgetAmount: undefined })).toThrow(/budgetAmount/);
   });
 
+  it("accepts the normalized args emitted by the agent on a retry", () => {
+    expect(searchHotels.parseArgs({
+      adults: undefined,
+      budget: null,
+      checkIn: "2030-09-10",
+      checkOut: "2030-09-11",
+      city: "Tokyo",
+      cityAsAsked: "东京",
+      currency: undefined,
+      hotelGroup: "Hyatt"
+    })).toMatchObject({
+      checkIn: "2030-09-10",
+      checkOut: "2030-09-11",
+      city: "Tokyo",
+      cityAsAsked: "东京",
+      budget: null
+    });
+  });
+
   it("passes normalized city, explicit currency, and budget into the saved search", async () => {
     await searchHotels.run(searchHotels.parseArgs(args));
 
@@ -62,6 +81,22 @@ describe("hotel search capabilities", () => {
       currency: "CNY",
       budget: { amount: 1000, basis: "stay_total", basisAssumed: false, flexibility: "maximum", quote: "budget 1000" },
       mode: "city_results"
+    }));
+  });
+
+  it("starts a points-mode city search when the request asks for award rates", async () => {
+    const pointsArgs = searchHotels.parseArgs({
+      checkIn: "2030-09-10",
+      checkOut: "2030-09-11",
+      city: "Shanghai",
+      cityAsAsked: "上海",
+      priceMode: "points"
+    });
+    await searchHotels.run(pointsArgs);
+    expect(mocks.createHotelSearchTask).toHaveBeenCalledWith(expect.objectContaining({
+      city: "Shanghai",
+      mode: "city_points",
+      priceMode: "points"
     }));
   });
 

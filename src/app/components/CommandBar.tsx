@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { streamAgentRun } from "@/lib/agent/client";
+import { extractSearchQuery } from "@/lib/agent/searchQuery";
+import type { AgentConversationMessage } from "@/lib/agent/types";
 import type { Surface } from "@/lib/agent/surface";
 import { launchUrlOf } from "@/lib/agent/surface";
 import { buttonClassName } from "@/ui";
@@ -47,6 +49,7 @@ function matches(command: Command, query: string) {
 type Answer =
   | { kind: "running"; question: string }
   | { args: unknown; capability: string; kind: "confirm"; message: string; question: string }
+  | { kind: "clarify"; question: string; surface: Surface | null }
   | { kind: "answered"; question: string; surface: Surface | null }
   | { kind: "failed"; message: string; question: string };
 
@@ -58,6 +61,7 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
   const [answer, setAnswer] = useState<Answer | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const conversationRef = useRef<AgentConversationMessage[]>([]);
   const restoreRef = useRef<HTMLElement | null>(null);
   const listId = useId();
 
@@ -68,6 +72,7 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
     setQuery("");
     setActive(0);
     setAnswer(null);
+    conversationRef.current = [];
     restoreRef.current?.focus();
     restoreRef.current = null;
   }, []);
@@ -128,6 +133,9 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
     if (answer?.kind === "confirm") {
       confirmRef.current?.focus();
     }
+    if (answer?.kind === "clarify") {
+      inputRef.current?.focus();
+    }
   }, [answer?.kind]);
 
   function run(command: Command) {
@@ -154,14 +162,19 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
     let surface: Surface | null = null;
     let capability = "";
     let args: unknown = {};
+    let assistantText = "";
     let failure: { code: string; message: string } | null = null;
 
     try {
-      await streamAgentRun(request, (event) => {
+      const conversation = conversationRef.current;
+      const requestWithConversation = conversation.length > 0 ? { ...request, conversation } : request;
+      await streamAgentRun(requestWithConversation, (event) => {
         if (event.type === "TOOL_CALL_START") {
           capability = event.toolCallName;
         } else if (event.type === "TOOL_CALL_ARGS") {
           args = JSON.parse(event.delta) as unknown;
+        } else if (event.type === "TEXT_MESSAGE_CONTENT") {
+          assistantText += event.delta;
         } else if (event.type === "CUSTOM" && event.name === "surface") {
           surface = event.value as Surface;
         } else if (event.type === "RUN_ERROR") {
@@ -185,6 +198,21 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
       return;
     }
 
+    if (typeof request.message === "string") {
+      const turns: AgentConversationMessage[] = [...conversationRef.current, { content: request.message, role: "user" }];
+      if (assistantText) {
+        turns.push({ content: assistantText, role: "assistant" });
+      }
+      conversationRef.current = turns.slice(-8);
+    }
+
+    const needsFollowUp = isClarificationSurface(surface, assistantText, capability);
+    if (needsFollowUp) {
+      /* The previous request is context, not a draft the user should edit. */
+      setQuery("");
+      setActive(0);
+    }
+
     const launchUrl = launchUrlOf(surface);
     if (browserTab) {
       if (launchUrl) {
@@ -193,7 +221,7 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
         browserTab.close();
       }
     }
-    setAnswer({ kind: "answered", question, surface });
+    setAnswer(needsFollowUp ? { kind: "clarify", question, surface } : { kind: "answered", question, surface });
   }
 
   /**
@@ -224,7 +252,21 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
       return;
     }
     if (askable) {
-      void ask({ message: query.trim() }, query.trim());
+      const question = query.trim();
+      const context = [...conversationRef.current.filter((turn) => turn.role === "user").map((turn) => turn.content), question].join("\n");
+      let browserTab: Window | null = null;
+      if (isHotelSearchRequest(context)) {
+        browserTab = window.open("about:blank", "_blank");
+        if (!browserTab) {
+          setAnswer({
+            kind: "failed",
+            message: "Chrome blocked the Hyatt tab. Allow pop-ups for TripBuddy and try again.",
+            question
+          });
+          return;
+        }
+      }
+      void ask({ message: question }, question, browserTab);
     }
   }
 
@@ -288,7 +330,7 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
                   setAnswer(null);
                 }}
                 onKeyDown={onFieldKeyDown}
-                placeholder="Type a command, or ask…"
+                placeholder={answer?.kind === "clarify" ? "Add the missing detail, then press Enter…" : "Type a command, or ask…"}
                 ref={inputRef}
                 role="combobox"
                 value={query}
@@ -314,7 +356,10 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
                     </button>
                   </div>
                 ) : null}
-                {answer.kind === "answered" && answer.surface ? <SurfaceRenderer surface={answer.surface} /> : null}
+                {answer.kind === "clarify" ? (
+                  <p className={styles.answerFollowUp}>Add the missing detail in the field above, then press Enter to continue.</p>
+                ) : null}
+                {(answer.kind === "answered" || answer.kind === "clarify") && answer.surface ? <SurfaceRenderer surface={answer.surface} /> : null}
               </div>
             ) : null}
 
@@ -378,4 +423,24 @@ export function CommandBar({ commands }: { commands: readonly Command[] }) {
       ) : null}
     </>
   );
+}
+
+function isClarificationSurface(surface: Surface | null, assistantText: string, capability: string) {
+  if (capability || !assistantText || !surface) {
+    return false;
+  }
+  const message = surface.nodes[0];
+  return message?.component === "Message" && message.props.tone === "neutral";
+}
+
+function isHotelSearchRequest(text: string) {
+  const search = extractSearchQuery(text);
+  const hasChineseDestination = /[\p{Script=Han}]{2,12}(?:的)?(?:酒店|旅馆|宾馆)/u.test(text);
+  const hasEnglishDestination = /(?:\b(?:in|at|for)\s+|\b)(?:[A-Z][\p{L}'-]*(?:\s+[A-Z][\p{L}'-]*){0,3})(?=\s+(?:hotels?|lodging)\b)/u.test(text);
+  const hasPointsIntent = search.priceMode === "points";
+  const hasCityAndDateShorthand = Boolean(search.city && search.checkIn);
+  return Boolean(search.checkIn)
+    && Boolean(search.city || hasChineseDestination || hasEnglishDestination)
+    && (hasPointsIntent || hasCityAndDateShorthand || /酒店|旅馆|宾馆|hotel|hotels|lodging/iu.test(text))
+    && (hasPointsIntent || hasCityAndDateShorthand || /查|查询|搜索|找|价格|房价|房费|availability|search|find|rate|rates?|price/iu.test(text));
 }

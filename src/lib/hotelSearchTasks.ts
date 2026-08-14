@@ -28,7 +28,7 @@ import { getProfileSearchCurrency } from "@/lib/profilePreferences";
 import { getBookingPriceProvider, getHotelSearchProvider, listSearchableHotelGroups } from "@/lib/providers/registry";
 import type { BookingPriceInput, HotelSearchQuery } from "@/lib/providers/types";
 
-type HotelSearchTaskMode = "city_results" | "tax_inclusive_total";
+type HotelSearchTaskMode = "city_results" | "city_points" | "tax_inclusive_total";
 
 export type HotelSearchTaskInput = Partial<HotelSearchQuery> & {
   hotelName?: unknown;
@@ -59,13 +59,17 @@ export async function createHotelSearchTask(input: HotelSearchTaskInput) {
   if (errors.length > 0) {
     throw new BrowserTaskError("invalid_search", errors.join(" "), 400);
   }
-  const mode: HotelSearchTaskMode = input.mode === "tax_inclusive_total" ? "tax_inclusive_total" : "city_results";
+  const mode: HotelSearchTaskMode = input.mode === "tax_inclusive_total"
+    ? "tax_inclusive_total"
+    : query.priceMode === "points"
+      ? "city_points"
+      : "city_results";
   const hotelName = mode === "tax_inclusive_total" ? String(input.hotelName ?? "").trim() : null;
   if (mode === "tax_inclusive_total" && !hotelName) {
     throw new BrowserTaskError("hotel_name_required", "Choose a hotel before requesting a tax-inclusive total.", 400);
   }
   let searchSessionId: string;
-  if (mode === "city_results") {
+  if (mode !== "tax_inclusive_total") {
     searchSessionId = (await createHotelSearchSession(query)).id;
   } else {
     searchSessionId = String(input.searchSessionId ?? "").trim();
@@ -144,7 +148,10 @@ export async function captureHotelSearchTask(taskId: string, capture: BrowserTas
   }
   const query = context.query;
   const visibleResults = provider.parseSearchSnapshot(snapshot);
-  const results = visibleResults.filter((result) => result.currency === query.currency);
+  const pointsMode = context.mode === "city_points" || query.priceMode === "points";
+  const results = visibleResults.filter((result) => pointsMode
+    ? result.priceMode === "points"
+    : result.priceMode === "cash" && result.currency === query.currency);
   const result = {
     capturedAt: snapshot.capturedAt,
     results,
@@ -153,11 +160,13 @@ export async function captureHotelSearchTask(taskId: string, capture: BrowserTas
     status: results.length > 0 ? ("succeeded" as const) : ("partial" as const),
     summary:
       results.length > 0
-        ? `${task.hotelGroup} official search returned ${results.length} visible hotel rate${results.length === 1 ? "" : "s"}.`
+        ? `${task.hotelGroup} official search returned ${results.length} visible ${pointsMode ? "points rate" : "hotel rate"}${results.length === 1 ? "" : "s"}.`
         : `${task.hotelGroup} opened in Chrome, but no supported visible hotel rates were found.`,
     warning:
       visibleResults.length > 0 && results.length === 0
-        ? `${task.hotelGroup} did not render the requested profile currency (${query.currency}); no prices were imported.`
+        ? pointsMode
+          ? `${task.hotelGroup} did not render visible points rates; no prices were imported.`
+          : `${task.hotelGroup} did not render the requested profile currency (${query.currency}); no prices were imported.`
         : results.length === 0
           ? "The source may have no availability or may have changed its visible page structure."
           : null

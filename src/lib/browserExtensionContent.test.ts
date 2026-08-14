@@ -185,7 +185,8 @@ describe("Browser Companion behavior", () => {
     const context = contentContext({
       HTMLAnchorElement: class TestAnchor {},
       document: { querySelectorAll: vi.fn(() => [backgroundControl, dialogControl]) },
-      getComputedStyle: () => ({ display: "block", visibility: "visible" })
+      getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+      window: {}
     });
 
     expect(vm.runInContext("collectControls().map((control) => control.label)", context)).toEqual([
@@ -231,6 +232,44 @@ describe("Browser Companion behavior", () => {
     expect(vm.runInContext("collectControls()", context)).toMatchObject([
       { label: "Use Points", pressed: false }
     ]);
+  });
+
+  it("selects Hyatt's city-search Points view before capturing rates", async () => {
+    let checked = false;
+    const toggle = {
+      click: vi.fn(() => {
+        checked = true;
+        body.innerText = "Rates from: 12,000 Points/Night";
+      }),
+      dispatchEvent: vi.fn(),
+      focus: vi.fn(),
+      getAttribute: vi.fn((name: string) => {
+        if (name === "aria-label") return "Points";
+        if (name === "aria-checked") return String(checked);
+        if (name === "role") return "switch";
+        return null;
+      }),
+      getBoundingClientRect: () => ({ height: 20, width: 40 }),
+      innerText: "Points",
+      parentElement: null,
+      scrollIntoView: vi.fn(),
+      tagName: "BUTTON",
+      textContent: "Points"
+    };
+    const body = { innerText: "Rates from: $155 Avg/Night" };
+    const context = contentContext({
+      HTMLAnchorElement: class TestAnchor {},
+      MouseEvent: class TestMouseEvent {},
+      document: {
+        body,
+        querySelectorAll: vi.fn((selector: string) => selector.includes('[role="switch"]') ? [toggle] : [])
+      },
+      getComputedStyle: () => ({ display: "block", visibility: "visible" }),
+      window: {}
+    });
+
+    await expect(vm.runInContext("selectHyattPoints()", context)).resolves.toBe(true);
+    expect(toggle.click).toHaveBeenCalledOnce();
   });
 
   it("returns visible Hyatt sign-in evidence through the task protocol", async () => {

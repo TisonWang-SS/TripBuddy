@@ -21,6 +21,7 @@ export function HotelSearchResults({
 }) {
   const comparison = compareHotelSearchSession(session);
   const budget = summarizeHotelSearchBudget(session.query);
+  const pointsMode = session.query.priceMode === "points";
   const sourceUrl = comparison.rows.find((row) => row.startingOffer?.sourceUrl)?.startingOffer?.sourceUrl ?? null;
   const mismatches = comparison.rows.filter((row) => row.destinationGrounding === "mismatch");
 
@@ -37,7 +38,7 @@ export function HotelSearchResults({
         </a>
       ) : null}
       eyebrow={`${session.query.hotelGroup} official results`}
-      title={`${session.query.cityAsAsked} · ${comparison.visibleRows.length} to review`}
+      title={`${session.query.cityAsAsked} · ${comparison.visibleRows.length} ${pointsMode ? "points rates" : "to review"}`}
     >
       <p className={styles.summary}>
         {formatCalendarDate(session.query.checkIn)} to {formatCalendarDate(session.query.checkOut)} · searched as {session.query.city}
@@ -46,16 +47,18 @@ export function HotelSearchResults({
       {session.results.warning ? <Notice tone="caution">{session.results.warning}</Notice> : null}
 
       <Notice>
-        {budget === null
-          ? "Comparison basis: a verified tax-inclusive total for the whole stay. Starting Avg/Night prices are discovery hints only."
+        {pointsMode
+          ? "Hyatt award rates are shown as Points/Night. These are redemption estimates for the requested dates; no cash tax-inclusive total is required."
+          : budget === null
+            ? "Comparison basis: a verified tax-inclusive total for the whole stay. Starting Avg/Night prices are discovery hints only."
           : `${budget.flexibility === "approximate" ? "Approximate budget target" : "Budget maximum"}: ${formatMoney(budget.amount, session.query.currency)} ${budget.basis === "per_night" ? "per night" : "for the whole stay"}. ${budget.basisAssumed ? "No basis was stated, so TripBuddy interpreted it as per night. " : ""}${budget.quote ? `Read from your words: “${budget.quote}”. ` : ""}${budget.basis === "per_night" ? `${budget.nights} nights produce a deterministic whole-stay target of ${formatMoney(budget.stayTarget, session.query.currency)}. ` : ""}${budget.flexibility === "approximate" ? `The product-owned ${APPROXIMATE_BUDGET_TOLERANCE * 100}% tolerance sets the comparison ceiling at ${formatMoney(budget.comparisonCeiling, session.query.currency)}. ` : ""}Starting Avg/Night prices never qualify a hotel.`}
       </Notice>
-      {budget !== null && comparison.awaitingFinalTotalCount > 0 ? (
+      {!pointsMode && budget !== null && comparison.awaitingFinalTotalCount > 0 ? (
         <Notice tone="caution">
           {comparison.awaitingFinalTotalCount} hotel{comparison.awaitingFinalTotalCount === 1 ? "" : "s"} still need a tax-inclusive total before the budget can decide.
         </Notice>
       ) : null}
-      {comparison.hiddenOverBudgetCount > 0 ? (
+      {!pointsMode && comparison.hiddenOverBudgetCount > 0 ? (
         <Notice tone="neutral">
           {comparison.hiddenOverBudgetCount} verified hotel{comparison.hiddenOverBudgetCount === 1 ? " is" : "s are"} above the comparison ceiling and hidden.
         </Notice>
@@ -71,8 +74,8 @@ export function HotelSearchResults({
           <thead>
             <tr>
               <th scope="col">Hotel</th>
-              <th scope="col">Starting price</th>
-              <th scope="col">Budget comparison</th>
+              <th scope="col">{pointsMode ? "Points price" : "Starting price"}</th>
+              <th scope="col">{pointsMode ? "Award details" : "Budget comparison"}</th>
             </tr>
           </thead>
           <tbody>
@@ -86,13 +89,19 @@ export function HotelSearchResults({
                     <span className={styles.stacked}>{hotel.availabilityLabel}</span>
                   </td>
                   <td className={styles.money}>
-                    {startingOffer
-                      ? formatMoney(startingOffer.startingAvgNightlyRate ?? startingOffer.displayedAmount, startingOffer.currency)
-                      : "Not captured"}
-                    <span className={styles.stacked}>Avg/night; taxes and fees excluded; not used for budget</span>
+                    {pointsMode
+                      ? startingOffer
+                        ? `${formatPoints(startingOffer.startingPointsPerNight ?? startingOffer.displayedAmount)} points`
+                        : "Not captured"
+                      : startingOffer
+                        ? formatMoney(startingOffer.startingAvgNightlyRate ?? startingOffer.displayedAmount, startingOffer.currency)
+                        : "Not captured"}
+                    <span className={styles.stacked}>{pointsMode ? "Points/Night; award availability shown by Hyatt" : "Avg/night; taxes and fees excluded; not used for budget"}</span>
                   </td>
                   <td className={styles.money}>
-                    {finalOffer?.stayTotal !== null && finalOffer?.stayTotal !== undefined ? (
+                    {pointsMode ? (
+                      <span className={styles.stacked}>Points redemption rate; no tax-inclusive cash total needed.</span>
+                    ) : finalOffer?.stayTotal !== null && finalOffer?.stayTotal !== undefined ? (
                       <>
                         <span className={styles.total}>Total {formatMoney(finalOffer.stayTotal, finalOffer.currency)}</span>
                         <span className={styles.stacked}>
@@ -146,4 +155,8 @@ export function HotelSearchResults({
       )}
     </Card>
   );
+}
+
+function formatPoints(value: number) {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }

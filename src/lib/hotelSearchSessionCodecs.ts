@@ -45,6 +45,7 @@ function decodeQuery(value: unknown): HotelSearchQuery | null {
   const cityAsAsked = value.cityAsAsked === undefined ? city : requiredString(value.cityAsAsked);
   const currency = requiredString(value.currency)?.toUpperCase() ?? null;
   const hotelGroup = requiredString(value.hotelGroup);
+  const priceMode = value.priceMode === "points" || value.priceMode === "cash" ? value.priceMode : undefined;
   if (
     !adults ||
     !checkIn ||
@@ -58,7 +59,17 @@ function decodeQuery(value: unknown): HotelSearchQuery | null {
   ) {
     return null;
   }
-  return { adults, budget, checkIn, checkOut, city, cityAsAsked, currency, hotelGroup };
+  return {
+    adults,
+    budget,
+    checkIn,
+    checkOut,
+    city,
+    cityAsAsked,
+    currency,
+    hotelGroup,
+    ...(priceMode ? { priceMode } : {})
+  };
 }
 
 /** Upgrades both pre-budget rows and the first whole-stay-only budget shape. */
@@ -172,7 +183,8 @@ function decodeOffer(value: unknown): HotelSearchOffer | null {
     stayTotal: nullableNumber(value.stayTotal),
     taxesAmount: nullableNumber(value.taxesAmount),
     taxesAndFeesAmount: nullableNumber(value.taxesAndFeesAmount),
-    taxesIncluded: enumValue(value.taxesIncluded, ["included", "excluded", "unknown"] as const)
+    taxesIncluded: enumValue(value.taxesIncluded, ["included", "excluded", "unknown"] as const),
+    ...(value.startingPointsPerNight === undefined ? {} : { startingPointsPerNight: nullableNumber(value.startingPointsPerNight) })
   };
   if (
     offer.breakfastIncluded === undefined ||

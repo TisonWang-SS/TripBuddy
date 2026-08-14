@@ -132,7 +132,11 @@ export type HotelSearchQuery = {
   cityAsAsked: string;
   currency: string;
   hotelGroup: string;
+  /** Cash is the legacy default; points asks Hyatt to show award rates. */
+  priceMode?: HotelSearchPriceMode;
 };
+
+export type HotelSearchPriceMode = "cash" | "points";
 
 export type HotelSearchBudget = {
   /** Numeric amount copied from the user's request or entered in the form; never model-derived. */
@@ -152,11 +156,13 @@ export type HotelSearchBudget = {
 
 export type HotelSearchResult = {
   availabilityLabel: string;
-  avgNightlyRate: number;
+  avgNightlyRate: number | null;
   currency: string;
   hotelName: string;
   locationLabel: string | null;
   priceBasis: string;
+  pointsPerNight: number | null;
+  priceMode: HotelSearchPriceMode;
   sourceUrl: string;
 };
 

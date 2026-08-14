@@ -41,6 +41,8 @@ export type HotelSearchOffer = {
   startingAvgNightlyRate: number | null;
   staySubtotal: number | null;
   stayTotal: number | null;
+  /** Populated for points searches; legacy cash offers omit this field. */
+  startingPointsPerNight?: number | null;
   taxesAmount: number | null;
   taxesAndFeesAmount: number | null;
   taxesIncluded: SearchPriceInclusion;
@@ -120,9 +122,9 @@ export async function replaceOfficialSearchResults(input: {
       cancellationPolicy: null,
       capturedAt: input.capturedAt,
       comparisonWarnings: ["Starting price only; room and rate-plan equivalence are not verified."],
-      currency: result.currency,
-      displayedAmount: result.avgNightlyRate,
-      displayedPriceBasis: "tax_exclusive",
+      currency: result.priceMode === "points" ? "PTS" : result.currency,
+      displayedAmount: result.priceMode === "points" ? result.pointsPerNight ?? 0 : result.avgNightlyRate ?? 0,
+      displayedPriceBasis: result.priceMode === "points" ? "unknown" : "tax_exclusive",
       displayedPriceUnit: "avg_nightly",
       eliteNightEligible: true,
       evidenceLevel: "starting_price",
@@ -139,8 +141,11 @@ export async function replaceOfficialSearchResults(input: {
       sourceType: "direct",
       sourceUrl: result.sourceUrl,
       startingAvgNightlyRate: result.avgNightlyRate,
-      staySubtotal: roundMoney(result.avgNightlyRate * nights),
+      staySubtotal: result.priceMode === "points" || result.avgNightlyRate === null
+        ? null
+        : roundMoney(result.avgNightlyRate * nights),
       stayTotal: null,
+      ...(result.priceMode === "points" ? { startingPointsPerNight: result.pointsPerNight } : {}),
       taxesAmount: null,
       taxesAndFeesAmount: null,
       taxesIncluded: "excluded"
@@ -249,7 +254,8 @@ export function hotelSearchQueriesMatch(left: HotelSearchQuery, right: HotelSear
     left.checkOut === right.checkOut &&
     left.city.trim().toLowerCase() === right.city.trim().toLowerCase() &&
     left.currency === right.currency &&
-    left.hotelGroup === right.hotelGroup
+    left.hotelGroup === right.hotelGroup &&
+    (left.priceMode ?? "cash") === (right.priceMode ?? "cash")
   );
 }
 

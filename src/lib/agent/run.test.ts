@@ -57,6 +57,11 @@ describe("agent run", () => {
     mocks.findManyBookings.mockReset().mockResolvedValue([]);
     mocks.runPriceCheck.mockReset();
     mocks.createAccountImportTask.mockReset();
+    mocks.createHotelSearchTask.mockReset().mockResolvedValue({
+      launchUrl: "https://www.hyatt.com/search",
+      searchSessionId: "session-1",
+      taskId: "task-1"
+    });
   });
 
   afterEach(() => {
@@ -195,6 +200,11 @@ describe("agent run — routing a message", () => {
     vi.stubEnv("TRIPBUDDY_LLM_API_KEY", "");
     mocks.findManyBookings.mockReset().mockResolvedValue([]);
     mocks.runPriceCheck.mockReset();
+    mocks.createHotelSearchTask.mockReset().mockResolvedValue({
+      launchUrl: "https://www.hyatt.com/search",
+      searchSessionId: "session-1",
+      taskId: "task-1"
+    });
   });
 
   afterEach(() => {
@@ -251,6 +261,54 @@ describe("agent run — routing a message", () => {
     const events = await collect({ message: "run a price check" });
     expect(saidText(events)).toContain("booking identifier");
     expect(mocks.runPriceCheck).not.toHaveBeenCalled();
+  });
+
+  it("turns a normal Chinese hotel question into a one-night search", async () => {
+    const events = await collect({ message: "帮我查一下9月1日东京的酒店" });
+
+    const args = events.find((event) => event.type === "TOOL_CALL_ARGS");
+    expect(types(events)).toContain("RUN_FINISHED");
+    expect(types(events)).not.toContain("RUN_ERROR");
+    expect(args && "delta" in args && JSON.parse(args.delta)).toMatchObject({
+      checkIn: "2026-09-01",
+      checkOut: "2026-09-02",
+      city: "Tokyo",
+      cityAsAsked: "东京"
+    });
+    expect(mocks.createHotelSearchTask).toHaveBeenCalledWith(expect.objectContaining({
+      checkIn: "2026-09-01",
+      checkOut: "2026-09-02",
+      city: "Tokyo"
+    }));
+    const surface = events.find((event) => event.type === "CUSTOM" && event.name === "surface");
+    expect(surface && "value" in surface && surface.value).toMatchObject({
+      nodes: [{ component: "TaskLaunch", props: { capability: "search_hotels", launchUrl: "https://www.hyatt.com/search", resultRoute: "/hotel-search?sessionId=session-1&taskId=task-1" } }]
+    });
+  });
+
+  it("uses the earlier turn when the user supplies a missing city", async () => {
+    const first = await collect({ message: "帮我查一下9月1日的酒店价格" });
+    const clarification = saidText(first);
+    const second = await collect({
+      conversation: [
+        { content: "帮我查一下9月1日的酒店价格", role: "user" },
+        { content: clarification, role: "assistant" }
+      ],
+      confirmed: true,
+      message: "东京"
+    });
+    const args = second.find((event) => event.type === "TOOL_CALL_ARGS");
+    expect(args && "delta" in args && JSON.parse(args.delta)).toMatchObject({
+      checkIn: "2026-09-01",
+      checkOut: "2026-09-02",
+      city: "Tokyo",
+      cityAsAsked: "东京"
+    });
+    expect(mocks.createHotelSearchTask).toHaveBeenCalledWith(expect.objectContaining({
+      checkIn: "2026-09-01",
+      checkOut: "2026-09-02",
+      city: "Tokyo"
+    }));
   });
 
   it("prefers an explicit capability over routing the message", async () => {

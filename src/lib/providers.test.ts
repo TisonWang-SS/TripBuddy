@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getBookingPriceProvider, getHotelSearchProvider, listSearchableHotelGroups } from "@/lib/providers/registry";
 import { buildHyattBookingSearchUrl, extractHyattHotelCode } from "@/lib/providers/hyatt";
+import { buildHyattCitySearchUrl } from "@/lib/providers/hyattSearch";
 
 const input = {
   bookingId: "booking-1",
@@ -119,6 +120,37 @@ describe("hotel provider registry", () => {
       errorMessage: "Hyatt could not process the visible booking request after the page refresh.",
       status: "failed"
     });
+  });
+
+  it("parses Hyatt Points/Night rates when the points view is selected", () => {
+    const provider = getHotelSearchProvider("Hyatt")!;
+    const results = provider.parseSearchSnapshot(
+      snapshot(
+        "2 Results Hyatt on the Bund, Shanghai 4.5 (645) Award Category 3 1.5 mi Rates from: 12,000 Points/Night $155 Avg/Night HOTEL WEBSITE VIEW RATES Grand Hyatt Shanghai 4.5 (532) Award Category 3 1.9 mi Rates from: 17,000 Points/Night $169 Avg/Night HOTEL WEBSITE VIEW RATES",
+        "https://www.hyatt.com/search/hotels/en-US/Shanghai?currency=USD"
+      )
+    );
+
+    expect(results).toEqual([
+      expect.objectContaining({ hotelName: "Hyatt on the Bund, Shanghai", pointsPerNight: 12000, priceMode: "points" }),
+      expect.objectContaining({ hotelName: "Grand Hyatt Shanghai", pointsPerNight: 17000, priceMode: "points" })
+    ]);
+    expect(results.every((result) => result.avgNightlyRate === null && result.currency === "PTS")).toBe(true);
+  });
+
+  it("opens Hyatt city searches directly in the requested points view", () => {
+    const url = buildHyattCitySearchUrl({
+      adults: 2,
+      budget: null,
+      checkIn: "2026-09-01",
+      checkOut: "2026-09-02",
+      city: "Shanghai",
+      cityAsAsked: "上海",
+      currency: "USD",
+      priceMode: "points"
+    });
+
+    expect(url).toContain("rateFilter=woh");
   });
 
   it("emits a final cash total as observation-ready and keeps an unplaceable points figure as inventory", () => {

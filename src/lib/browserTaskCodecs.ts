@@ -10,7 +10,7 @@ import type {
 
 export type HotelSearchTaskContext = {
   hotelName: string | null;
-  mode: "city_results" | "tax_inclusive_total";
+  mode: "city_results" | "city_points" | "tax_inclusive_total";
   query: HotelSearchQuery;
   searchSessionId: string | null;
 };
@@ -78,7 +78,11 @@ export function parseHotelSearchTaskContext(value: string): HotelSearchTaskConte
   }
   return {
     hotelName: nullableTrimmedString(parsed.hotelName),
-    mode: parsed.mode === "tax_inclusive_total" ? "tax_inclusive_total" : "city_results",
+    mode: parsed.mode === "tax_inclusive_total"
+      ? "tax_inclusive_total"
+      : parsed.mode === "city_points"
+        ? "city_points"
+        : "city_results",
     query,
     searchSessionId: nullableTrimmedString(parsed.searchSessionId)
   };
@@ -234,11 +238,15 @@ function isHotelSearchResult(value: unknown) {
   if (!isRecord(value)) {
     return false;
   }
+  const priceMode = value.priceMode === "points" ? "points" : "cash";
+  const hasPrice = priceMode === "points"
+    ? finiteNumber(value.pointsPerNight) !== null
+    : finiteNumber(value.avgNightlyRate) !== null;
   return (
     [value.availabilityLabel, value.currency, value.hotelName, value.priceBasis, value.sourceUrl].every(
       (item) => Boolean(stringValue(item).trim())
     ) &&
-    finiteNumber(value.avgNightlyRate) !== null &&
+    hasPrice &&
     (value.locationLabel === null || typeof value.locationLabel === "string")
   );
 }
@@ -267,6 +275,7 @@ function decodeHotelSearchQuery(value: unknown): HotelSearchQuery | null {
   const cityAsAsked = value.cityAsAsked === undefined ? city : stringValue(value.cityAsAsked).trim();
   const currency = stringValue(value.currency).trim();
   const hotelGroup = stringValue(value.hotelGroup).trim();
+  const priceMode = value.priceMode === "points" || value.priceMode === "cash" ? value.priceMode : undefined;
   if (
     adults === null ||
     !checkIn ||
@@ -279,7 +288,17 @@ function decodeHotelSearchQuery(value: unknown): HotelSearchQuery | null {
   ) {
     return null;
   }
-  return { adults, budget, checkIn, checkOut, city, cityAsAsked, currency, hotelGroup };
+  return {
+    adults,
+    budget,
+    checkIn,
+    checkOut,
+    city,
+    cityAsAsked,
+    currency,
+    hotelGroup,
+    ...(priceMode ? { priceMode } : {})
+  };
 }
 
 function decodeHotelSearchBudget(value: Record<string, unknown>): HotelSearchBudget | null | undefined {

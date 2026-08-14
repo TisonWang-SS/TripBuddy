@@ -23,6 +23,12 @@ export type CapabilityParam = {
   type: CapabilityParamType;
 };
 
+/** User/assistant turns retained by the command bar for a clarification round. */
+export type AgentConversationMessage = {
+  content: string;
+  role: "assistant" | "user";
+};
+
 type CapabilityBase<TArgs, TResult> = {
   /** One line, written to be read by the router and shown in the command bar. */
   summary: string;
@@ -48,14 +54,16 @@ type ReadCapability<TArgs, TResult> = CapabilityBase<TArgs, TResult> & {
  * Opens a Hyatt tab through the Browser Companion. Two consequences, both
  * enforced rather than documented:
  *
- * - it needs explicit user confirmation, because the product never acts on the
- *   user's behalf without a press;
+ * - it needs explicit user confirmation unless it is explicitly marked as
+ *   read-only, because the product never mutates anything without a press;
  * - it needs a route that owns its progress and error notices. The command bar
  *   closes when it runs a command, so a task fired from there would leave its
  *   result nowhere to land. `resultRoute` is where the caller must be standing.
  */
 type BrowserTaskCapability<TArgs, TResult> = CapabilityBase<TArgs, TResult> & {
   effect: "browser_task";
+  /** Read-only browser work may start from a user query without a second press. */
+  confirmationRequired?: boolean;
   resultRoute(args: TArgs): string;
 };
 
@@ -68,5 +76,5 @@ export type Capability<TArgs = never, TResult = unknown> =
 export type AnyCapability = Capability<any, unknown>;
 
 export function requiresConfirmation(capability: AnyCapability) {
-  return capability.effect === "browser_task";
+  return capability.effect === "browser_task" && capability.confirmationRequired !== false;
 }

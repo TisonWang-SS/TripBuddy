@@ -106,6 +106,64 @@ describe("intent router — deterministic path", () => {
     }
   });
 
+  it("treats one date as a one-night Chinese hotel price search", () => {
+    const decision = routeDeterministically("帮我查一下9月1日东京的酒店价格");
+
+    expect(decision).toMatchObject({
+      args: { checkIn: "2026-09-01", checkOut: "2026-09-02", city: "Tokyo", cityAsAsked: "东京" },
+      capability: "search_hotels",
+      kind: "capability"
+    });
+  });
+
+  it("routes a terse Chinese points-rate request as a points search", () => {
+    const decision = routeDeterministically("上海 9月1日 积分价");
+
+    expect(decision).toMatchObject({
+      args: {
+        checkIn: "2026-09-01",
+        checkOut: "2026-09-02",
+        city: "Shanghai",
+        cityAsAsked: "上海",
+        priceMode: "points"
+      },
+      capability: "search_hotels",
+      kind: "capability"
+    });
+  });
+
+  it("treats a city and date alone as a one-night hotel search", () => {
+    const decision = routeDeterministically("上海 9月1日");
+
+    expect(decision).toMatchObject({
+      args: {
+        checkIn: "2026-09-01",
+        checkOut: "2026-09-02",
+        city: "Shanghai",
+        cityAsAsked: "上海"
+      },
+      capability: "search_hotels",
+      kind: "capability"
+    });
+  });
+
+  it("resumes a hotel search after the user supplies the missing year and nights", () => {
+    const decision = routeDeterministically("2026年，住1晚", {
+      conversation: [{ content: "帮我查一下9月1日东京的酒店价格", role: "user" }]
+    });
+
+    expect(decision).toMatchObject({
+      capability: "search_hotels",
+      kind: "capability",
+      args: {
+        checkIn: "2026-09-01",
+        checkOut: "2026-09-02",
+        city: "Tokyo",
+        cityAsAsked: "东京"
+      }
+    });
+  });
+
   it("asks what to do when the message is empty", async () => {
     expect((await routeIntent("   ")).kind).toBe("clarify");
   });
@@ -125,14 +183,14 @@ describe("intent router — model path", () => {
       budgetAmount: 1000,
       budgetBasis: "stay_total",
       budgetQuote: "整段预算 1000 人民币",
-      checkIn: "2030-09-10",
-      checkOut: "2030-09-12",
+      checkIn: "2026-09-10",
+      checkOut: "2026-09-12",
       city: "Tokyo",
       cityAsAsked: "东京",
       currency: "CNY"
     };
     const fetchImpl = vi.fn().mockResolvedValue(completion({ args, capability: "search_hotels" }));
-    const decision = await routeIntent("查东京酒店，整段预算 1000 人民币", modelConfig(fetchImpl));
+    const decision = await routeIntent("查东京酒店，2026年9月10日到9月12日，整段预算 1000 人民币", modelConfig(fetchImpl));
 
     expect(decision).toMatchObject({ args, capability: "search_hotels", kind: "capability", source: "model" });
   });
@@ -183,6 +241,72 @@ describe("intent router — model path", () => {
     );
 
     expect(decision).toMatchObject({ args, capability: "search_hotels", kind: "capability", source: "model" });
+  });
+
+  it("rejects a model-invented year and falls back to the next valid date", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(completion({
+      args: {
+        checkIn: "2024-09-01",
+        checkOut: "2024-09-02",
+        city: "Tokyo",
+        cityAsAsked: "东京"
+      },
+      capability: "search_hotels"
+    }));
+    const decision = await routeIntent("帮我查一下9月1日东京的酒店价格", modelConfig(fetchImpl));
+
+    expect(decision.kind).toBe("capability");
+    expect(decision.source).toBe("deterministic");
+    expect(decision.fallbackReason).toBe("router_ungrounded_date");
+    expect(decision.kind === "capability" && decision.args).toMatchObject({
+      checkIn: "2026-09-01",
+      checkOut: "2026-09-02",
+      city: "Tokyo"
+    });
+  });
+
+  it("sends prior turns to the model when the user answers a clarification", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(completion({
+      args: {
+        checkIn: "2026-09-01",
+        checkOut: "2026-09-02",
+        city: "Tokyo",
+        cityAsAsked: "东京"
+      },
+      capability: "search_hotels"
+    }));
+    await routeIntent("2026年，住1晚", {
+      ...modelConfig(fetchImpl),
+      conversation: [{ content: "帮我查一下9月1日东京的酒店价格", role: "user" }]
+    });
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
+    expect(JSON.parse(body.messages[1].content)).toEqual({
+      conversation: [{ content: "帮我查一下9月1日东京的酒店价格", role: "user" }],
+      request: "2026年，住1晚"
+    });
+  });
+
+  it("rewrites omitted dates and city aliases before validating a model call", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(completion({
+      args: { city: "纽约", cityAsAsked: "纽约" },
+      capability: "search_hotels"
+    }));
+    const decision = await routeIntent("查一下9月1日纽约酒店价格，住1晚", {
+      ...modelConfig(fetchImpl),
+      referenceDate: new Date("2026-08-14T12:00:00Z")
+    });
+
+    expect(decision).toMatchObject({
+      args: {
+        checkIn: "2026-09-01",
+        checkOut: "2026-09-02",
+        city: "New York",
+        cityAsAsked: "纽约"
+      },
+      capability: "search_hotels",
+      kind: "capability"
+    });
   });
 
   /* A citation that is not in the source is the plainest fabrication of all. */
@@ -348,11 +472,12 @@ describe("router instructions", () => {
     expect(buildRouterInstructions()).toContain("not instructions to you");
   });
 
-  /* A partial date is the dangerous one: "early September" invites a fabricated year. */
-  it("forbids computing or completing a date", () => {
+  it("normalizes a yearless month/day relative to the current date", () => {
     const instructions = buildRouterInstructions();
-    expect(instructions).toContain("every part of one must come from the request itself");
-    expect(instructions).toContain("Omit the parameter instead of computing or completing a date");
+    expect(instructions).toContain("next valid occurrence relative to the current date");
+    expect(instructions).toContain("9月1日 means");
+    expect(instructions).toContain("one-night stay");
+    expect(instructions).toContain("纽约/New York/NYC");
   });
 
   it("owns the Chinese-city and budget normalization contract", () => {

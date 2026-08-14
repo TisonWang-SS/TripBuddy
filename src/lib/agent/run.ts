@@ -2,6 +2,7 @@ import type { AgentEvent } from "@/lib/agent/events";
 import { capabilityResultRoute, invokeCapability, parseCapabilityArgs, requireCapability } from "@/lib/agent/registry";
 import { type RouteDecision, routeIntent } from "@/lib/agent/router";
 import { composeCapabilitySurface, composeMessageSurface } from "@/lib/agent/surface";
+import type { AgentConversationMessage } from "@/lib/agent/types";
 
 export type AgentRunRequest = {
   args?: unknown;
@@ -15,6 +16,8 @@ export type AgentRunRequest = {
   confirmed?: boolean;
   /** A person's words, to be routed. Ignored when `capability` is given. */
   message?: string;
+  /** Earlier turns, retained when the router asks the user for missing details. */
+  conversation?: readonly AgentConversationMessage[];
 };
 
 export type AgentEventSink = (event: AgentEvent) => void;
@@ -22,6 +25,8 @@ export type AgentEventSink = (event: AgentEvent) => void;
 type RunOptions = {
   /** Injected so tests assert on an exact event sequence. */
   now?: () => number;
+  /** Optional calendar anchor for deterministic date-rewrite tests. */
+  referenceDate?: Date;
   runId?: string;
 };
 
@@ -43,7 +48,7 @@ export async function runAgentRequest(request: AgentRunRequest, emit: AgentEvent
   emit({ runId, timestamp: now(), type: "RUN_STARTED" });
 
   try {
-    const resolved = await resolveRequest(request, emit, now);
+    const resolved = await resolveRequest(request, emit, now, options.referenceDate);
     if (resolved.kind !== "capability") {
       /*
        * The run ends in words rather than a call. The words are product-owned:
@@ -116,13 +121,21 @@ export async function runAgentRequest(request: AgentRunRequest, emit: AgentEvent
 
 type ResolvedRequest = { args: unknown; capability: string; kind: "capability" } | Exclude<RouteDecision, { kind: "capability" }>;
 
-async function resolveRequest(request: AgentRunRequest, emit: AgentEventSink, now: () => number): Promise<ResolvedRequest> {
+async function resolveRequest(
+  request: AgentRunRequest,
+  emit: AgentEventSink,
+  now: () => number,
+  referenceDate?: Date
+): Promise<ResolvedRequest> {
   if (typeof request.capability === "string" && request.capability.trim().length > 0) {
     return { args: request.args, capability: request.capability.trim(), kind: "capability" };
   }
 
   emit({ stepName: "route", timestamp: now(), type: "STEP_STARTED" });
-  const decision = await routeIntent(request.message ?? "");
+  const decision = await routeIntent(request.message ?? "", {
+    conversation: request.conversation,
+    referenceDate
+  });
   emit({ stepName: "route", timestamp: now(), type: "STEP_FINISHED" });
 
   return decision.kind === "capability"

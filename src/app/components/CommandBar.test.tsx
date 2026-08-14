@@ -49,6 +49,39 @@ const launchEvent: AgentEvent = {
   }
 };
 
+const searchLaunchEvent: AgentEvent = {
+  name: "surface",
+  timestamp: 1,
+  type: "CUSTOM",
+  value: {
+    nodes: [
+      {
+        component: "TaskLaunch",
+        key: "launch",
+        props: { capability: "search_hotels", launchUrl: "https://www.hyatt.com/search", resultRoute: "/hotel-search" }
+      }
+    ],
+    surfaceId: "s-search",
+    version: "tripbuddy-surface-1"
+  }
+};
+
+const clarificationEvents: AgentEvent[] = [
+  { messageId: "m1", role: "assistant", timestamp: 1, type: "TEXT_MESSAGE_START" },
+  { delta: "请告诉我想查哪个城市的酒店。", messageId: "m1", timestamp: 2, type: "TEXT_MESSAGE_CONTENT" },
+  { messageId: "m1", timestamp: 3, type: "TEXT_MESSAGE_END" },
+  {
+    name: "surface",
+    timestamp: 4,
+    type: "CUSTOM",
+    value: {
+      nodes: [{ component: "Message", key: "m", props: { text: "请告诉我想查哪个城市的酒店。", tone: "neutral" } }],
+      surfaceId: "s3",
+      version: "tripbuddy-surface-1"
+    }
+  }
+];
+
 /* What the server answers while a browser task is still waiting for its press. */
 const heldForConfirmation = emitting(
   { timestamp: 1, toolCallId: "t", toolCallName: "run_price_check", type: "TOOL_CALL_START" },
@@ -95,6 +128,74 @@ describe("command bar", () => {
     expect(mocks.streamAgentRun).toHaveBeenCalledWith({ message: "anything due" }, expect.any(Function));
     /* A read answers in place; it does not navigate away from the palette. */
     expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("keeps clarification context when the user supplies the next turn", async () => {
+    const browserTab = { close: vi.fn(), location: { href: "" } };
+    vi.spyOn(window, "open").mockReturnValue(browserTab as unknown as Window);
+    mocks.streamAgentRun.mockImplementationOnce(emitting(...clarificationEvents)).mockImplementationOnce(emitting(surfaceEvent));
+
+    openBar();
+    typeQuery("帮我查一下9月1日的酒店价格");
+    fireEvent.click(screen.getByRole("option", { name: /帮我查一下9月1日的酒店价格/ }));
+
+    await waitFor(() => expect(screen.getByText(/请告诉我想查哪个城市/)).toBeInTheDocument());
+    const input = screen.getByRole("combobox");
+    expect(input).toHaveValue("");
+    expect(input).toHaveAttribute("placeholder", "Add the missing detail, then press Enter…");
+    expect(input).toHaveFocus();
+    expect(screen.getByText(/Add the missing detail in the field above/)).toBeInTheDocument();
+    typeQuery("东京");
+    fireEvent.click(screen.getByRole("option", { name: /东京/ }));
+
+    await waitFor(() => expect(mocks.streamAgentRun).toHaveBeenCalledTimes(2));
+    expect(mocks.streamAgentRun).toHaveBeenLastCalledWith(
+      {
+        conversation: [
+          { content: "帮我查一下9月1日的酒店价格", role: "user" },
+          { content: "请告诉我想查哪个城市的酒店。", role: "assistant" }
+        ],
+        message: "东京"
+      },
+      expect.any(Function)
+    );
+    expect(window.open).toHaveBeenCalledWith("about:blank", "_blank");
+    expect(browserTab.close).toHaveBeenCalled();
+  });
+
+  it("opens a hotel search directly and points the tab at its launch URL", async () => {
+    const browserTab = { close: vi.fn(), location: { href: "" } };
+    vi.spyOn(window, "open").mockReturnValue(browserTab as unknown as Window);
+    mocks.streamAgentRun.mockImplementation(emitting(
+      { timestamp: 1, toolCallId: "t", toolCallName: "search_hotels", type: "TOOL_CALL_START" },
+      { delta: JSON.stringify({ checkIn: "2026-09-01", checkOut: "2026-09-02", city: "Tokyo", cityAsAsked: "东京", budget: null }), timestamp: 2, toolCallId: "t", type: "TOOL_CALL_ARGS" },
+      searchLaunchEvent
+    ));
+
+    openBar();
+    typeQuery("帮我查一下9月1日东京的酒店");
+    fireEvent.click(screen.getByRole("option", { name: /帮我查一下9月1日东京的酒店/ }));
+
+    await waitFor(() => expect(browserTab.location.href).toBe("https://www.hyatt.com/search"));
+    expect(window.open).toHaveBeenCalledWith("about:blank", "_blank");
+    expect(screen.queryByRole("button", { name: /Open the Hyatt tab/i })).not.toBeInTheDocument();
+  });
+
+  it("opens a hotel search for the city-and-date shorthand", async () => {
+    const browserTab = { close: vi.fn(), location: { href: "" } };
+    vi.spyOn(window, "open").mockReturnValue(browserTab as unknown as Window);
+    mocks.streamAgentRun.mockImplementation(emitting(
+      { timestamp: 1, toolCallId: "t", toolCallName: "search_hotels", type: "TOOL_CALL_START" },
+      { delta: JSON.stringify({ checkIn: "2026-09-01", checkOut: "2026-09-02", city: "Shanghai", cityAsAsked: "上海" }), timestamp: 2, toolCallId: "t", type: "TOOL_CALL_ARGS" },
+      searchLaunchEvent
+    ));
+
+    openBar();
+    typeQuery("上海 9月1日");
+    fireEvent.click(screen.getByRole("option", { name: /上海 9月1日/ }));
+
+    await waitFor(() => expect(browserTab.location.href).toBe("https://www.hyatt.com/search"));
+    expect(window.open).toHaveBeenCalledWith("about:blank", "_blank");
   });
 
   /*

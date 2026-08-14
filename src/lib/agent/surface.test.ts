@@ -147,13 +147,13 @@ describe("surface composition", () => {
   it("links a hotel-search launch to the session that will own its result", () => {
     const surface = composeCapabilitySurface(
       "search_hotels",
-      { launchUrl: "https://www.hyatt.com/search", searchSessionId: "session with spaces" },
+      { launchUrl: "https://www.hyatt.com/search", searchSessionId: "session with spaces", taskId: "task-1" },
       "s1",
       "/hotel-search"
     );
     expect(surface?.nodes[0]).toMatchObject({
       component: "TaskLaunch",
-      props: { resultRoute: "/hotel-search?sessionId=session%20with%20spaces" }
+      props: { resultRoute: "/hotel-search?sessionId=session+with+spaces&taskId=task-1" }
     });
   });
 

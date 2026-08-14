@@ -172,12 +172,13 @@ function describeBlockedRateCard(snapshot) {
 
 async function runHotelSearchTask(endpoint, taskId, hotelSearchMode) {
   showStatus("TripBuddy is reading the visible official hotel search...");
+  const pointsMode = hotelSearchMode === "city_points";
   const startedAt =
     hotelSearchMode === "tax_inclusive_total" ? rememberAutoReloadTaskStart(taskId) : Date.now();
   const readable =
     hotelSearchMode === "tax_inclusive_total"
       ? await waitForReadablePage(60000)
-      : await waitForText(/Rates from:|Avg\s*\/\s*Night|View Rates|No hotels|not available|Find Hotels/i, 60000);
+      : await waitForText(/Rates from:|Avg\s*\/\s*Night|Points\s*\/\s*Night|View Rates|No hotels|not available|Find Hotels/i, 60000);
   if (!readable) {
     return reportFailure(
       endpoint,
@@ -202,6 +203,17 @@ async function runHotelSearchTask(endpoint, taskId, hotelSearchMode) {
     }
     if (!currencyReady) {
       showStatus(`Hyatt's search currency control was not readable. TripBuddy will only accept a final total visibly shown in ${requestedCurrency}.`);
+    }
+  }
+  if (pointsMode) {
+    const pointsReady = await selectHyattPoints();
+    if (!pointsReady) {
+      return reportFailure(
+        endpoint,
+        taskId,
+        "points_selector_unavailable",
+        "Hyatt did not visibly switch the search results to Points; no award prices were imported."
+      );
     }
   }
   while (Date.now() - startedAt < TASK_TIMEOUT_MS) {
@@ -641,6 +653,23 @@ async function selectHyattCurrency(currencyCode) {
   }
   option.click();
   return waitForCondition(() => currencyControlText(toggle).includes(target.toUpperCase()), 5000);
+}
+
+async function selectHyattPoints() {
+  const toggle = Array.from(document.querySelectorAll(
+    '[role="switch"][aria-label*="Points" i], [role="checkbox"][aria-label*="Points" i], input[type="checkbox"]'
+  )).find((element) => isVisible(element) && /points/i.test(controlLabel(element)));
+  if (!toggle) {
+    return false;
+  }
+  if (controlPressedState(toggle) === true || /Points\s*\/\s*Night/i.test(pageText())) {
+    return true;
+  }
+  activateSafeControl(toggle);
+  return waitForCondition(
+    () => controlPressedState(toggle) === true && /Points\s*\/\s*Night/i.test(pageText()),
+    15000
+  );
 }
 
 function currencyControlText(element) {

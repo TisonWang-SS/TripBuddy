@@ -1,5 +1,5 @@
 import { HYATT_CURRENCY_TOKENS, normalizeHyattCurrency } from "@/lib/providers/hyattCurrency";
-import type { HotelSearchBudget, HotelSearchQuery, HotelSearchResult } from "@/lib/providers/types";
+import type { HotelSearchBudget, HotelSearchPriceMode, HotelSearchQuery, HotelSearchResult } from "@/lib/providers/types";
 
 type HyattCitySearchQuery = Omit<HotelSearchQuery, "hotelGroup">;
 
@@ -14,7 +14,8 @@ export function normalizeHyattCitySearchQuery(input: Partial<HyattCitySearchQuer
     checkOut: String(input.checkOut ?? "").trim(),
     city,
     cityAsAsked: String(input.cityAsAsked ?? city).trim() || city,
-    currency: normalizeHyattCurrency(String(input.currency ?? "USD"))
+    currency: normalizeHyattCurrency(String(input.currency ?? "USD")),
+    priceMode: input.priceMode === "points" ? ("points" as const) : ("cash" as const)
   };
 
   const errors: string[] = [];
@@ -58,6 +59,9 @@ export function buildHyattCitySearchUrl(query: HyattCitySearchQuery) {
     rate: "Standard",
     rooms: "1"
   });
+  if (query.priceMode === "points") {
+    params.set("rateFilter", "woh");
+  }
   return `https://www.hyatt.com/search/hotels/en-US/${encodeURIComponent(query.city)}?${params.toString()}`;
 }
 
@@ -74,11 +78,26 @@ function parseHyattCitySearchText(text: string, sourceUrl: string): HotelSearchR
 }
 
 function parseHyattCitySearchPageText(text: string, sourceUrl: string) {
+  const pointsPattern = /Rates from:\s*([0-9][0-9,]{1,8})\s*Points\s*\/\s*Night/gi;
+  const pointMatches = [...text.matchAll(pointsPattern)];
+  if (pointMatches.length > 0) {
+    return parsePageRateMatches(pointMatches, text, sourceUrl, "points");
+  }
+
   const pricePattern = new RegExp(
     `Rates from:\\s*(${HYATT_CURRENCY_TOKENS.join("|")})\\s?([0-9][0-9,]{1,8})(?:\\.\\d{2})?\\s*Avg\\s*\\/\\s*Night`,
     "gi"
   );
   const matches = [...text.matchAll(pricePattern)];
+  return parsePageRateMatches(matches, text, sourceUrl, "cash");
+}
+
+function parsePageRateMatches(
+  matches: RegExpMatchArray[],
+  text: string,
+  sourceUrl: string,
+  priceMode: HotelSearchPriceMode
+) {
   const results: HotelSearchResult[] = [];
 
   for (const [index, match] of matches.entries()) {
@@ -92,17 +111,21 @@ function parseHyattCitySearchPageText(text: string, sourceUrl: string) {
     if (!hotelName) {
       continue;
     }
-    const avgNightlyRate = Number(match[2].replace(/,/g, ""));
-    if (!Number.isFinite(avgNightlyRate) || avgNightlyRate < 20 || avgNightlyRate > 5_000_000) {
+    const amount = Number(match[priceMode === "points" ? 1 : 2].replace(/,/g, ""));
+    if (!Number.isFinite(amount) || amount < 1 || amount > 5_000_000) {
       continue;
     }
     results.push({
       availabilityLabel: "Rates from",
-      avgNightlyRate,
-      currency: normalizeHyattCurrency(match[1]),
+      avgNightlyRate: priceMode === "cash" ? amount : null,
+      currency: priceMode === "cash" ? normalizeHyattCurrency(match[1]) : "PTS",
       hotelName,
       locationLabel: null,
-      priceBasis: "Official Hyatt Avg/Night estimate; taxes and fees excluded unless Hyatt labels otherwise",
+      priceBasis: priceMode === "points"
+        ? "Official Hyatt Points/Night award estimate"
+        : "Official Hyatt Avg/Night estimate; taxes and fees excluded unless Hyatt labels otherwise",
+      pointsPerNight: priceMode === "points" ? amount : null,
+      priceMode,
       sourceUrl
     });
   }
@@ -112,6 +135,25 @@ function parseHyattCitySearchPageText(text: string, sourceUrl: string) {
 
 function parseHyattCitySearchCard(rawText: string, sourceUrl: string): HotelSearchResult | null {
   const text = rawText.replace(/\s+/g, " ").trim();
+  const pointsMatch = text.match(/([0-9][0-9,]{1,8})\s*Points\s*\/\s*Night/i);
+  if (pointsMatch) {
+    const pointsPerNight = Number(pointsMatch[1].replace(/,/g, ""));
+    const hotelName = extractHotelName(text);
+    if (hotelName && Number.isFinite(pointsPerNight) && pointsPerNight > 0) {
+      return {
+        availabilityLabel: extractAvailability(text),
+        avgNightlyRate: null,
+        currency: "PTS",
+        hotelName,
+        locationLabel: extractLocation(text, hotelName),
+        priceBasis: "Official Hyatt Points/Night award estimate",
+        pointsPerNight,
+        priceMode: "points",
+        sourceUrl
+      };
+    }
+  }
+
   const pricePattern = new RegExp(
     `(${HYATT_CURRENCY_TOKENS.join("|")})\\s?([0-9][0-9,]{1,8})(?:\\.\\d{2})?\\s*(?:Avg\\s*\\/\\s*Night|Average\\s*\\/\\s*Night|per\\s*night|\\/\\s*night)`,
     "i"
@@ -138,6 +180,8 @@ function parseHyattCitySearchCard(rawText: string, sourceUrl: string): HotelSear
     hotelName,
     locationLabel: extractLocation(text, hotelName),
     priceBasis: "Official Hyatt Avg/Night estimate; taxes and fees excluded unless Hyatt labels otherwise",
+    pointsPerNight: null,
+    priceMode: "cash",
     sourceUrl
   };
 }
@@ -145,7 +189,7 @@ function parseHyattCitySearchCard(rawText: string, sourceUrl: string): HotelSear
 function extractHotelName(text: string) {
   const candidates = [
     ...text.matchAll(
-      /\b((?:Park Hyatt|Grand Hyatt|Hyatt Regency|Hyatt Centric|Hyatt Place|Hyatt House|Hyatt Vacation Club|Hyatt Ziva|Hyatt Zilara|Hyatt Vivid|Hyatt Studios|The Unbound Collection by Hyatt|Destination by Hyatt|Caption by Hyatt|JdV by Hyatt|Alila|Andaz|Thompson|Dream|Miraval|The Standard|me and all hotel|Tommy Bahama Miramonte Resort & Spa)[A-Za-z0-9 '&.,()/-]{0,90})/gi
+      /\b((?:Hyatt on the Bund|Park Hyatt|Grand Hyatt|Hyatt Regency|Hyatt Centric|Hyatt Place|Hyatt House|Hyatt Vacation Club|Hyatt Ziva|Hyatt Zilara|Hyatt Vivid|Hyatt Studios|The Unbound Collection by Hyatt|Destination by Hyatt|Caption by Hyatt|JdV by Hyatt|Alila|Andaz|Thompson|Dream|Miraval|The Standard|me and all hotel|Tommy Bahama Miramonte Resort & Spa)[A-Za-z0-9 '&.,()/-]{0,90})/gi
     )
   ]
     .map((match) => cleanLabel(match[1]))
@@ -162,7 +206,7 @@ function extractHotelNameFromResultPrefix(text: string) {
     .trim();
   const candidates = [
     ...normalized.matchAll(
-      /\b((?:Park Hyatt|Grand Hyatt|Hyatt Regency|Hyatt Centric|Hyatt Place|Hyatt House|Hyatt Vacation Club|Hyatt Ziva|Hyatt Zilara|Hyatt Vivid|Hyatt Studios|The Unbound Collection by Hyatt|Destination by Hyatt|Caption by Hyatt|JdV by Hyatt|Alila|Andaz|Thompson|Dream|Miraval|The Standard|me and all hotel|Tommy Bahama Miramonte Resort & Spa|Hotel Toranomon Hills)[A-Za-z0-9 '&.,()/-]{0,90}?)(?:\s+(?:NEWLY ADDED\s+)?Award Category|\s+\d+(?:\.\d+)?\s*mi|\s+\d(?:\.\d)?\s+\(\d+\))/gi
+      /\b((?:Hyatt on the Bund|Park Hyatt|Grand Hyatt|Hyatt Regency|Hyatt Centric|Hyatt Place|Hyatt House|Hyatt Vacation Club|Hyatt Ziva|Hyatt Zilara|Hyatt Vivid|Hyatt Studios|The Unbound Collection by Hyatt|Destination by Hyatt|Caption by Hyatt|JdV by Hyatt|Alila|Andaz|Thompson|Dream|Miraval|The Standard|me and all hotel|Tommy Bahama Miramonte Resort & Spa|Hotel Toranomon Hills)[A-Za-z0-9 '&.,()/-]{0,90}?)(?:\s+(?:NEWLY ADDED\s+)?Award Category|\s+\d+(?:\.\d+)?\s*mi|\s+\d(?:\.\d)?\s+\(\d+\))/gi
     )
   ].map((match) => ({
     index: match.index ?? 0,
@@ -190,13 +234,25 @@ function extractLocation(text: string, hotelName: string) {
 function dedupeHyattCityRateResults(results: HotelSearchResult[]) {
   const byHotel = new Map<string, HotelSearchResult>();
   for (const result of results) {
-    const key = normalizeHotelName(result.hotelName);
+    const key = `${result.priceMode}:${normalizeHotelName(result.hotelName)}`;
     const existing = byHotel.get(key);
-    if (!existing || result.avgNightlyRate < existing.avgNightlyRate) {
+    const resultAmount = result.priceMode === "points"
+      ? result.pointsPerNight ?? Number.POSITIVE_INFINITY
+      : result.avgNightlyRate ?? Number.POSITIVE_INFINITY;
+    const existingAmount = existing
+      ? existing.priceMode === "points"
+        ? existing.pointsPerNight ?? Number.POSITIVE_INFINITY
+        : existing.avgNightlyRate ?? Number.POSITIVE_INFINITY
+      : Number.POSITIVE_INFINITY;
+    if (!existing || resultAmount < existingAmount) {
       byHotel.set(key, result);
     }
   }
-  return [...byHotel.values()].sort((a, b) => a.avgNightlyRate - b.avgNightlyRate);
+  return [...byHotel.values()].sort((a, b) => {
+    const left = a.priceMode === "points" ? a.pointsPerNight ?? Number.POSITIVE_INFINITY : a.avgNightlyRate ?? Number.POSITIVE_INFINITY;
+    const right = b.priceMode === "points" ? b.pointsPerNight ?? Number.POSITIVE_INFINITY : b.avgNightlyRate ?? Number.POSITIVE_INFINITY;
+    return left - right;
+  });
 }
 
 function cleanLabel(value: string) {

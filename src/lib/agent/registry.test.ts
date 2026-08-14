@@ -90,7 +90,8 @@ describe("capability registry", () => {
         "city",
         "cityAsAsked",
         "currency",
-        "hotelGroup"
+        "hotelGroup",
+        "priceMode"
       ]);
   });
 
@@ -129,6 +130,22 @@ describe("capability registry", () => {
     const { result } = await invokeCapability("run_price_check", { bookingId: "booking-1" }, { confirmed: true });
     expect(result).toEqual({ taskId: "task-1" });
     expect(mocks.runPriceCheck).toHaveBeenCalledWith({ bookingId: "booking-1", trigger: "manual" });
+  });
+
+  it("runs the read-only hotel search without a second confirmation", async () => {
+    mocks.createHotelSearchTask.mockClear().mockResolvedValue({
+      launchUrl: "https://www.hyatt.com/search",
+      searchSessionId: "session-1",
+      taskId: "task-1"
+    });
+    const { result } = await invokeCapability("search_hotels", {
+      checkIn: "2030-09-10",
+      checkOut: "2030-09-11",
+      city: "Tokyo",
+      cityAsAsked: "东京"
+    });
+    expect(result).toMatchObject({ launchUrl: "https://www.hyatt.com/search", taskId: "task-1" });
+    expect(mocks.createHotelSearchTask).toHaveBeenCalled();
   });
 
   /* Bad arguments fail before the confirmation question is even reached. */

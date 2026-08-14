@@ -140,10 +140,17 @@ export function composeCapabilitySurface(
  */
 function composeLaunchNodes(capability: string, result: unknown, resultRoute: string): SurfaceNode[] {
   const launch = result && typeof result === "object"
-    ? result as { launchUrl?: unknown; searchSessionId?: unknown }
+    ? result as { launchUrl?: unknown; searchSessionId?: unknown; taskId?: unknown }
     : {};
-  const route = capability === "search_hotels" && typeof launch.searchSessionId === "string"
-    ? `${resultRoute}?sessionId=${encodeURIComponent(launch.searchSessionId)}`
+  const routeParams = new URLSearchParams();
+  if (capability === "search_hotels" && typeof launch.searchSessionId === "string") {
+    routeParams.set("sessionId", launch.searchSessionId);
+  }
+  if (capability === "search_hotels" && typeof launch.taskId === "string") {
+    routeParams.set("taskId", launch.taskId);
+  }
+  const route = routeParams.size > 0
+    ? `${resultRoute}${resultRoute.includes("?") ? "&" : "?"}${routeParams.toString()}`
     : resultRoute;
   return [
     {

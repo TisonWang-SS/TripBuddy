@@ -11,7 +11,7 @@ import {
 import type { Capability } from "@/lib/agent/types";
 import { createHotelSearchTask, supportedHotelSearchGroups } from "@/lib/hotelSearchTasks";
 import { getHotelSearchSession, type HotelSearchSessionSnapshot } from "@/lib/hotelSearchSessions";
-import type { HotelSearchBudget } from "@/lib/providers/types";
+import type { HotelSearchBudget, HotelSearchPriceMode } from "@/lib/providers/types";
 
 /* Computed once: the registry is static metadata, and the list is provider-driven. */
 const SEARCHABLE_GROUPS = supportedHotelSearchGroups();
@@ -25,6 +25,7 @@ export type SearchHotelsArgs = {
   cityAsAsked: string;
   currency?: string;
   hotelGroup: string;
+  priceMode?: HotelSearchPriceMode;
 };
 
 const BUDGET_BASES = ["per_night", "stay_total"] as const;
@@ -40,6 +41,7 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
   keywords: ["search", "find a hotel", "availability", "look for", "hotels in"],
   summary: "Open a Hyatt tab and collect comparable city rates for a set of dates.",
   effect: "browser_task",
+  confirmationRequired: false,
   params: [
     {
       description: "Latin-letter city or destination name accepted by the hotel search path.",
@@ -95,13 +97,20 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
       name: "hotelGroup",
       required: false,
       type: "enum"
+    },
+    {
+      description: "Cash is the default. Use points for wording such as 积分价, 点数, points, or award.",
+      enumValues: ["cash", "points"],
+      name: "priceMode",
+      required: false,
+      type: "enum"
     }
   ],
   resultRoute() {
     return "/hotel-search";
   },
   parseArgs(raw) {
-    const bag = argsBag(raw, [
+    const bag = argsBag(normalizeSerializedSearchArgs(raw), [
       "adults",
       "budgetAmount",
       "budgetBasis",
@@ -112,7 +121,8 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
       "city",
       "cityAsAsked",
       "currency",
-      "hotelGroup"
+      "hotelGroup",
+      "priceMode"
     ]);
     const checkIn = requireUpcomingCalendarDate(bag, "checkIn");
     const checkOut = requireUpcomingCalendarDate(bag, "checkOut");
@@ -131,6 +141,7 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
     const statedBasis = optionalEnum(bag, "budgetBasis", BUDGET_BASES);
     const statedFlexibility = optionalEnum(bag, "budgetFlexibility", BUDGET_FLEXIBILITIES);
     const budgetQuote = optionalString(bag, "budgetQuote");
+    const priceMode = optionalEnum(bag, "priceMode", ["cash", "points"] as const);
     if (budgetAmount === undefined && (statedBasis !== undefined || statedFlexibility !== undefined || budgetQuote !== undefined)) {
       throw new CapabilityArgsError('"budgetAmount" is required when a budget basis, flexibility, or quote is supplied.');
     }
@@ -159,10 +170,11 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
       city: requireString(bag, "city"),
       cityAsAsked: requireString(bag, "cityAsAsked"),
       currency,
-      hotelGroup: optionalEnum(bag, "hotelGroup", SEARCHABLE_GROUPS) ?? SEARCHABLE_GROUPS[0]
+      hotelGroup: optionalEnum(bag, "hotelGroup", SEARCHABLE_GROUPS) ?? SEARCHABLE_GROUPS[0],
+      ...(priceMode ? { priceMode } : {})
     };
   },
-  async run({ adults, budget, checkIn, checkOut, city, cityAsAsked, currency, hotelGroup }) {
+  async run({ adults, budget, checkIn, checkOut, city, cityAsAsked, currency, hotelGroup, priceMode }) {
     const task = await createHotelSearchTask({
       adults,
       budget,
@@ -172,7 +184,8 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
       cityAsAsked,
       currency,
       hotelGroup,
-      mode: "city_results"
+      mode: priceMode === "points" ? "city_points" : "city_results",
+      priceMode
     });
     /* The task state is spread from a nullable serializer; a fresh task has both. */
     if (!task.launchUrl || !task.taskId) {
@@ -181,6 +194,33 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
     return { launchUrl: task.launchUrl, searchSessionId: task.searchSessionId, taskId: task.taskId };
   }
 };
+
+/*
+ * The command bar announces parsed arguments on the first run and may send
+ * those same arguments back on a retry. Accept the serialized budget shape as
+ * well as the router's raw budgetAmount fields so a harmless retry cannot fail
+ * with "Unexpected argument(s): budget".
+ */
+function normalizeSerializedSearchArgs(raw: unknown) {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw) || !("budget" in raw)) {
+    return raw;
+  }
+  const { budget, ...rest } = raw as Record<string, unknown>;
+  if (budget === null || budget === undefined) {
+    return rest;
+  }
+  if (typeof budget !== "object" || Array.isArray(budget)) {
+    return { ...rest, budgetAmount: budget };
+  }
+  const value = budget as Record<string, unknown>;
+  return {
+    ...rest,
+    ...(value.amount === undefined ? {} : { budgetAmount: value.amount }),
+    ...(value.basis === undefined ? {} : { budgetBasis: value.basis }),
+    ...(value.flexibility === undefined ? {} : { budgetFlexibility: value.flexibility }),
+    ...(value.quote === undefined ? {} : { budgetQuote: value.quote })
+  };
+}
 
 export const getSearchSession: Capability<{ sessionId: string }, { session: HotelSearchSessionSnapshot | null }> = {
   name: "get_hotel_search_session",

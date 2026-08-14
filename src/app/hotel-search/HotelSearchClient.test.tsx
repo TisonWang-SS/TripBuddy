@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HotelSearchClient } from "@/app/hotel-search/HotelSearchClient";
+import type { HotelSearchSessionSnapshot } from "@/lib/hotelSearchSessions";
 
 const { waitForBrowserTask } = vi.hoisted(() => ({ waitForBrowserTask: vi.fn() }));
 vi.mock("@/lib/browserTaskClient", () => ({ waitForBrowserTask }));
@@ -22,6 +23,115 @@ describe("HotelSearchClient", () => {
     expect(screen.getByLabelText("Budget basis")).toHaveValue("stay_total");
     expect(screen.getByLabelText("Budget style")).toHaveValue("maximum");
     expect(screen.queryByLabelText("Currency")).not.toBeInTheDocument();
+  });
+
+  it("waits for an Agent-launched task and hydrates the result page after the callback", async () => {
+    const initialSession: HotelSearchSessionSnapshot = {
+      createdAt: "2026-08-03T08:00:00.000Z",
+      expiresAt: "2026-08-04T08:00:00.000Z",
+      id: "session-agent",
+      profileId: "primary",
+      query: {
+        adults: 2,
+        budget: null,
+        checkIn: "2026-09-01",
+        checkOut: "2026-09-02",
+        city: "Tokyo",
+        cityAsAsked: "东京",
+        currency: "USD",
+        hotelGroup: "Hyatt"
+      },
+      results: { capturedAt: null, hotels: [], summary: null, warning: null },
+      updatedAt: "2026-08-03T08:00:00.000Z"
+    };
+    const hydratedSession: HotelSearchSessionSnapshot = {
+      ...initialSession,
+      id: "session-agent",
+      results: {
+        capturedAt: "2026-08-03T08:01:00.000Z",
+        hotels: [{
+          availabilityLabel: "Available",
+          hotelGroup: "Hyatt",
+          hotelKey: "hyatt:tokyo:grand-hyatt-tokyo",
+          hotelName: "Grand Hyatt Tokyo",
+          locationLabel: "Tokyo",
+          offers: [{
+            breakfastIncluded: null,
+            cancellationPolicy: null,
+            capturedAt: "2026-08-03T08:01:00.000Z",
+            comparisonWarnings: [],
+            currency: "USD",
+            displayedAmount: 500,
+            displayedPriceBasis: "tax_exclusive",
+            displayedPriceUnit: "avg_nightly",
+            eliteNightEligible: true,
+            evidenceLevel: "starting_price",
+            feesAmount: null,
+            feesIncluded: "excluded",
+            hotelGroup: "Hyatt",
+            loyaltyEligible: true,
+            nights: 1,
+            offerKey: "hyatt-official:grand-hyatt-tokyo",
+            providerName: "Hyatt",
+            ratePlanName: null,
+            roomType: null,
+            sourceName: "Hyatt official",
+            sourceType: "direct",
+            sourceUrl: "https://www.hyatt.com/search",
+            startingAvgNightlyRate: 500,
+            staySubtotal: 500,
+            stayTotal: null,
+            taxesAmount: null,
+            taxesAndFeesAmount: null,
+            taxesIncluded: "excluded"
+          }]
+        }],
+        summary: "One visible official rate.",
+        warning: null
+      },
+      updatedAt: "2026-08-03T08:01:00.000Z"
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        errorCode: null,
+        errorMessage: null,
+        expiresAt: "2026-08-03T08:03:00.000Z",
+        finishedAt: "2026-08-03T08:01:00.000Z",
+        hotelGroup: "Hyatt",
+        kind: "hotel_search",
+        launchUrl: "https://www.hyatt.com/search#task",
+        result: {
+          capturedAt: "2026-08-03T08:01:00.000Z",
+          results: [{
+            availabilityLabel: "Available",
+            avgNightlyRate: 500,
+            currency: "USD",
+            hotelName: "Grand Hyatt Tokyo",
+            locationLabel: "Tokyo",
+            priceBasis: "Avg/Night excluding taxes and fees",
+            sourceUrl: "https://www.hyatt.com/search"
+          }],
+          searchSessionId: "session-agent",
+          searchUrl: "https://www.hyatt.com/search",
+          status: "succeeded",
+          summary: "One visible official rate.",
+          warning: null
+        },
+        runId: null,
+        status: "succeeded",
+        taskId: "task-agent"
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(hydratedSession), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<HotelSearchClient currency="USD" hotelGroups={["Hyatt"]} initialSession={initialSession} taskId="task-agent" />);
+
+    expect(screen.getByText("Waiting for Hyatt prices…")).toBeInTheDocument();
+    expect(screen.queryByText("No Hyatt-grounded results")).not.toBeInTheDocument();
+    expect(await screen.findByText("Grand Hyatt Tokyo")).toBeInTheDocument();
+    expect(waitForBrowserTask).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/browser-tasks/task-agent");
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/hotel-search?sessionId=session-agent");
   });
 
   it("carries the temporary session into the final-total request and shows both price standards", async () => {

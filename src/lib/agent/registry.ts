@@ -17,7 +17,7 @@ export class ConfirmationRequiredError extends Error {
   readonly code = "confirmation_required";
 
   constructor(name: string) {
-    super(`"${name}" opens a browser tab and needs explicit confirmation before it runs.`);
+    super(`"${name}" opens a browser tab for an action that needs explicit confirmation before it runs.`);
     this.name = "ConfirmationRequiredError";
   }
 }
@@ -90,14 +90,14 @@ export function capabilityResultRoute(capability: AnyCapability, args: unknown) 
  * Single entry point for running a capability.
  *
  * The confirmation guard lives here rather than in each handler so it cannot be
- * forgotten by a new capability: anything that opens a browser tab refuses to
- * run until the caller passes `confirmed`. Recognising an intent is never the
- * same thing as being allowed to act on it.
+ * forgotten by a new capability: browser tasks refuse to run until the caller
+ * passes `confirmed`, unless the capability explicitly marks itself read-only.
+ * Recognising an intent is never the same thing as being allowed to mutate.
  */
 export async function invokeCapability(name: string, rawArgs: unknown, options: { confirmed?: boolean } = {}) {
   const capability = requireCapability(name);
   const args = capability.parseArgs(rawArgs);
-  if (capability.effect === "browser_task" && options.confirmed !== true) {
+  if (capability.effect === "browser_task" && capability.confirmationRequired !== false && options.confirmed !== true) {
     throw new ConfirmationRequiredError(name);
   }
   return { args, capability, result: await capability.run(args) };

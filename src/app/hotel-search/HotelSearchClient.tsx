@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { readJsonResponse } from "@/lib/jsonResponse";
 import { waitForBrowserTask, type BrowserTaskPayload } from "@/lib/browserTaskClient";
 import { Button, Card, Field, FieldGrid, Form, FormActions, Notice } from "@/ui";
@@ -9,11 +9,13 @@ import { HotelSearchResults, type TotalRequestState } from "./HotelSearchResults
 
 type SearchResult = {
   availabilityLabel: string;
-  avgNightlyRate: number;
+  avgNightlyRate: number | null;
   currency: string;
   hotelName: string;
   locationLabel: string | null;
   priceBasis: string;
+  pointsPerNight: number | null;
+  priceMode: "cash" | "points";
   sourceUrl: string;
 };
 
@@ -48,17 +50,21 @@ const defaultCheckOut = offsetDateInput(15);
 export function HotelSearchClient({
   currency,
   hotelGroups,
-  initialSession = null
+  initialSession = null,
+  taskId = null
 }: {
   currency: string;
   hotelGroups: string[];
   initialSession?: HotelSearchSessionSnapshot | null;
+  /** Set when the Agent opened this page before its Browser Companion task finished. */
+  taskId?: string | null;
 }) {
   const [adults, setAdults] = useState(String(initialSession?.query.adults ?? 2));
   const [checkIn, setCheckIn] = useState(initialSession?.query.checkIn ?? defaultCheckIn);
   const [checkOut, setCheckOut] = useState(initialSession?.query.checkOut ?? defaultCheckOut);
   const [city, setCity] = useState(initialSession?.query.cityAsAsked ?? "");
   const [hotelGroup, setHotelGroup] = useState(initialSession?.query.hotelGroup ?? hotelGroups[0] ?? "Hyatt");
+  const [priceMode, setPriceMode] = useState<"cash" | "points">(initialSession?.query.priceMode ?? "cash");
   const [budgetAmount, setBudgetAmount] = useState(initialSession?.query.budget?.amount.toString() ?? "");
   const [budgetBasis, setBudgetBasis] = useState<"per_night" | "stay_total">(
     initialSession?.query.budget?.basis ?? "stay_total"
@@ -68,9 +74,60 @@ export function HotelSearchClient({
   );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingAgentTask, setLoadingAgentTask] = useState(Boolean(taskId));
   const [session, setSession] = useState<HotelSearchSessionSnapshot | null>(initialSession);
   const [searchSessionId, setSearchSessionId] = useState<string | null>(initialSession?.id ?? null);
   const [totalRequests, setTotalRequests] = useState<Record<string, TotalRequestState>>({});
+
+  /*
+   * The Agent opens the result route immediately after creating the task. The
+   * session therefore starts out empty, but that is not a failed search — it is
+   * simply a page that arrived before the Companion callback. Watch the task so
+   * the route becomes a live hand-off instead of a one-time empty snapshot.
+   */
+  useEffect(() => {
+    if (!taskId) {
+      setLoadingAgentTask(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingAgentTask(true);
+    setError(null);
+
+    void (async () => {
+      try {
+        const response = await fetch(`/api/browser-tasks/${encodeURIComponent(taskId)}`, { cache: "no-store" });
+        let task = await readJsonResponse<BrowserTaskPayload<CitySearchPayload>>(response);
+        if (!response.ok) {
+          throw new Error(task.errorMessage || "The Browser Companion task could not be found.");
+        }
+        if (task.status === "pending" || task.status === "running") {
+          task = await waitForBrowserTask<CitySearchPayload>(task.taskId, task.expiresAt);
+        }
+        if (!task.result) {
+          throw new Error(task.errorMessage || "Hyatt returned no city-price result.");
+        }
+        const nextSession = await loadSearchSession(task.result.searchSessionId);
+        if (cancelled) {
+          return;
+        }
+        setSearchSessionId(task.result.searchSessionId);
+        setSession(nextSession);
+      } catch (taskError) {
+        if (!cancelled) {
+          setError(taskError instanceof Error ? taskError.message : "Official hotel search failed.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingAgentTask(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId]);
 
   async function submitSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -101,7 +158,8 @@ export function HotelSearchClient({
           checkOut,
           city,
           cityAsAsked: city,
-          hotelGroup
+          hotelGroup,
+          priceMode
         }),
         headers: { "Content-Type": "application/json" },
         method: "POST"
@@ -192,6 +250,12 @@ export function HotelSearchClient({
           <Field htmlFor="adults" label="Adults">
             <input id="adults" min="1" onChange={(event) => setAdults(event.target.value)} required type="number" value={adults} />
           </Field>
+          <Field htmlFor="priceMode" label="Price type">
+            <select id="priceMode" onChange={(event) => setPriceMode(event.target.value as "cash" | "points")} value={priceMode}>
+              <option value="cash">Cash rates</option>
+              <option value="points">Points rates</option>
+            </select>
+          </Field>
           <Field htmlFor="checkIn" label="Check-in">
             <input id="checkIn" onChange={(event) => setCheckIn(event.target.value)} required type="date" value={checkIn} />
           </Field>
@@ -246,7 +310,11 @@ export function HotelSearchClient({
         </Card>
       ) : null}
 
-      {session ? (
+      {loadingAgentTask ? (
+        <Card eyebrow="Browser Companion" title="Waiting for Hyatt prices…">
+          <Notice>Hyatt is still returning the official city rates. This page will update automatically.</Notice>
+        </Card>
+      ) : session ? (
         <HotelSearchResults
           onGetTaxInclusiveTotal={getTaxInclusiveTotal}
           session={session}
