@@ -11,6 +11,7 @@ export type DestinationGrounding = "matched" | "mismatch" | "unavailable";
 export type HotelSearchComparisonRow = {
   budgetStatus: HotelBudgetStatus;
   destinationGrounding: DestinationGrounding;
+  finalOffers: HotelSearchOffer[];
   finalOffer: HotelSearchOffer | null;
   hotel: HotelSearchHotelResult;
   startingOffer: HotelSearchOffer | null;
@@ -45,18 +46,20 @@ export function compareHotelSearchSession(session: HotelSearchSessionSnapshot): 
 }
 
 function rowFor(session: HotelSearchSessionSnapshot, hotel: HotelSearchHotelResult): HotelSearchComparisonRow {
-  const finalOffer = findComparableFinalOffer(hotel.offers, session.query.currency);
+  const finalOffers = findComparableFinalOffers(hotel.offers, session.query.currency);
+  const finalOffer = finalOffers[0] ?? null;
   const budget = summarizeHotelSearchBudget(session.query);
   const budgetStatus: HotelBudgetStatus = budget === null
     ? "not_requested"
-    : finalOffer?.stayTotal === null || finalOffer?.stayTotal === undefined
+    : finalOffer === null
       ? "needs_final_total"
-      : finalOffer.stayTotal <= budget.comparisonCeiling
+      : finalOffers.some((offer) => (offer.stayTotal ?? Number.POSITIVE_INFINITY) <= budget.comparisonCeiling)
         ? "within_budget"
         : "over_budget";
   return {
     budgetStatus,
     destinationGrounding: destinationGrounding(session.query.city, hotel.locationLabel),
+    finalOffers,
     finalOffer,
     hotel,
     startingOffer: findStartingOffer(hotel.offers)
@@ -67,14 +70,16 @@ export function findStartingOffer(offers: readonly HotelSearchOffer[]) {
   return offers.find((offer) => offer.startingAvgNightlyRate !== null) ?? offers[0] ?? null;
 }
 
-function findComparableFinalOffer(offers: readonly HotelSearchOffer[], currency: string) {
-  return offers.find((offer) =>
-    offer.evidenceLevel === "final_total" &&
-    offer.stayTotal !== null &&
-    offer.currency === currency &&
-    offer.taxesIncluded === "included" &&
-    offer.feesIncluded === "included"
-  ) ?? null;
+function findComparableFinalOffers(offers: readonly HotelSearchOffer[], currency: string) {
+  return offers
+    .filter((offer) =>
+      (offer.evidenceLevel === "final_total" || (offer.evidenceLevel === "verified_offer" && offer.sourceType === "ota")) &&
+      offer.stayTotal !== null &&
+      offer.currency === currency &&
+      offer.taxesIncluded === "included" &&
+      offer.feesIncluded === "included"
+    )
+    .sort((left, right) => (left.stayTotal ?? Number.POSITIVE_INFINITY) - (right.stayTotal ?? Number.POSITIVE_INFINITY));
 }
 
 function destinationGrounding(city: string, locationLabel: string | null): DestinationGrounding {

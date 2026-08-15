@@ -20,6 +20,7 @@ import type {
   HotelSearchProvider,
   ParsedObservationDraft
 } from "@/lib/providers/types";
+import { rollingGoGlobalOtaProvider } from "@/lib/providers/rollinggoGlobal";
 
 const bookingPrice: BookingPriceProvider = {
   hotelGroup: "Hyatt",
@@ -198,6 +199,7 @@ export const hyattProvider: HotelProvider = {
   accountImporter,
   bookingPrice,
   hotelGroup: "Hyatt",
+  otaPrice: rollingGoGlobalOtaProvider,
   hotelSearch
 };
 

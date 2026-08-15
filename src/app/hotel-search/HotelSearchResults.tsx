@@ -22,6 +22,7 @@ export function HotelSearchResults({
   const comparison = compareHotelSearchSession(session);
   const budget = summarizeHotelSearchBudget(session.query);
   const pointsMode = session.query.priceMode === "points";
+  const hasOtaOffers = session.results.hotels.some((hotel) => hotel.offers.some((offer) => offer.sourceType === "ota"));
   const sourceUrl = comparison.rows.find((row) => row.startingOffer?.sourceUrl)?.startingOffer?.sourceUrl ?? null;
   const mismatches = comparison.rows.filter((row) => row.destinationGrounding === "mismatch");
 
@@ -37,7 +38,7 @@ export function HotelSearchResults({
           Open official source
         </a>
       ) : null}
-      eyebrow={`${session.query.hotelGroup} official results`}
+      eyebrow={hasOtaOffers ? `${session.query.hotelGroup} official + OTA comparison` : `${session.query.hotelGroup} official results`}
       title={`${session.query.cityAsAsked} · ${comparison.visibleRows.length} ${pointsMode ? "points rates" : "to review"}`}
     >
       <p className={styles.summary}>
@@ -50,7 +51,7 @@ export function HotelSearchResults({
         {pointsMode
           ? "Hyatt award rates are shown as Points/Night. These are redemption estimates for the requested dates; no cash tax-inclusive total is required."
           : budget === null
-            ? "Comparison basis: a verified tax-inclusive total for the whole stay. Starting Avg/Night prices are discovery hints only."
+            ? "Comparison basis: a verified tax-inclusive total or a tax-inclusive OTA quote for the whole stay. Starting Avg/Night prices are discovery hints only."
           : `${budget.flexibility === "approximate" ? "Approximate budget target" : "Budget maximum"}: ${formatMoney(budget.amount, session.query.currency)} ${budget.basis === "per_night" ? "per night" : "for the whole stay"}. ${budget.basisAssumed ? "No basis was stated, so TripBuddy interpreted it as per night. " : ""}${budget.quote ? `Read from your words: “${budget.quote}”. ` : ""}${budget.basis === "per_night" ? `${budget.nights} nights produce a deterministic whole-stay target of ${formatMoney(budget.stayTarget, session.query.currency)}. ` : ""}${budget.flexibility === "approximate" ? `The product-owned ${APPROXIMATE_BUDGET_TOLERANCE * 100}% tolerance sets the comparison ceiling at ${formatMoney(budget.comparisonCeiling, session.query.currency)}. ` : ""}Starting Avg/Night prices never qualify a hotel.`}
       </Notice>
       {!pointsMode && budget !== null && comparison.awaitingFinalTotalCount > 0 ? (
@@ -79,8 +80,9 @@ export function HotelSearchResults({
             </tr>
           </thead>
           <tbody>
-            {comparison.visibleRows.map(({ budgetStatus, finalOffer, hotel, startingOffer }) => {
+            {comparison.visibleRows.map(({ budgetStatus, finalOffers, hotel, startingOffer }) => {
               const totalRequest = totalRequests[hotel.hotelKey];
+              const hasOfficialFinal = finalOffers.some((offer) => offer.sourceType === "direct");
               return (
                 <tr key={hotel.hotelKey}>
                   <td>
@@ -101,22 +103,34 @@ export function HotelSearchResults({
                   <td className={styles.money}>
                     {pointsMode ? (
                       <span className={styles.stacked}>Points redemption rate; no tax-inclusive cash total needed.</span>
-                    ) : finalOffer?.stayTotal !== null && finalOffer?.stayTotal !== undefined ? (
+                    ) : finalOffers.length > 0 ? (
                       <>
-                        <span className={styles.total}>Total {formatMoney(finalOffer.stayTotal, finalOffer.currency)}</span>
-                        <span className={styles.stacked}>
-                          Before taxes &amp; fees {finalOffer.staySubtotal === null
-                            ? "not captured"
-                            : formatMoney(finalOffer.staySubtotal, finalOffer.currency)}
-                        </span>
-                        <span className={styles.stacked}>
-                          {finalOffer.nights}-night stay · taxes &amp; fees {finalOffer.taxesAndFeesAmount === null
-                            ? "included, breakdown not captured"
-                            : formatMoney(finalOffer.taxesAndFeesAmount, finalOffer.currency)}
-                        </span>
+                        {finalOffers.map((offer) => (
+                          <div key={offer.offerKey}>
+                            <span className={styles.total}>{offer.sourceName}: {formatMoney(offer.stayTotal ?? 0, offer.currency)}</span>
+                            <span className={styles.stacked}>
+                              {offer.sourceType === "ota"
+                                ? "OTA quote · taxes included · fee breakdown not provided · confirm before booking"
+                                : `Before taxes & fees ${offer.staySubtotal === null ? "not captured" : formatMoney(offer.staySubtotal, offer.currency)}`}
+                            </span>
+                            {offer.sourceType !== "ota" ? (
+                              <span className={styles.stacked}>
+                                {offer.nights}-night stay · taxes &amp; fees {offer.taxesAndFeesAmount === null
+                                  ? "included, breakdown not captured"
+                                  : formatMoney(offer.taxesAndFeesAmount, offer.currency)}
+                              </span>
+                            ) : null}
+                            {offer.roomType ? <span className={styles.stacked}>{offer.roomType}{offer.ratePlanName ? ` · ${offer.ratePlanName}` : ""}</span> : null}
+                          </div>
+                        ))}
+                        {!hasOfficialFinal && onGetTaxInclusiveTotal ? (
+                          <Button onClick={() => onGetTaxInclusiveTotal(hotel)} size="sm" type="button" variant="secondary">
+                            Verify official Hyatt total
+                          </Button>
+                        ) : null}
                         {budgetStatus === "within_budget" ? (
                           <span className={styles.stacked}>
-                            {budget?.flexibility === "approximate" ? "Within the verified approximate range" : "Within verified budget"}
+                            {budget?.flexibility === "approximate" ? "Within the approximate range" : "Within the comparable budget"}
                           </span>
                         ) : null}
                       </>

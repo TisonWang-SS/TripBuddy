@@ -107,6 +107,27 @@ describe("hotel search comparison", () => {
     expect(comparison.hiddenOverBudgetCount).toBe(1);
   });
 
+  it("accepts a tax-inclusive OTA quote as comparable while retaining its softer evidence level", () => {
+    const otaOffer: HotelSearchOffer = {
+      ...startingOffer,
+      evidenceLevel: "verified_offer",
+      feesIncluded: "included",
+      offerKey: "rollinggo-global",
+      providerName: "RollingGo Global",
+      sourceName: "RollingGo Global",
+      sourceType: "ota",
+      staySubtotal: null,
+      stayTotal: 800,
+      taxesIncluded: "included"
+    };
+    const comparison = compareHotelSearchSession(sessionWith([startingOffer, otaOffer]));
+
+    expect(comparison.rows[0].finalOffers).toHaveLength(1);
+    expect(comparison.rows[0].finalOffers[0]).toMatchObject({ sourceType: "ota", stayTotal: 800 });
+    expect(comparison.rows[0].finalOffer).toMatchObject({ sourceName: "RollingGo Global" });
+    expect(comparison.rows[0].budgetStatus).toBe("within_budget");
+  });
+
   it("requires same-currency evidence", () => {
     const wrongCurrency = {
       ...startingOffer,

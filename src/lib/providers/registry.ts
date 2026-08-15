@@ -11,6 +11,10 @@ export function getBookingPriceProvider(hotelGroup: string) {
   return getHotelProvider(hotelGroup)?.bookingPrice ?? null;
 }
 
+export function getHotelOtaPriceProvider(hotelGroup: string) {
+  return getHotelProvider(hotelGroup)?.otaPrice ?? null;
+}
+
 export function getHotelSearchProvider(hotelGroup: string) {
   return getHotelProvider(hotelGroup)?.hotelSearch ?? null;
 }

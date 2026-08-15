@@ -138,6 +138,31 @@ export type HotelSearchQuery = {
 
 export type HotelSearchPriceMode = "cash" | "points";
 
+/**
+ * A quote fetched from a third-party hotel source for a hotel already found by
+ * the primary search provider. The provider owns the price semantics; the
+ * session layer turns this into a comparable offer with explicit evidence.
+ */
+export type HotelOtaQuote = {
+  availabilityLabel: string;
+  cancellationPolicy: string | null;
+  currency: string;
+  hotelName: string;
+  ratePlanName: string | null;
+  roomType: string | null;
+  sourceUrl: string;
+  stayTotal: number;
+  taxesIncluded: boolean;
+};
+
+export interface HotelOtaPriceProvider {
+  fetchQuotes(
+    query: HotelSearchQuery,
+    hotelNames: readonly string[]
+  ): Promise<{ quotes: HotelOtaQuote[]; warning: string | null }>;
+  name: string;
+}
+
 export type HotelSearchBudget = {
   /** Numeric amount copied from the user's request or entered in the form; never model-derived. */
   amount: number;
@@ -209,5 +234,6 @@ export type HotelProvider = {
   accountImporter?: AccountBookingImporter;
   bookingPrice?: BookingPriceProvider;
   hotelGroup: string;
+  otaPrice?: HotelOtaPriceProvider;
   hotelSearch?: HotelSearchProvider;
 };

@@ -50,6 +50,10 @@ API references: [Create Chat Completion](https://api-docs.deepseek.com/api/creat
 
 Hyatt searches, booking price checks, and account imports use the unpacked Chrome extension in [`browser-extension/`](browser-extension/README.md). It operates in the user's normal Chrome profile and only performs navigation approved by TripBuddy's deterministic safety rules.
 
+## RollingGo Global OTA comparison
+
+When the Global hotel skill has an active login, Hyatt city searches also request room details from RollingGo Global for the visible hotels. TripBuddy stores the lowest available OTA room quote as a separate source and marks it as tax-inclusive; the source does not expose a fee breakdown, and the quote must be confirmed before booking. The adapter reads the skill's local token file at `~/.hotel-global-cli/token.json`; `ROLLINGGO_GLOBAL_TOKEN_PATH`, `ROLLINGGO_GLOBAL_MCP_BASE_URL`, `ROLLINGGO_GLOBAL_COUNTRY_CODE`, and `ROLLINGGO_GLOBAL_TIMEOUT_MS` can override the defaults for a deployed server.
+
 ## Validation
 
 ```bash

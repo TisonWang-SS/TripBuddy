@@ -193,6 +193,12 @@ function observeHotelSearchSession(capability: string, session: HotelSearchSessi
       location: row.hotel.locationLabel === null ? null : cap(row.hotel.locationLabel),
       pointsPerNight: starting?.startingPointsPerNight ?? null,
       priceBasis: starting?.displayedPriceBasis ?? null,
+      priceSources: row.finalOffers.map((offer) => ({
+        evidenceLevel: offer.evidenceLevel,
+        source: cap(offer.sourceName),
+        stayTotal: offer.stayTotal,
+        taxesIncluded: offer.taxesIncluded === "included"
+      })),
       startingNightly: starting?.startingAvgNightlyRate ?? null
     };
   });

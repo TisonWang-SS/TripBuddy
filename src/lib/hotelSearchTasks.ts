@@ -18,6 +18,7 @@ import {
   type BrowserTaskCapture
 } from "@/lib/browserTasks";
 import {
+  appendHotelSearchOffers,
   createHotelSearchSession,
   getHotelSearchSession,
   hotelSearchQueriesMatch,
@@ -25,8 +26,9 @@ import {
   replaceOfficialSearchResults
 } from "@/lib/hotelSearchSessions";
 import { getProfileSearchCurrency } from "@/lib/profilePreferences";
-import { getBookingPriceProvider, getHotelSearchProvider, listSearchableHotelGroups } from "@/lib/providers/registry";
+import { getBookingPriceProvider, getHotelOtaPriceProvider, getHotelSearchProvider, listSearchableHotelGroups } from "@/lib/providers/registry";
 import type { BookingPriceInput, HotelSearchQuery } from "@/lib/providers/types";
+import type { HotelSearchOfferDraft } from "@/lib/hotelSearchSessions";
 
 type HotelSearchTaskMode = "city_results" | "city_points" | "tax_inclusive_total";
 
@@ -180,6 +182,28 @@ export async function captureHotelSearchTask(taskId: string, capture: BrowserTas
       summary: result.summary,
       warning: result.warning
     });
+    if (!pointsMode && results.length > 0) {
+      const otaProvider = getHotelOtaPriceProvider(task.hotelGroup);
+      if (otaProvider) {
+        const ota = await otaProvider.fetchQuotes(query, results.map((hotel) => hotel.hotelName));
+        const matchingQuotes = ota.quotes.filter((quote) => quote.currency === query.currency);
+        const otaSummary = matchingQuotes.length > 0
+          ? `${result.summary} ${otaProvider.name} added ${matchingQuotes.length} tax-inclusive OTA quote${matchingQuotes.length === 1 ? "" : "s"}.`
+          : result.summary;
+        await appendHotelSearchOffers({
+          capturedAt: snapshot.capturedAt,
+          results: matchingQuotes.map((quote) => ({
+            availabilityLabel: quote.availabilityLabel,
+            hotelName: quote.hotelName,
+            offer: toOtaSearchOffer(quote, query),
+            locationLabel: null
+          })),
+          searchSessionId: context.searchSessionId,
+          summary: otaSummary,
+          warning: ota.warning
+        });
+      }
+    }
   }
   await finishBrowserTask({
     errorCode: results.length > 0 ? null : "no_search_results",
@@ -309,6 +333,46 @@ function toCitySearchPriceInput(taskId: string, hotelGroup: string, context: Hot
     hotelName: context.hotelName ?? "",
     inventoryTypes: ["cash"],
     roomType: ""
+  };
+}
+
+function toOtaSearchOffer(quote: {
+  cancellationPolicy: string | null;
+  currency: string;
+  ratePlanName: string | null;
+  roomType: string | null;
+  sourceUrl: string;
+  stayTotal: number;
+  taxesIncluded: boolean;
+}, query: HotelSearchQuery): HotelSearchOfferDraft {
+  return {
+    breakfastIncluded: null,
+    cancellationPolicy: quote.cancellationPolicy,
+    capturedAt: new Date().toISOString(),
+    comparisonWarnings: ["OTA quote includes taxes; the source does not provide a fee breakdown and the price must be confirmed before booking."],
+    currency: quote.currency,
+    displayedAmount: quote.stayTotal,
+    displayedPriceBasis: quote.taxesIncluded ? "tax_inclusive" : "unknown",
+    displayedPriceUnit: "stay_total",
+    eliteNightEligible: null,
+    evidenceLevel: "verified_offer",
+    feesAmount: null,
+    feesIncluded: quote.taxesIncluded ? "included" : "unknown",
+    hotelGroup: query.hotelGroup,
+    loyaltyEligible: null,
+    nights: stayNights(query.checkIn, query.checkOut),
+    providerName: "RollingGo Global",
+    ratePlanName: quote.ratePlanName,
+    roomType: quote.roomType,
+    sourceName: "RollingGo Global",
+    sourceType: "ota",
+    sourceUrl: quote.sourceUrl,
+    startingAvgNightlyRate: null,
+    staySubtotal: null,
+    stayTotal: quote.stayTotal,
+    taxesAmount: null,
+    taxesAndFeesAmount: null,
+    taxesIncluded: quote.taxesIncluded ? "included" : "unknown"
   };
 }
 

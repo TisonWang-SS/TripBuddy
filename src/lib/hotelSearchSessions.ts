@@ -48,6 +48,8 @@ export type HotelSearchOffer = {
   taxesIncluded: SearchPriceInclusion;
 };
 
+export type HotelSearchOfferDraft = Omit<HotelSearchOffer, "offerKey">;
+
 export type HotelSearchHotelResult = {
   availabilityLabel: string;
   hotelGroup: string;
@@ -191,6 +193,67 @@ export async function replaceOfficialSearchResults(input: {
   });
 }
 
+/**
+ * Adds a provider quote to the existing city-search rows. Hotel names are
+ * supplied by the official result set, so a third-party response cannot
+ * accidentally create a duplicate row just because its own display name is
+ * formatted differently.
+ */
+export async function appendHotelSearchOffers(input: {
+  capturedAt: string;
+  results: Array<{
+    availabilityLabel?: string;
+    hotelName: string;
+    locationLabel?: string | null;
+    offer: HotelSearchOfferDraft;
+  }>;
+  searchSessionId: string;
+  summary?: string | null;
+  warning?: string | null;
+}) {
+  const session = await getHotelSearchSession(input.searchSessionId);
+  if (!session) {
+    return null;
+  }
+
+  const hotels = [...session.results.hotels];
+  for (const result of input.results) {
+    const existingIndex = hotels.findIndex((hotel) => sameHotelName(hotel.hotelName, result.hotelName));
+    const hotelKey = existingIndex >= 0
+      ? hotels[existingIndex].hotelKey
+      : buildHotelKey(session.query.hotelGroup, result.hotelName, session.query.city);
+    const offer: HotelSearchOffer = {
+      ...result.offer,
+      capturedAt: input.capturedAt,
+      offerKey: buildOfferKey(result.offer.sourceType, result.offer.sourceName, hotelKey)
+    };
+    if (existingIndex >= 0) {
+      const existing = hotels[existingIndex];
+      hotels[existingIndex] = {
+        ...existing,
+        offers: replaceOffer(existing.offers, offer)
+      };
+    } else {
+      hotels.push({
+        availabilityLabel: result.availabilityLabel ?? "Available",
+        hotelGroup: session.query.hotelGroup,
+        hotelKey,
+        hotelName: result.hotelName,
+        locationLabel: result.locationLabel ?? null,
+        offers: [offer]
+      });
+    }
+  }
+
+  const warnings = [session.results.warning, input.warning].filter((value): value is string => Boolean(value));
+  return updateSessionResults(input.searchSessionId, {
+    capturedAt: input.capturedAt,
+    hotels,
+    summary: input.summary === undefined ? session.results.summary : input.summary,
+    warning: warnings.length > 0 ? [...new Set(warnings)].join(" ") : null
+  });
+}
+
 export async function recordOfficialFinalTotal(input: {
   breakfastIncluded: boolean | null;
   cancellationPolicy: string | null;
@@ -328,6 +391,10 @@ function buildOfferKey(sourceType: string, sourceName: string, hotelKey: string)
 
 function normalizeKey(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function sameHotelName(left: string, right: string) {
+  return normalizeKey(left) === normalizeKey(right);
 }
 
 function roundMoney(value: number) {
