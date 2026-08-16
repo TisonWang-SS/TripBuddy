@@ -68,12 +68,18 @@ describe("set_watch_plan", () => {
     );
   });
 
-  it("asks rather than failing when the booking is gone", async () => {
+  /*
+   * Handed back to the model, not to the user. A ref that expired with its turn
+   * is something the model can fix by listing again; telling the user "I could
+   * not find that booking" about a booking they can plainly see is a wall built
+   * out of a recoverable mistake.
+   */
+  it("gives the model a way to recover when the ref has expired", async () => {
     mocks.findUnique.mockResolvedValue(null);
 
-    expect(await setWatchPlan.precheck!({ attention: "routine", bookingId: "b-gone", watching: true })).toContain(
-      "could not find that booking"
-    );
+    const issue = await setWatchPlan.precheck!({ attention: "routine", bookingId: "b1", watching: true });
+
+    expect(issue).toMatchObject({ retryable: expect.stringContaining("list_bookings") });
     expect(mocks.upsert).not.toHaveBeenCalled();
   });
 });

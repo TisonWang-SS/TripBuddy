@@ -87,7 +87,12 @@ export const setWatchPlan: Capability<WatchPlanArgs, { bookingId: string; hotelN
   },
   async precheck({ bookingId }) {
     const booking = await prisma.hotelBooking.findUnique({ select: { id: true }, where: { id: bookingId } });
-    return booking ? null : "I could not find that booking. Ask me to list your stays and name one from there.";
+    return booking
+      ? null
+      : {
+          retryable:
+            "No booking with that identifier. A ref like b1 only means anything in the turn that produced it — call list_bookings again in this turn and use the ref it returns."
+        };
   },
   async run({ attention, bookingId, watching }) {
     const booking = await prisma.hotelBooking.findUnique({ select: { hotelName: true }, where: { id: bookingId } });

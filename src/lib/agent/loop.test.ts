@@ -14,7 +14,7 @@ import type { AgentEvent } from "@/lib/agent/events";
 
 const mocks = vi.hoisted(() => ({
   awaitBrowserTask: vi.fn(),
-  precheckCapability: vi.fn(async () => null as string | null),
+  precheckCapability: vi.fn(async () => null as string | { retryable: string } | null),
   getHotelSearchSession: vi.fn(),
   invokeCapability: vi.fn(),
   isPlannerConfigured: vi.fn(() => true),
@@ -220,6 +220,41 @@ describe("agent loop", () => {
     await collect({ message: "解释一下" });
 
     expect(mocks.invokeCapability).toHaveBeenCalledWith("explain_recommendation", { bookingId: "b9" }, expect.anything());
+  });
+
+  /*
+   * A precheck the model can act on should not end the turn. Live, "watch that
+   * booking" hit a ref that had expired with its turn and answered "I could not
+   * find that booking" — about a booking listed two lines earlier.
+   */
+  it("hands a recoverable precheck failure back to the model", async () => {
+    mocks.precheckCapability.mockResolvedValueOnce({ retryable: "That ref expired; call list_bookings again." });
+    mocks.invokeCapability.mockResolvedValue({ result: { bookingId: "b-1", hotelName: "Grand Hyatt", watching: true } });
+    mocks.planNextStep
+      .mockResolvedValueOnce({ calls: [{ args: { bookingId: "b1" }, capability: "set_watch_plan" }], kind: "tools", message: "" })
+      .mockResolvedValueOnce({ kind: "answer", message: "Listed again first.", picks: [] });
+
+    const events = await collect({ message: "帮我盯着它" });
+
+    /* The turn continued, and the failure reached the next deliberation. */
+    expect(mocks.planNextStep).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(mocks.planNextStep.mock.calls[1][0].observations)).toContain("That ref expired");
+    expect(spoken(events)).toBe("Listed again first.");
+  });
+
+  /* A precheck only the user can resolve still stops, in product-owned words. */
+  it("stops on a precheck the model cannot act on", async () => {
+    mocks.precheckCapability.mockResolvedValue("City search uses the profile currency (USD).");
+    mocks.planNextStep.mockResolvedValue({
+      calls: [{ args: { checkIn: "2026-09-01", checkOut: "2026-09-03", city: "Tokyo", cityAsAsked: "东京" }, capability: "search_hotels" }],
+      kind: "tools",
+      message: ""
+    });
+
+    const events = await collect({ message: "东京，预算每晚1000元" });
+
+    expect(mocks.planNextStep).toHaveBeenCalledTimes(1);
+    expect(spoken(events)).toContain("profile currency");
   });
 
   it("answers without tools when the planner already knows the answer", async () => {

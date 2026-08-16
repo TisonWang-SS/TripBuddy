@@ -29,6 +29,21 @@ export type AgentConversationMessage = {
   role: "assistant" | "user";
 };
 
+/**
+ * What a pre-flight check found, and who should hear about it.
+ *
+ * A plain string is for the user and ends the turn: the condition is one only
+ * they can resolve — a budget currency the search is not priced in — and the
+ * wording is product-owned so it cannot be softened into "I could convert that
+ * for you".
+ *
+ * `retryable` is for the model and does not end anything. The call was wrong in
+ * a way the model can fix by itself, most often a stale row reference, and
+ * handing it the reason lets it correct course inside the same turn instead of
+ * turning a recoverable mistake into a wall.
+ */
+export type PrecheckResult = string | { retryable: string } | null;
+
 type CapabilityBase<TArgs, TResult> = {
   /** One line, written to be read by the router and shown in the command bar. */
   summary: string;
@@ -42,7 +57,7 @@ type CapabilityBase<TArgs, TResult> = {
    * a blank tab is already open, and what they get back is a wall. Asked here,
    * it is a question they can answer.
    */
-  precheck?(args: TArgs): Promise<string | null>;
+  precheck?(args: TArgs): Promise<PrecheckResult>;
   /**
    * The words a person would use for this action. Used by the deterministic
    * router when no model is configured, and included in the model's catalogue.

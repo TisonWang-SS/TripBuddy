@@ -113,9 +113,21 @@ export function observeToolResult(capability: string, result: unknown): ToolObse
     }
 
     case "explain_recommendation": {
-      const { recommendation } = result as { recommendation: RecommendationExplanation | null };
+      const { bookingFound, recommendation } = result as {
+        bookingFound?: boolean;
+        recommendation: RecommendationExplanation | null;
+      };
+      if (bookingFound === false) {
+        return {
+          capability,
+          refs: {},
+          view: {
+            note: "No booking with that identifier. A ref like b1 only means anything in the turn that produced it — call list_bookings again to get a current one."
+          }
+        };
+      }
       if (!recommendation) {
-        return { capability, refs: {}, view: { note: "No verdict has been stamped for that booking yet." } };
+        return { capability, refs: {}, view: { note: "That booking exists but has no verdict yet; run a price check to produce one." } };
       }
       return {
         capability,
@@ -185,26 +197,48 @@ function observeHotelSearchSession(capability: string, session: HotelSearchSessi
     refs[ref] = row.hotel.hotelKey;
     const starting = row.startingOffer;
     const final = row.finalOffer;
+    const hyattFinal = row.finalOffers.find((offer) => offer.sourceType !== "ota") ?? null;
     return {
       ref,
       availability: cap(row.hotel.availabilityLabel),
       budgetStatus: row.budgetStatus,
       currency: starting?.currency ?? session.query.currency,
       destinationMatch: row.destinationGrounding,
-      evidenceLevel: final ? final.evidenceLevel : starting?.evidenceLevel ?? null,
-      /* Present only once a tax-inclusive total has actually been captured. */
-      finalStayTotal: final?.stayTotal ?? null,
       hotel: cap(row.hotel.hotelName),
       location: row.hotel.locationLabel === null ? null : cap(row.hotel.locationLabel),
-      pointsPerNight: starting?.startingPointsPerNight ?? null,
-      priceBasis: starting?.displayedPriceBasis ?? null,
-      priceSources: row.finalOffers.map((offer) => ({
-        evidenceLevel: offer.evidenceLevel,
-        source: cap(offer.sourceName),
-        stayTotal: offer.stayTotal,
-        taxesIncluded: offer.taxesIncluded === "included"
-      })),
-      startingNightly: starting?.startingAvgNightlyRate ?? null
+
+      /*
+       * Grouped by where each figure came from, because they are not
+       * interchangeable and a flat row made them look it. Hyatt's own starting
+       * rate excludes taxes; a third-party quote includes them. Presented as two
+       * sibling fields — `finalStayTotal` next to `priceBasis` — the model read
+       * an OTA total as "the tax-inclusive total for this hotel, confirmed", and
+       * told the user exactly that about a hotel whose only Hyatt price was a
+       * pre-tax starting rate.
+       */
+      hyatt: {
+        pointsPerNight: starting?.startingPointsPerNight ?? null,
+        startingNightly: starting?.startingAvgNightlyRate ?? null,
+        /* Non-null only when Hyatt itself was read for a tax-inclusive total. */
+        verifiedStayTotal: hyattFinal?.stayTotal ?? null,
+        whatTheStartingRateExcludes:
+          starting === null || starting.displayedPriceBasis === "tax_inclusive" ? null : "taxes and fees"
+      },
+      thirdParty: row.finalOffers
+        .filter((offer) => offer.sourceType === "ota")
+        .map((offer) => ({
+          seller: cap(offer.sourceName),
+          stayTotal: offer.stayTotal,
+          taxesIncluded: offer.taxesIncluded === "included"
+        })),
+
+      /*
+       * Which figure the budget was actually judged on, named. Without this the
+       * model has to infer it from two price groups and usually infers wrong.
+       */
+      budgetJudgedOn: final === null
+        ? null
+        : { source: cap(final.sourceName), stayTotal: final.stayTotal, isHyatt: final.sourceType !== "ota" }
     };
   });
 

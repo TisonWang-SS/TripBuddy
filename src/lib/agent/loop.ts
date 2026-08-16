@@ -205,6 +205,9 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
         }
       };
 
+      /* Set when a call failed in a way the model is expected to correct. */
+      let retry = false;
+
       for (const proposed of plan.calls) {
         /* The model names rows; the tools take identifiers. See `resolveRefs`. */
         const call = { args: resolveRefs(proposed.args, source.refs), capability: proposed.capability };
@@ -222,10 +225,21 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
            * not once they have agreed and a blank tab is already open.
            */
           const blocker = await precheckCapability(call.capability, args);
-          if (blocker) {
+          if (typeof blocker === "string") {
+            /* Only the user can resolve this one; the wording is product-owned. */
             respond(blocker, composeMessageSurface(`${runId}-s${++messageCount}`, blocker, "caution"));
             emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
             return;
+          }
+          if (blocker) {
+            /*
+             * The model can fix this itself — a stale row reference, usually.
+             * Handed back as an observation, it corrects course inside the same
+             * turn; ended here instead, a recoverable mistake becomes a wall.
+             */
+            observations.push({ capability: call.capability, refs: {}, view: { error: blocker.retryable } });
+            retry = true;
+            break;
           }
           speakNote();
           emit({
@@ -265,6 +279,10 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
         if (observed.surface) {
           emit({ name: "surface", timestamp: now(), type: "CUSTOM", value: observed.surface });
         }
+      }
+
+      if (retry) {
+        continue;
       }
     }
 
@@ -345,16 +363,26 @@ async function deliberate(input: Parameters<typeof planNextStep>[0]): Promise<Pl
       return await planNextStep(input);
     } catch (retryError) {
       if (retryError instanceof LlmError && retryError.code === "planner_ungrounded_number") {
-        return { kind: "ask", message: UNGROUNDED_ADVICE };
+        return { kind: "ask", message: ungroundedAdvice(input.conversation) };
       }
       throw retryError;
     }
   }
 }
 
-const UNGROUNDED_ADVICE =
-  "I could not put together a summary I trust — it kept stating figures the sources above do not show. " +
-  "The results themselves are accurate; read them directly, or ask me about one of them and I will go through it.";
+/*
+ * Product-owned, and in the language being spoken. Every other fallback in the
+ * loop follows the conversation's language; this one did not, so a Chinese
+ * exchange ended in an English apology — which reads less like a limit being
+ * explained and more like something broke.
+ */
+function ungroundedAdvice(conversation: readonly AgentConversationMessage[]) {
+  const chinese = /[\u3400-\u9fff]/.test(conversation.map((turn) => turn.content).join(""));
+  return chinese
+    ? "我没能写出一段自己信得过的总结——它反复给出上面材料里没有的数字。上面的结果本身是准确的，你可以直接看，或者挑其中一条问我，我逐条说明。"
+    : "I could not put together a summary I trust — it kept stating figures the sources above do not show. " +
+      "The results themselves are accurate; read them directly, or ask me about one of them and I will go through it.";
+}
 
 type ActedTool = {
   observation: ToolObservation;
@@ -596,7 +624,14 @@ function confirmDetail(capability: string, args: unknown) {
   const bag = (args ?? {}) as Record<string, unknown>;
   if (capability === "search_hotels") {
     const where = typeof bag.cityAsAsked === "string" ? bag.cityAsAsked : String(bag.city ?? "");
-    return `Hyatt city rates for ${where}, ${String(bag.checkIn)} to ${String(bag.checkOut)}. A visible tab opens; nothing is booked.`;
+    /*
+     * The mode is named because it is often the only thing that distinguishes
+     * this search from one already done. Asked for award rates after a cash
+     * search, the card read identically to the cash one — same city, same
+     * dates — and gave the user no way to tell what they were pressing for.
+     */
+    const mode = bag.priceMode === "points" ? "award (points) rates" : "cash rates";
+    return `Hyatt ${mode} in ${where}, ${String(bag.checkIn)} to ${String(bag.checkOut)}. A visible tab opens; nothing is booked.`;
   }
   if (capability === "get_tax_inclusive_total") {
     return `A verified tax-inclusive total for ${String(bag.hotelName ?? "this hotel")} — the only figure that can settle a budget. A visible tab opens; nothing is booked.`;

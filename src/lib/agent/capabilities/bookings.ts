@@ -261,7 +261,10 @@ export type RecommendationExplanation = {
   warnings: string[];
 };
 
-export const explainRecommendation: Capability<{ bookingId: string }, { recommendation: RecommendationExplanation | null }> = {
+export const explainRecommendation: Capability<
+  { bookingId: string },
+  { bookingFound: boolean; recommendation: RecommendationExplanation | null }
+> = {
   name: "explain_recommendation",
   keywords: ["why", "explain", "verdict", "reason", "breakdown", "savings", "recommendation"],
   summary: "Explain the current verdict for a booking, with its cost breakdown, blockers, and warnings.",
@@ -272,15 +275,26 @@ export const explainRecommendation: Capability<{ bookingId: string }, { recommen
     return { bookingId: requireString(bag, "bookingId") };
   },
   async run({ bookingId }) {
+    /*
+     * "No booking with that id" and "this booking has no verdict yet" are
+     * different answers, and collapsing them sent the reader the wrong way. A
+     * stale identifier was reported as a booking awaiting its first check, so
+     * the model explained the absence instead of going to find the right id.
+     */
+    const booking = await prisma.hotelBooking.findUnique({ select: { id: true }, where: { id: bookingId } });
+    if (!booking) {
+      return { bookingFound: false, recommendation: null };
+    }
     const recommendation = await prisma.recommendation.findFirst({
       where: { bookingId, candidateObservationId: { not: null } },
       orderBy: { generatedAt: "desc" }
     });
     if (!recommendation) {
-      return { recommendation: null };
+      return { bookingFound: true, recommendation: null };
     }
 
     return {
+      bookingFound: true,
       recommendation: {
         blockers: stringList(recommendation.blockersJson),
         costBreakdown: parseRecommendationCostBreakdown(recommendation.costBreakdownJson),
