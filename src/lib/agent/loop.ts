@@ -90,6 +90,12 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
   const runId = options.runId ?? globalThis.crypto.randomUUID();
   let messageCount = 0;
   let toolCount = 0;
+  /*
+   * Hoisted out of the try so a failure can see what the turn already achieved.
+   * A tab that opened, a wait the user sat through, and a total now stored are
+   * not undone by the next step going wrong.
+   */
+  const observations: ToolObservation[] = [];
 
   emit({ runId, timestamp: now(), type: "RUN_STARTED" });
 
@@ -146,7 +152,6 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
      */
     const priorSearches = await loadPriorSearches(request.searchSessionIds, now);
 
-    const observations: ToolObservation[] = [];
     const source: AdviceSource = { bookings: [], hotelSession: null, refs: {} };
     /*
      * One press authorises one call. Held as a value that is spent rather than a
@@ -323,6 +328,23 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
       );
     }
   } catch (error) {
+    /*
+     * A turn that already collected something does not fail outright.
+     *
+     * Live: a tax-inclusive total was captured — the tab opened, the user
+     * waited, the figure was stored and its card already rendered — and then the
+     * provider returned an empty completion. The turn ended on a technical
+     * string about JSON, saying nothing about the price that had just been
+     * fetched, and the next question had to start over. The cards are real
+     * whatever happened afterwards, so say so and let the user carry on.
+     */
+    if (observations.length > 0) {
+      const text = partialWork(conversation);
+      respond(text, composeMessageSurface(`${runId}-s${++messageCount}`, text, "caution"));
+      emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
+      return;
+    }
+
     /* RUN_ERROR terminates the run; RUN_FINISHED must not follow it. */
     emit({
       code: errorCode(error),
@@ -332,6 +354,14 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
       type: "RUN_ERROR"
     });
   }
+}
+
+/** Product-owned, in the language being spoken. Names what survived, not what broke. */
+function partialWork(conversation: readonly AgentConversationMessage[]) {
+  const chinese = /[\u3400-\u9fff]/.test(conversation.map((turn) => turn.content).join(""));
+  return chinese
+    ? "上面的结果是真的、已经存下来了，但我没能接着往下说。你可以直接看，或者告诉我接下来要做什么——不用重新查一遍。"
+    : "The results above are real and saved, but I could not carry on from them. Read them directly, or tell me what to do next — there is no need to run any of it again.";
 }
 
 const OUT_OF_STEPS =
@@ -356,19 +386,45 @@ async function deliberate(input: Parameters<typeof planNextStep>[0]): Promise<Pl
   try {
     return await planNextStep(input);
   } catch (error) {
-    if (!(error instanceof LlmError) || error.code !== "planner_ungrounded_number") {
+    if (!(error instanceof LlmError) || !RETRYABLE_PLANNER_CODES.has(error.code)) {
       throw error;
     }
     try {
       return await planNextStep(input);
     } catch (retryError) {
-      if (retryError instanceof LlmError && retryError.code === "planner_ungrounded_number") {
-        return { kind: "ask", message: ungroundedAdvice(input.conversation) };
+      if (retryError instanceof LlmError && RETRYABLE_PLANNER_CODES.has(retryError.code)) {
+        /*
+         * Two different failures, so two different sentences. Telling someone
+         * the model "kept stating figures the sources do not show" when the
+         * provider simply returned nothing describes a problem that did not
+         * happen, and points them at the results as if those were in doubt.
+         */
+        return {
+          kind: "ask",
+          message: retryError.code === "planner_ungrounded_number"
+            ? ungroundedAdvice(input.conversation)
+            : partialWork(input.conversation)
+        };
       }
       throw retryError;
     }
   }
 }
+
+/**
+ * Failures worth asking again about, rather than ending a turn over.
+ *
+ * `planner_ungrounded_number` is the model writing a figure nothing supports —
+ * usually not repeated, because the instruction against it is explicit.
+ *
+ * `llm_empty_response` is the provider returning a completion with no content
+ * at all, on a healthy 200 with a normal finish reason. Observed live, once,
+ * immediately after a tax-inclusive capture: the tab had opened, the user had
+ * waited, the total had been stored, and the turn ended on a technical string
+ * about JSON. A transient nothing from the provider should cost one more
+ * request, not the work already paid for.
+ */
+const RETRYABLE_PLANNER_CODES = new Set(["planner_ungrounded_number", "llm_empty_response"]);
 
 /*
  * Product-owned, and in the language being spoken. Every other fallback in the

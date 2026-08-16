@@ -359,7 +359,13 @@ function validateToolCalls(
    */
   const browserCalls = validated.filter((call) => opensBrowserTab(call.capability));
   if (browserCalls.length > 1) {
-    return { calls: [browserCalls[0]], kind: "tools", message };
+    /*
+     * Dropping the extras silently let the model's own sentence outrun what was
+     * actually offered — "I will fetch the total and search award rates at the
+     * same time", above a single button for the total. Saying what was deferred
+     * keeps the words and the buttons describing the same plan.
+     */
+    return { calls: [browserCalls[0]], kind: "tools", message: withDeferralNote(message, grounding) };
   }
 
   return { calls: validated, kind: "tools", message };
@@ -382,6 +388,21 @@ function ungroundedQuestion(code: string, request: string) {
   return chinese
     ? "我没有把握读准这次入住的日期。请写清入住日期和退房日期，或者入住日期加住几晚，例如「9月1日到9月3日」或「9月1日住2晚」。"
     : "I could not read those dates reliably. Give the check-in and check-out dates, or the check-in date and how many nights — for example “Sep 1 to Sep 3” or “Sep 1 for 2 nights”.";
+}
+
+/**
+ * Notes that only the first of several tab-opening steps is on offer.
+ *
+ * Each one costs a press and a wait, so they happen one at a time; the model
+ * does not always word it that way, and a promise of two things beside one
+ * button is a promise half kept.
+ */
+function withDeferralNote(message: string, request: string) {
+  const chinese = /[\u3400-\u9fff]/.test(request);
+  const note = chinese
+    ? "（每次只能开一个页面，先做第一步，完成后我再接着做下一步。）"
+    : "(Only one page opens at a time, so this is the first step; I will continue once it is done.)";
+  return message.trim().length > 0 ? `${message.trim()}\n${note}` : note;
 }
 
 /**

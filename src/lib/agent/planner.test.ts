@@ -201,6 +201,8 @@ describe("planner validation", () => {
     });
     expect(step).toMatchObject({ kind: "tools" });
     expect((step as Extract<PlannerStep, { kind: "tools" }>).calls).toHaveLength(1);
+    /* And the dropped one is named, so the words match the single button. */
+    expect((step as Extract<PlannerStep, { kind: "tools" }>).message).toMatch(/one page opens at a time|每次只能开一个页面/);
   });
 });
 

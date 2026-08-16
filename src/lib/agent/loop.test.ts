@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CapabilityArgsError } from "@/lib/agent/args";
+import { LlmError } from "@/lib/providers/llmClient";
 import type { AgentEvent } from "@/lib/agent/events";
 
 /*
@@ -255,6 +256,54 @@ describe("agent loop", () => {
 
     expect(mocks.planNextStep).toHaveBeenCalledTimes(1);
     expect(spoken(events)).toContain("profile currency");
+  });
+
+  /*
+   * The failure that motivated this: a tax-inclusive total had been captured —
+   * tab opened, user waited, figure stored, card already on screen — and then the
+   * provider returned an empty completion. The turn ended on a technical string
+   * about JSON, silent about the price it had just fetched.
+   */
+  it("keeps what a failed turn already collected", async () => {
+    /* `mockResolvedValueOnce` queues outlive clearAllMocks; start from empty. */
+    mocks.planNextStep.mockReset();
+    mocks.invokeCapability.mockResolvedValue({ result: { bookings: [] } });
+    mocks.planNextStep
+      .mockResolvedValueOnce({ calls: [{ args: {}, capability: "list_bookings" }], kind: "tools", message: "" })
+      .mockRejectedValueOnce(new LlmError("llm_empty_response", "The language model response did not contain JSON content."))
+      .mockRejectedValueOnce(new LlmError("llm_empty_response", "The language model response did not contain JSON content."))
+      .mockRejectedValueOnce(new Error("still broken"));
+
+    const events = await collect({ message: "我的预订" });
+
+    expect(events.some((event) => event.type === "RUN_ERROR")).toBe(false);
+    expect(events.at(-1)?.type).toBe("RUN_FINISHED");
+    expect(spoken(events)).toContain("不用重新查一遍");
+  });
+
+  /* A transient empty completion costs one more request, not the turn. */
+  it("retries an empty completion before giving up on it", async () => {
+    /* `mockResolvedValueOnce` queues outlive clearAllMocks; start from empty. */
+    mocks.planNextStep.mockReset();
+    mocks.planNextStep
+      .mockRejectedValueOnce(new LlmError("llm_empty_response", "empty"))
+      .mockResolvedValueOnce({ kind: "answer", message: "Second time worked.", picks: [] });
+
+    const events = await collect({ message: "有什么要处理的吗" });
+
+    expect(mocks.planNextStep).toHaveBeenCalledTimes(2);
+    expect(spoken(events)).toBe("Second time worked.");
+  });
+
+  /* With nothing collected there is nothing to preserve; report the failure. */
+  it("still reports a failure that produced nothing", async () => {
+    /* `mockResolvedValueOnce` queues outlive clearAllMocks; start from empty. */
+    mocks.planNextStep.mockReset();
+    mocks.planNextStep.mockRejectedValue(new Error("provider down"));
+
+    const events = await collect({ message: "有什么要处理的吗" });
+
+    expect(events.at(-1)).toMatchObject({ type: "RUN_ERROR" });
   });
 
   it("answers without tools when the planner already knows the answer", async () => {
