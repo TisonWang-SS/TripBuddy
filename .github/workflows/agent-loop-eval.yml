@@ -1,0 +1,65 @@
+# The conversation scenarios, run on request rather than on every push.
+#
+# Deliberately not part of `checks`. It spends real model calls, its wording
+# varies between runs, and its verdict is a transcript somebody reads — a job
+# that fails because a model phrased something differently teaches people to
+# ignore red, which costs more than it catches.
+#
+# What it is for: running the whole set after a change to the loop, the planner,
+# the capability catalogue, or the prompts, and attaching the trace to the change
+# that caused it. `docs/PRD.md` makes that a requirement; this makes it one click.
+name: agent-loop eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      group:
+        description: "Scenario group (search, gaps, boundary, reads, corner, followup). Empty runs all."
+        required: false
+        type: string
+      scenario:
+        description: "A single scenario id. Overrides group."
+        required: false
+        type: string
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npx prisma generate
+
+      # A throwaway database. The scenarios read bookings and seed a search
+      # session; none of that should touch anyone's real desk.
+      - name: Prepare an empty database
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: file:./ci-eval.db
+
+      - name: Run the scenarios
+        run: |
+          npm run eval:agent-loop -- \
+            ${{ inputs.scenario && format('--scenario={0}', inputs.scenario) || '' }} \
+            ${{ !inputs.scenario && inputs.group && format('--group={0}', inputs.group) || '' }}
+        env:
+          DATABASE_URL: file:./ci-eval.db
+          TRIPBUDDY_LLM_API_KEY: ${{ secrets.TRIPBUDDY_LLM_API_KEY }}
+          TRIPBUDDY_LLM_BASE_URL: ${{ vars.TRIPBUDDY_LLM_BASE_URL }}
+          TRIPBUDDY_LLM_MODEL: ${{ vars.TRIPBUDDY_LLM_MODEL }}
+
+      # The point of the run. A miss is a prompt to read the transcript, so the
+      # transcript has to outlive the job.
+      - name: Keep the trace
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-loop-trace
+          path: data/evals/agent-loop/
+          retention-days: 30

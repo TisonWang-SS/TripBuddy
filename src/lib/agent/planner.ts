@@ -558,11 +558,12 @@ const ACTIONS_THAT_NEED_A_PRESS = [
 ].join("\n");
 
 const WHEN_TO_SPEAK_FIRST = [
-  'On a "tools" step, "message" is optional for a plain read but REQUIRED whenever what you are about to run differs from what was literally asked. Say it plainly, in one or two sentences, before the work starts:',
+  'On a "tools" step, "message" says what the user needs to know about THEIR REQUEST — not what you are about to do. The interface already shows which tool is running and renders its result, so "正在为您搜索…" adds nothing, and it becomes wrong when the call turns out not to be runnable: a stay in 2020 produced "正在搜索上海2020年1月1日的酒店" immediately followed by "入住日期已经过去".',
+  "Leave it empty when the request needs no comment. Fill it in — one or two sentences, about the request — whenever:",
   "- The request names a hotel group, brand, or specific hotel this product does not collect. Only Hyatt is collected. Say that the search will return Hyatt properties in that city, not the brand they named.",
   "- The request covers more than one destination or more than one set of dates. One search covers one destination and one stay, so say which one you are running now and that the other follows after.",
   "- You dropped, defaulted, or reinterpreted a condition they stated — a party size, a stay length, a preference the search cannot express.",
-  "Never let a request the product can only partly serve reach a confirmation button with nothing said about it. The user is about to spend a press and a wait; what they are getting has to be clear while declining is still free."
+  "Never let a request the product can only partly serve be acted on with nothing said about it. Write about what they asked for and what this product will actually give them — never a narration of the step you are taking."
 ].join("\n");
 
 const REUSING_WORK = [

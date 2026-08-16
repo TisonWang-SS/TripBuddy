@@ -91,7 +91,8 @@
 | 项 | 结果 | 复现 |
 |---|---|---|
 | 单元 / 集成测试 | 62 文件 428 项通过 | `npm test` |
-| **(未提交工作树)对话场景评测** | 28 条场景(搜索 / 缺参 / 边界 / 读取 / corner / 追问)全部 clean;`npm run eval:agent-loop`,场景定义在 `src/lib/agent/loop.fixtures.ts` | `npm run eval:agent-loop` |
+| **(未提交工作树)对话场景评测** | 30 条场景(搜索 / 缺参 / 边界 / 读取 / corner / 追问)全部 clean。**注意:`cf6c639` 上同样是 28/28 clean,读记录仍找出两处产品自相矛盾(§3.38)——机械断言只覆盖「调了哪个工具、有没有要按下、有没有开标签」,评测的产出是记录不是分数** | `npm run eval:agent-loop` |
+| **(未提交工作树)CI** | `.github/workflows/checks.yml` 跑确定性闸门(typecheck / lint / test / build / 意图路由基线);对话场景评测是手动触发的独立 workflow,并把 trace 作为 artifact 留存 30 天 | GitHub Actions |
 | **(未提交工作树)Agent loop 重构 + ADR 0007** | 69 文件 517 项通过;typecheck、lint 均无告警;build 成功,`/` 与 `/desk` 为 dynamic(`ƒ`) | `npm test` / `npm run typecheck` / `npm run lint` / `npm run build` |
 | 类型检查 | 无错误 | `npm run typecheck` |
 | Lint | 无告警 | `npm run lint` |

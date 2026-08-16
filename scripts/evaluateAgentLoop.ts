@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { loopScenarios, type LoopScenario, type LoopScenarioTurn, STAY_PLACEHOLDER } from "../src/lib/agent/loop.fixtures";
 import type { AgentEvent } from "../src/lib/agent/events";
 import { runAgentTurn } from "../src/lib/agent/loop";
@@ -35,19 +37,143 @@ const selected = loopScenarios.filter(
 if (selected.length === 0) {
   throw new Error(`No scenarios matched${scenarioId ? ` --scenario=${scenarioId}` : ""}${group ? ` --group=${group}` : ""}.`);
 }
-if (!isLlmConfigured()) {
+const llmConfigured = isLlmConfigured();
+if (!llmConfigured) {
   throw new Error("TRIPBUDDY_LLM_API_KEY is not set; the agent loop cannot be scored without a model.");
 }
 
 type TurnReport = {
   cards: string[];
   confirmed: string | null;
+  events: AgentEvent[];
   failed: string | null;
   misses: string[];
   openedTab: boolean;
   said: string;
   tools: string[];
 };
+
+type PersistedTurn = {
+  conversationBefore: { content: string; role: "assistant" | "user" }[];
+  error: string | null;
+  input: string;
+  memoryAfter: unknown;
+  memoryBefore: unknown;
+  reaches: LoopScenarioTurn["reaches"];
+  report: TurnReport;
+};
+
+type PersistedScenario = {
+  expect: string;
+  group: LoopScenario["group"];
+  id: string;
+  misses: string[];
+  name: string;
+  threw: boolean;
+  turns: PersistedTurn[];
+};
+
+type PersistedRun = {
+  commit: string | null;
+  finishedAt: string | null;
+  group: string | null;
+  llmConfigured: boolean;
+  scenario: string | null;
+  scenarios: PersistedScenario[];
+  startedAt: string;
+  status: "complete" | "running";
+  summary: { clean: number; misses: number; scenarios: number; threw: number } | null;
+  traceVersion: 1;
+};
+
+const startedAt = new Date();
+const runStamp = startedAt.toISOString().replace(/[.:]/g, "-");
+const traceDirectory = join(process.cwd(), "data", "evals", "agent-loop");
+const traceJsonPath = join(traceDirectory, `agent-loop-${runStamp}.json`);
+const traceMarkdownPath = join(traceDirectory, `agent-loop-${runStamp}.md`);
+
+const persistedRun: PersistedRun = {
+  commit: null,
+  finishedAt: null,
+  group: group ?? null,
+  llmConfigured,
+  scenario: scenarioId ?? null,
+  scenarios: [],
+  startedAt: startedAt.toISOString(),
+  status: "running",
+  summary: null,
+  traceVersion: 1
+};
+
+function jsonString(value: unknown) {
+  return JSON.stringify(value, (_key, current) => (typeof current === "bigint" ? `${current}n` : current), 2);
+}
+
+function markdownString(value: string) {
+  return value.replaceAll("```", "\\`\\`\\`");
+}
+
+function renderMarkdown(run: PersistedRun) {
+  const lines = [
+    "# TripBuddy agent-loop evaluation",
+    "",
+    `- Status: ${run.status}`,
+    `- Started: ${run.startedAt}`,
+    `- Finished: ${run.finishedAt ?? "running"}`,
+    `- Commit: ${run.commit ?? "unknown"}`,
+    `- Selection: ${run.scenario ? `scenario=${run.scenario}` : run.group ? `group=${run.group}` : "all scenarios"}`,
+    "- The JSON file beside this report contains the complete event trace, conversation context, memory, and turn report.",
+    ""
+  ];
+
+  if (run.summary) {
+    lines.push(
+      `## Summary: ${run.summary.clean}/${run.summary.scenarios} clean, ${run.summary.misses} with misses, ${run.summary.threw} threw`,
+      ""
+    );
+  }
+
+  for (const scenario of run.scenarios) {
+    lines.push(`## ${scenario.id} — ${scenario.name}`, "", scenario.expect, "");
+    for (const [index, turn] of scenario.turns.entries()) {
+      const report = turn.report;
+      lines.push(
+        `### Turn ${index + 1}`,
+        "",
+        `**Input**: ${turn.input}`,
+        `**Tools**: ${report.tools.length ? report.tools.join(", ") : "none"}`,
+        `**Cards**: ${report.cards.length ? report.cards.join(", ") : "none"}`,
+        `**Opened Hyatt tab**: ${report.openedTab ? "yes" : "no"}`,
+        `**Confirmation**: ${report.confirmed ?? "none"}`,
+        `**Error**: ${report.failed ?? turn.error ?? "none"}`,
+        `**Misses**: ${report.misses.length ? report.misses.join("; ") : "none"}`,
+        "",
+        "#### Assistant reply",
+        "",
+        "```text",
+        markdownString(report.said || "(no assistant prose)"),
+        "```",
+        "",
+        "#### Event timeline",
+        "",
+        "```json",
+        jsonString(report.events),
+        "```",
+        ""
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+async function persistTrace() {
+  await mkdir(traceDirectory, { recursive: true });
+  await writeFile(traceJsonPath, jsonString(persistedRun), "utf8");
+  await writeFile(traceMarkdownPath, renderMarkdown(persistedRun), "utf8");
+}
+
+console.log(`Trace JSON: ${traceJsonPath}`);
+console.log(`Trace Markdown: ${traceMarkdownPath}`);
 
 /**
  * A captured search for the follow-up scenarios to work from.
@@ -97,10 +223,11 @@ async function runTurn(
   memory: unknown
 ): Promise<{ memory: unknown; report: TurnReport }> {
   const controller = new AbortController();
-  const report: TurnReport = { cards: [], confirmed: null, failed: null, misses: [], openedTab: false, said: "", tools: [] };
+  const report: TurnReport = { cards: [], confirmed: null, events: [], failed: null, misses: [], openedTab: false, said: "", tools: [] };
   let carried = memory;
 
   await runAgentTurn({ conversation, memory, message: turn.say }, (event: AgentEvent) => {
+    report.events.push(event);
     if (event.type === "TOOL_CALL_START") {
       report.tools.push(event.toolCallName);
     } else if (event.type === "TEXT_MESSAGE_CONTENT") {
@@ -154,6 +281,9 @@ async function runTurn(
   if (wanted?.says && !report.said.includes(wanted.says)) {
     report.misses.push(`expected the reply to mention "${wanted.says}"`);
   }
+  if (wanted?.saysNot && report.said.includes(wanted.saysNot)) {
+    report.misses.push(`the reply should not have said "${wanted.saysNot}"`);
+  }
   return { memory: carried, report };
 }
 
@@ -165,22 +295,28 @@ async function runScenario(scenario: LoopScenario, sessionId: string, stay: stri
   }));
   let memory: unknown = scenario.needsSession ? { searchSessionIds: [sessionId] } : undefined;
   const reports: TurnReport[] = [];
+  const turns: PersistedTurn[] = [];
 
   console.log(`\n### ${scenario.id} — ${scenario.name}`);
   console.log(`    ${scenario.expect}`);
   for (const turn of scenario.turns) {
     console.log(`  > ${turn.say.length > 90 ? `${turn.say.slice(0, 90)}…` : turn.say}`);
     let result;
+    const conversationBefore = conversation.map((entry) => ({ ...entry }));
+    const memoryBefore = memory;
     try {
       result = await runTurn(turn, conversation, memory);
     } catch (error) {
       console.log(`    THREW ${error instanceof Error ? error.message : String(error)}`);
-      reports.push({ cards: [], confirmed: null, failed: "threw", misses: ["threw"], openedTab: false, said: "", tools: [] });
+      const report: TurnReport = { cards: [], confirmed: null, events: [], failed: "threw", misses: ["threw"], openedTab: false, said: "", tools: [] };
+      reports.push(report);
+      turns.push({ conversationBefore, error: error instanceof Error ? error.message : String(error), input: turn.say, memoryAfter: memory, memoryBefore, reaches: turn.reaches, report });
       break;
     }
     memory = result.memory;
     const { report } = result;
     reports.push(report);
+    turns.push({ conversationBefore, error: null, input: turn.say, memoryAfter: result.memory, memoryBefore, reaches: turn.reaches, report });
 
     console.log(
       `    tools=[${report.tools.join(",")}] cards=[${report.cards.join(",")}]` +
@@ -199,28 +335,59 @@ async function runScenario(scenario: LoopScenario, sessionId: string, stay: stri
       conversation.push({ content: report.said, role: "assistant" });
     }
   }
-  return reports;
+  return { reports, turns };
 }
 
 const seeded = selected.some((scenario) => scenario.needsSession)
   ? await seedSearchSession()
   : { sessionId: "", spokenStay: "" };
-const all: { id: string; misses: string[]; threw: boolean }[] = [];
-
-for (const scenario of selected) {
-  const reports = await runScenario(scenario, seeded.sessionId, seeded.spokenStay);
-  all.push({
-    id: scenario.id,
-    misses: reports.flatMap((report) => report.misses),
-    threw: reports.some((report) => report.failed === "threw")
-  });
+try {
+  persistedRun.commit = (await import("node:child_process")).execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+} catch {
+  persistedRun.commit = null;
 }
 
+for (const scenario of selected) {
+  const { reports, turns } = await runScenario(scenario, seeded.sessionId, seeded.spokenStay);
+  const scenarioReport: PersistedScenario = {
+    expect: scenario.expect,
+    id: scenario.id,
+    group: scenario.group,
+    misses: reports.flatMap((report) => report.misses),
+    name: scenario.name,
+    threw: reports.some((report) => report.failed === "threw"),
+    turns
+  };
+  persistedRun.scenarios.push(scenarioReport);
+  await persistTrace();
+  if (scenarioReport.threw) {
+    console.log(`  Trace checkpoint written after ${scenario.id}.`);
+  }
+}
+
+const all = persistedRun.scenarios.map((entry) => ({
+  id: entry.id,
+  misses: entry.misses,
+  threw: entry.threw
+}));
+
+const missed = all.filter((entry) => entry.misses.length > 0);
+persistedRun.summary = {
+  clean: all.length - missed.length,
+  misses: missed.length,
+  scenarios: all.length,
+  threw: all.filter((entry) => entry.threw).length
+};
+persistedRun.status = "complete";
+persistedRun.finishedAt = new Date().toISOString();
+await persistTrace();
+
+/* The console summary remains the quick terminal view; the JSON and Markdown
+ * checkpoints above are the durable analysis artifacts. */
 if (seeded.sessionId) {
   await prisma.hotelSearchSession.deleteMany({ where: { id: seeded.sessionId } });
 }
 
-const missed = all.filter((entry) => entry.misses.length > 0);
 console.log(`\n${"=".repeat(60)}`);
 console.log(`${selected.length} scenarios, ${all.length - missed.length} clean, ${missed.length} with misses.`);
 for (const entry of missed) {

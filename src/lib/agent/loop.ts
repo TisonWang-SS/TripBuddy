@@ -192,7 +192,7 @@ function concludeTurn(context: TurnContext, outcome: TurnOutcome) {
   const { emit, now, runId } = context;
 
   if (outcome.kind === "failed" && context.observations.length > 0) {
-    const text = partialWork(context.conversation);
+    const text = partialWork(context.conversation, context.observations.length > 0);
     outcome = { kind: "said", surface: composeMessageSurface(nextSurfaceId(context), text, "caution"), text };
   }
 
@@ -536,8 +536,8 @@ async function deliberate(input: Parameters<typeof planNextStep>[0]): Promise<Pl
         return {
           kind: "ask",
           message: retryError.code === "planner_ungrounded_number"
-            ? ungroundedAdvice(input.conversation)
-            : partialWork(input.conversation)
+            ? ungroundedAdvice(input.conversation, input.observations.length > 0)
+            : partialWork(input.conversation, input.observations.length > 0)
         };
       }
       throw retryError;
@@ -566,12 +566,28 @@ const RETRYABLE_PLANNER_CODES = new Set(["planner_ungrounded_number", "llm_empty
  * exchange ended in an English apology — which reads less like a limit being
  * explained and more like something broke.
  */
-function ungroundedAdvice(conversation: readonly AgentConversationMessage[]) {
-  const chinese = /[\u3400-\u9fff]/.test(conversation.map((turn) => turn.content).join(""));
+function ungroundedAdvice(conversation: readonly AgentConversationMessage[], hasResults: boolean) {
+  const chinese = isChinese(conversation);
+  if (!hasResults) {
+    /*
+     * Nothing ran, so there is nothing above to point at. The original wording
+     * did anyway — a very long message produced "the results above are
+     * accurate, read them directly" over an empty conversation, which is worse
+     * than saying nothing: it sends the reader looking for something that is
+     * not there.
+     */
+    return chinese
+      ? "我没能给出一个自己信得过的答复。可以换个说法再问一次吗？说清城市、日期，以及你最看重什么。"
+      : "I could not produce an answer I trust. Try asking again in different words — the city, the dates, and what matters most to you.";
+  }
   return chinese
     ? "我没能写出一段自己信得过的总结——它反复给出上面材料里没有的数字。上面的结果本身是准确的，你可以直接看，或者挑其中一条问我，我逐条说明。"
     : "I could not put together a summary I trust — it kept stating figures the sources above do not show. " +
       "The results themselves are accurate; read them directly, or ask me about one of them and I will go through it.";
+}
+
+function isChinese(conversation: readonly AgentConversationMessage[]) {
+  return /[\u3400-\u9fff]/.test(conversation.map((turn) => turn.content).join(""));
 }
 
 type ActedTool = {
@@ -800,8 +816,13 @@ async function runOfflineTurn(context: TurnContext): Promise<TurnOutcome> {
 }
 
 /** Product-owned, in the language being spoken. Names what survived, not what broke. */
-function partialWork(conversation: readonly AgentConversationMessage[]) {
-  const chinese = /[\u3400-\u9fff]/.test(conversation.map((turn) => turn.content).join(""));
+function partialWork(conversation: readonly AgentConversationMessage[], hasResults: boolean) {
+  const chinese = isChinese(conversation);
+  if (!hasResults) {
+    return chinese
+      ? "这次没能完成。可以再说一次你想做什么吗？"
+      : "That did not go through. Tell me again what you were after and I will try once more.";
+  }
   return chinese
     ? "上面的结果是真的、已经存下来了，但我没能接着往下说。你可以直接看，或者告诉我接下来要做什么——不用重新查一遍。"
     : "The results above are real and saved, but I could not carry on from them. Read them directly, or tell me what to do next — there is no need to run any of it again.";

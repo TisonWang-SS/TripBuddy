@@ -52,6 +52,8 @@ npm run eval:agent-loop
 
 `npm run eval:agent-loop:smoke` runs the boundary group alone; `-- --group=followup` or `-- --scenario=<id>` narrows further. They are not tests: a live model varies, so a miss is a prompt to read the transcript rather than a broken build, and only the coarse structural expectations — which tool ran, whether a press was asked for, whether a tab opened — are checked mechanically. Every defect in `docs/CODE_REVIEW.zh-CN.md` §3.32, §3.34, §3.36 and §3.37 was found here rather than by a unit test, because each one completed successfully and simply did the wrong thing.
 
+Each run also writes a full local trace to `data/evals/agent-loop/`: JSON contains every event, conversation context, memory snapshot, tool call, surface card, reply, error, and miss; the matching Markdown file is a readable review view. The directory is ignored with the rest of `data/` because traces can include local booking context.
+
 API references: [Create Chat Completion](https://api-docs.deepseek.com/api/create-chat-completion), [JSON Output](https://api-docs.deepseek.com/guides/json_mode/), and [Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode).
 
 ## Browser Companion

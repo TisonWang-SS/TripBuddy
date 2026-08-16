@@ -36,6 +36,8 @@ export type LoopScenarioTurn = {
     opensTab?: boolean;
     /** A substring the assistant's own words must contain. */
     says?: string;
+    /** A substring the reply must NOT contain — for wording that reads as a contradiction. */
+    saysNot?: string;
   };
 };
 
@@ -214,6 +216,26 @@ export const loopScenarios: readonly LoopScenario[] = [
     name: "超长输入",
     expect: "A very long message is handled rather than truncated into nonsense.",
     turns: [{ say: `我要去上海出差${PADDING.repeat(40)} 9月20日住1晚` }]
+  },
+  /*
+   * Both of these were read out of a clean 28/28 run: the summary said nothing
+   * was wrong, and the transcript said the product had contradicted itself.
+   */
+  {
+    group: "corner",
+    id: "corner-no-results-fallback",
+    name: "无结果时的兜底文案",
+    expect:
+      "A turn that collected nothing must not say \"the results above are accurate\" — there is nothing above, and it sends the reader looking for it.",
+    turns: [{ say: `我要去上海出差${PADDING.repeat(40)}`, reaches: { saysNot: "上面的结果" } }]
+  },
+  {
+    group: "corner",
+    id: "corner-refused-announcement",
+    name: "被否决的动作不该先被宣告",
+    expect:
+      "A date in the past is refused, so the turn must not open by announcing the search it is not going to run.",
+    turns: [{ say: "查一下2020年1月1日上海的酒店", reaches: { opensTab: false, saysNot: "正在搜索" } }]
   },
   {
     group: "corner",

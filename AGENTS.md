@@ -15,3 +15,10 @@
 - In the Codex sandbox, `npm run dev` can fail with `listen EPERM` even when the app is fine. Use an escalated dev-server command for local browser validation.
 - If Next dev serves `500` with `TypeError: __webpack_modules__[moduleId] is not a function`, stop the dev server, delete `.next`, and restart. This is a broken dev-cache symptom, not necessarily an app bug.
 - Clean generated files before committing browser-test work, especially `.next`, `tsconfig.tsbuildinfo`, and temporary inspection scripts.
+
+## Agent Loop
+
+- Changing the loop, the planner, the capability catalogue, or the prompts means running `npm run eval:agent-loop` and reading the transcript it writes to `data/evals/agent-loop/`. A clean summary is not the result: the scenarios assert coarse structure only, and the defects worth finding are the ones where the turn succeeded and did the wrong thing.
+- `--group=followup` is the group that earns its keep. Every real defect this suite has found appeared only from the second turn onward.
+- The evaluator stops a scenario at the point a Hyatt tab would open. It never verifies extraction; that still needs the real-browser validation the PRD requires.
+- Scenario definitions live in `src/lib/agent/loop.fixtures.ts`. Add one when a defect is found in conversation, so the next round starts from a set that includes it.

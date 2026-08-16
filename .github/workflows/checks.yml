@@ -1,0 +1,44 @@
+# The gates that must pass, on every change.
+#
+# Everything here is deterministic: no API key, no network, no browser. The two
+# things this project cannot check that way — Hyatt extraction and the agent
+# loop's conversations — need a real browser and a real model, so they are their
+# own workflow and their own rule in docs/PRD.md rather than a job that would
+# fail for reasons nobody can act on.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The client is generated, not committed, so everything below needs it.
+      - run: npx prisma generate
+
+      - run: npm run typecheck
+
+      - run: npm run lint
+
+      # Integration tests build their own SQLite file from the checked-in
+      # migrations, so no database service is needed here.
+      - run: npm test
+
+      - run: npm run build
+
+      # Both evaluators score a checked-in deterministic baseline. They run
+      # without a key — the model half simply does not run — and that half is
+      # what guards against a fixture set drifting away from its baseline.
+      - run: npm run eval:intent-router
