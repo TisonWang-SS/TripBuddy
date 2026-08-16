@@ -18,6 +18,7 @@ The v0.2 release includes:
 - Structured observations, evidence quality, deterministic cost calculations, and recommendation history.
 - Opt-in LLM evidence replay over bounded, sanitized Browser Companion snapshots.
 - Official hotel discovery by city, with a saved whole-stay budget and an explicit upgrade from starting prices to verified tax-inclusive totals. Hyatt is the first provider; other hotel groups plug into the same provider contract later.
+- One third-party comparison price per hotel, collected over an authenticated API rather than a browser, for hotels the official search already found. See `docs/decisions/0006-ota-price-source.md`.
 - A conversational entry point as the product's primary interface: a typed capability registry the model calls as tools, a multi-step agent loop that gathers requirements, runs tools, reads what they returned, and advises on it, explicit confirmation before any browser-opening action, streamed progress, and server-composed result surfaces rendered in the conversation itself.
 - User correction of uncertain room and cancellation assessments.
 
@@ -27,7 +28,7 @@ The v0.2 release does not include:
 - Headless browsers, copied Chrome profiles, CDP automation, or a browser fallback outside normal Chrome plus Browser Companion.
 - Background or unattended price checks. Every check requires explicit user initiation and a visible normal-Chrome tab.
 - An LLM decision implementation. The deterministic decider implements the initial provider contract.
-- OTA collection or non-Hyatt collection. Unsupported providers are not shown as available.
+- Automatic collection from any source that requires driving a third-party website. Non-Hyatt hotel-group collection. Unsupported providers are not shown as available.
 
 ## Booking Price Checks
 
@@ -48,7 +49,7 @@ The v0.2 release does not include:
 - A control that is pressed and does not move the page is reported as such, naming the control and quoting any reason the page itself gave. Retrying it until the task runs out of time reports a slow page for what is a control that does not advance.
 - It must never activate payment, purchase, booking confirmation, place-order, complete-reservation, or equivalent final actions.
 - The provider planner and Browser Companion enforce the same shared unsafe-control rules independently. Browser task fragment and storage keys also come from one shared protocol module. The extension fails closed if either shared module is unavailable.
-- Hyatt work uses normal Chrome with the installed Browser Companion. There is no automated or copied-profile fallback.
+- Hyatt work uses normal Chrome with the installed Browser Companion. There is no automated or copied-profile fallback. The third-party comparison source is not browser work and opens no tab: it is an authenticated API call for hotels the official search already returned, it never initiates a booking step, and it fails silently — no token, a timeout, or an unreadable response yields no comparison offers and leaves the official result untouched.
 - Application routes accept a browser request only when its origin is the address the request was actually sent to, and that address is loopback or a private IPv4 literal. Agreement between origin and address is not sufficient on its own: a public name pointed at this machine produces that agreement and is refused. A host outside those ranges is named explicitly in the environment or not accepted.
 - An empty Hyatt DOM, E6020 response, KPSDK challenge, missing rate evidence, or task timeout is an unreadable/failed result, not valid no-availability evidence.
 - Booking context persists across same-tab Hyatt navigation.
@@ -58,6 +59,8 @@ The v0.2 release does not include:
 1. **Inventory phase:** capture visible rooms, rate plans, nightly cash estimates, and points rates.
 2. **Selection phase:** deterministically choose the closest current-room candidate or the cheapest safe candidate.
 3. **Detail phase:** navigate to a rate detail or pre-payment page and capture final total, taxes/fees, room, breakfast, and cancellation policy.
+
+A hotel is judged against a budget by any comparable offer it has: a Hyatt final total captured under the staged-evidence rules, or a third-party quote in the same currency. Where several qualify, the cheapest is the one judged. The third-party source quotes an all-in price and publishes no tax or fee breakdown, so inclusion is known while the split is not; `docs/decisions/0006-ota-price-source.md` records that assumption, the constant that carries it, and the unresolved question of whether the two collection methods should look alike to a reader.
 
 Room-list `Avg/Night` cash prices are transient inventory facts. They are retained only in the run's sanitized evidence and never become user-facing observations. A cash observation requires final/detail total evidence. Both inventory types reach storage through the same provider decision: a run imports on its last snapshot while rates are seen on earlier ones, so the accumulated evidence is filtered by the rule that decides observations rather than being written straight through. A points rate meets the same bar rather than a lower one: it becomes an award observation only when it is a complete price for the stay, and it remains review-only when policy or room equivalence is unknown. A points room list prices every room at once, so award observations are limited to the booked room itself, judged by the same room equivalence the evidence layer applies; the rest stay evidence. A variant that adds an entitlement — club access, a lounge, a view — is a different room at a different price, not a formatting difference, and one room name containing another never on its own makes them the same room. When a capture yields two different stay prices for one room, neither becomes an observation, because the capture cannot say which is that room's rate.
 

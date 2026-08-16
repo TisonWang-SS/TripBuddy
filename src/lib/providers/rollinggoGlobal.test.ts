@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRollingGoHotelDetailRequest, parseRollingGoHotelDetail } from "@/lib/providers/rollinggoGlobal";
+import { buildRollingGoHotelDetailRequest, OTA_QUOTES_ARE_ALL_IN, parseRollingGoHotelDetail } from "@/lib/providers/rollinggoGlobal";
 import type { HotelSearchQuery } from "@/lib/providers/types";
 
 const query: HotelSearchQuery = {
@@ -54,6 +54,31 @@ describe("RollingGo Global OTA adapter", () => {
       stayTotal: 180,
       taxesIncluded: true
     });
+  });
+
+  /*
+   * The one thing about this source that no response field states. It is a
+   * property of the seller — it quotes what you would pay — and the whole OTA
+   * comparison rests on it: `feesIncluded` is derived from it, and that is what
+   * lets an OTA row settle a budget question.
+   *
+   * Pinned here so the assumption has a location. If the source ever begins
+   * quoting pre-tax prices, this is the test that should be made to fail on
+   * purpose before anything downstream is touched.
+   */
+  it("treats every quote as all-in, because the source states no tax field", () => {
+    const quote = parseRollingGoHotelDetail({
+      roomRatePlans: [{
+        currency: "USD",
+        /* Nothing here says anything about tax, in either direction. */
+        roomName: "Standard Room",
+        totalPrice: 180
+      }],
+      success: true
+    }, "Grand Hyatt Beijing");
+
+    expect(quote).toMatchObject({ stayTotal: 180, taxesIncluded: OTA_QUOTES_ARE_ALL_IN });
+    expect(OTA_QUOTES_ARE_ALL_IN).toBe(true);
   });
 
   it("does not turn a response with only a nightly reference price into a stay total", () => {

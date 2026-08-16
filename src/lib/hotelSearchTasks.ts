@@ -349,7 +349,9 @@ function toOtaSearchOffer(quote: {
     breakfastIncluded: null,
     cancellationPolicy: quote.cancellationPolicy,
     capturedAt: new Date().toISOString(),
-    comparisonWarnings: ["OTA quote includes taxes; the source does not provide a fee breakdown and the price must be confirmed before booking."],
+    comparisonWarnings: [
+      "OTA all-in price. The source quotes what you would pay, but publishes no tax or fee breakdown, so the split cannot be shown. Confirm on the seller's own page before booking."
+    ],
     currency: quote.currency,
     displayedAmount: quote.stayTotal,
     displayedPriceBasis: quote.taxesIncluded ? "tax_inclusive" : "unknown",

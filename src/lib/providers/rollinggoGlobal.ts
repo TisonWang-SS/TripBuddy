@@ -136,9 +136,29 @@ export function parseRollingGoHotelDetail(
     roomType: stringValue(plan.roomName) ?? stringValue(plan.roomNameCn),
     sourceUrl: stringValue(payload.bookingUrl) ?? "https://rollinggo.ai",
     stayTotal: selected.stayTotal,
-    taxesIncluded: true
+    /*
+     * Asserted, not read. This source quotes an all-in price — what the traveler
+     * would actually pay — and publishes no tax or fee breakdown, so there is no
+     * field to derive this from. It is a property of the source, recorded here
+     * as the one place that knows it (see ADR 0006).
+     *
+     * The consequence is worth stating: if the source ever begins quoting
+     * pre-tax prices, nothing here would notice, and every OTA row would
+     * silently understate. That is why it is a named constant with a test on it
+     * rather than an inline literal.
+     */
+    taxesIncluded: OTA_QUOTES_ARE_ALL_IN
   };
 }
+
+/**
+ * Whether this source's quotes already include taxes and fees.
+ *
+ * True for RollingGo Global. Kept as a named constant because it is an
+ * assumption about a third party rather than something the response states, and
+ * an assumption with a name can be found, tested, and revisited.
+ */
+export const OTA_QUOTES_ARE_ALL_IN = true;
 
 async function requestHotelDetail(accessToken: string, query: HotelSearchQuery, hotelName: string) {
   const controller = new AbortController();
