@@ -331,9 +331,16 @@ describe("what the planner is told it already has", () => {
 
     const system = body.messages[0].content;
     expect(system).toContain(`${SEARCH_FRESHNESS_MINUTES} minutes old`);
-    expect(system).toContain("Do not search again");
+    expect(system).toContain("rather than running it again");
     /* A different query is a different search, whatever is cached. */
     expect(system).toContain("different search");
+  });
+
+  /* Rules about reusing work are noise when nothing has been collected. */
+  it("leaves the reuse rules out when there is nothing to reuse", async () => {
+    const body = await sentBody({ message: "好的。", next: "ask" });
+
+    expect(body.messages[0].content).not.toContain("rather than running it again");
   });
 });
 

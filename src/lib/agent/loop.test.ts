@@ -155,6 +155,73 @@ describe("agent loop", () => {
     expect(mocks.planNextStep.mock.calls[0][0].priorSearches).toEqual([]);
   });
 
+  /*
+   * A confirmation button costs a press and a wait. Live, asking for "上海希尔顿"
+   * produced a Hyatt search card with nothing said about the brand swap, and
+   * asking to compare two cities produced one card with no mention of the other.
+   */
+  it("says what it is about to do before asking for the press", async () => {
+    mocks.planNextStep.mockResolvedValue({
+      calls: [{ args: { checkIn: "2026-09-01", checkOut: "2026-09-03", city: "Shanghai", cityAsAsked: "上海" }, capability: "search_hotels" }],
+      kind: "tools",
+      message: "您提到的是希尔顿，但本产品只收集凯悦。"
+    });
+
+    const events = await collect({ message: "查上海希尔顿" });
+
+    expect(spoken(events)).toContain("只收集凯悦");
+    expect(surfaces(events).map((surface) => surface.nodes[0].component)).toEqual(["Message", "ConfirmAction"]);
+  });
+
+  /*
+   * Order matters: announcing work a precheck then refuses reads as the product
+   * contradicting itself one line later.
+   */
+  it("does not announce work a precheck refuses", async () => {
+    mocks.precheckCapability.mockResolvedValue("City search uses the profile currency (USD).");
+    mocks.planNextStep.mockResolvedValue({
+      calls: [{ args: { checkIn: "2026-09-01", checkOut: "2026-09-03", city: "Shanghai", cityAsAsked: "上海" }, capability: "search_hotels" }],
+      kind: "tools",
+      message: "我来按每晚 1000 元的预算搜索上海。"
+    });
+
+    const events = await collect({ message: "上海 9月1日 2晚，预算每晚1000元" });
+
+    expect(spoken(events)).not.toContain("我来按每晚");
+    expect(spoken(events)).toContain("profile currency");
+  });
+
+  /*
+   * The model is shown `b1`, never a booking id — `modelView` strips them. So a
+   * follow-up like "why keep it?" arrived with the row but not the argument, and
+   * the product asked which booking was meant, of the one it had just listed.
+   */
+  it("resolves the refs the model can see into the ids the tools need", async () => {
+    mocks.invokeCapability
+      .mockResolvedValueOnce({ result: { bookings: [{ bookingId: "booking-42", city: "KL", hotelName: "Grand Hyatt", nights: 2 }] } })
+      .mockResolvedValueOnce({ result: { recommendation: null } });
+    mocks.planNextStep
+      .mockResolvedValueOnce({ calls: [{ args: {}, capability: "list_bookings" }], kind: "tools", message: "" })
+      .mockResolvedValueOnce({ calls: [{ args: { bookingId: "b1" }, capability: "explain_recommendation" }], kind: "tools", message: "" })
+      .mockResolvedValueOnce({ kind: "answer", message: "No verdict yet.", picks: [] });
+
+    await collect({ message: "我的预订为什么建议保留？" });
+
+    expect(mocks.invokeCapability).toHaveBeenLastCalledWith("explain_recommendation", { bookingId: "booking-42" }, expect.anything());
+  });
+
+  /* A ref the model made up resolves to nothing, not to someone else's row. */
+  it("passes an unknown ref through rather than inventing an id", async () => {
+    mocks.invokeCapability.mockResolvedValue({ result: { recommendation: null } });
+    mocks.planNextStep
+      .mockResolvedValueOnce({ calls: [{ args: { bookingId: "b9" }, capability: "explain_recommendation" }], kind: "tools", message: "" })
+      .mockResolvedValueOnce({ kind: "answer", message: "Nothing there.", picks: [] });
+
+    await collect({ message: "解释一下" });
+
+    expect(mocks.invokeCapability).toHaveBeenCalledWith("explain_recommendation", { bookingId: "b9" }, expect.anything());
+  });
+
   it("answers without tools when the planner already knows the answer", async () => {
     mocks.planNextStep.mockResolvedValue({ kind: "answer", message: "You have nothing booked yet.", picks: [] });
 
@@ -168,7 +235,7 @@ describe("agent loop", () => {
   it("feeds a tool result back and answers from it", async () => {
     mocks.invokeCapability.mockResolvedValue({ result: { bookings: [] } });
     mocks.planNextStep
-      .mockResolvedValueOnce({ calls: [{ args: {}, capability: "list_bookings" }], kind: "tools" })
+      .mockResolvedValueOnce({ calls: [{ args: {}, capability: "list_bookings" }], kind: "tools", message: "" })
       .mockResolvedValueOnce({ kind: "answer", message: "Nothing on the desk.", picks: [] });
 
     const events = await collect({ message: "show my stays" });
@@ -352,7 +419,7 @@ describe("agent loop", () => {
 
   it("stops proposing tools once the step budget is spent", async () => {
     mocks.invokeCapability.mockResolvedValue({ result: { bookings: [] } });
-    mocks.planNextStep.mockResolvedValue({ calls: [{ args: {}, capability: "list_bookings" }], kind: "tools" });
+    mocks.planNextStep.mockResolvedValue({ calls: [{ args: {}, capability: "list_bookings" }], kind: "tools", message: "" });
 
     const events = await collect({ message: "keep going" });
 

@@ -42,7 +42,6 @@ export const searchHotels: Capability<SearchHotelsArgs, { launchUrl: string; sea
   keywords: ["search", "find a hotel", "availability", "look for", "hotels in"],
   summary: "Open a Hyatt tab and collect comparable city rates for a set of dates.",
   effect: "browser_task",
-  confirmationRequired: false,
   params: [
     {
       description: "Latin-letter city or destination name accepted by the hotel search path.",

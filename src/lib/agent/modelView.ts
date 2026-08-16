@@ -152,6 +152,11 @@ export function observeToolResult(capability: string, result: unknown): ToolObse
       };
     }
 
+    case "set_watch_plan": {
+      const { hotelName, watching } = result as { hotelName: string; watching: boolean };
+      return { capability, refs: {}, view: { hotel: cap(hotelName), watching } };
+    }
+
     /*
      * Configuration reads. Passed through as scalars only: a nested structure
      * here would be stored settings the model has no decision to make about.

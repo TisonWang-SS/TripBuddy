@@ -26,7 +26,7 @@
  */
 
 import { CapabilityArgsError } from "@/lib/agent/args";
-import { refusedAction } from "@/lib/agent/boundaries";
+import { refusedAction, UNSUPPORTED_MESSAGE } from "@/lib/agent/boundaries";
 import { awaitBrowserTask, BrowserTaskWaitError } from "@/lib/agent/browserTaskWait";
 import type { BookingSummary } from "@/lib/agent/capabilities/bookings";
 import type { AgentEvent } from "@/lib/agent/events";
@@ -35,8 +35,9 @@ import { loadPriorSearches } from "@/lib/agent/priorWork";
 import { isPlannerConfigured, planNextStep, type PlannerStep } from "@/lib/agent/planner";
 import {
   capabilityResultRoute,
+  describeCapabilityChange,
   invokeCapability,
-  opensBrowserTab,
+  needsPress,
   parseCapabilityArgs,
   precheckCapability,
   requireCapability
@@ -119,7 +120,15 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
      */
     const refusal = refusedAction(userWording(conversation).toLowerCase());
     if (refusal) {
-      respond(refusal, composeMessageSurface(`${runId}-s0`, refusal, "caution"));
+      /*
+       * Paired with the scope sentence, because this refusal fires on the verb
+       * alone and cannot tell what was being asked for. "Book me a flight" trips
+       * it and would otherwise be answered only with what the product does not do
+       * to a reservation — true, but silent on the flight. Saying both keeps the
+       * check deterministic and in front of the model, while still answering.
+       */
+      const text = `${refusal}\n\n${UNSUPPORTED_MESSAGE}`;
+      respond(text, composeMessageSurface(`${runId}-s0`, text, "caution"));
       emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
       return;
     }
@@ -156,7 +165,7 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
          * second deliberation substitute a different action for the one the user
          * actually agreed to.
          */
-        plan = { calls: [{ args: pending.args, capability: pending.capability }], kind: "tools" };
+        plan = { calls: [{ args: pending.args, capability: pending.capability }], kind: "tools", message: "" };
         pending = undefined;
       } else {
         emit({ stepName: "think", timestamp: now(), type: "STEP_STARTED" });
@@ -176,13 +185,36 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
         return;
       }
 
-      for (const call of plan.calls) {
+      /*
+       * What the model wants to say before the work happens. It matters most
+       * right here: the next thing the user may see is a button that costs them
+       * a press and a wait, and a request the product can only partly serve —
+       * a hotel group it does not collect, a second city it had to drop — has
+       * to say so while declining is still free.
+       *
+       * Said once, and only once the work is known to be runnable. Announcing it
+       * up front produced "I will search Shanghai under your ¥1000 budget"
+       * immediately followed by a precheck refusing that very search.
+       */
+      const note = plan.message ?? "";
+      let noteSpoken = note.length === 0;
+      const speakNote = () => {
+        if (!noteSpoken) {
+          noteSpoken = true;
+          respond(note, composeMessageSurface(`${runId}-s${++messageCount}`, note, "neutral"));
+        }
+      };
+
+      for (const proposed of plan.calls) {
+        /* The model names rows; the tools take identifiers. See `resolveRefs`. */
+        const call = { args: resolveRefs(proposed.args, source.refs), capability: proposed.capability };
+
         /*
          * A tab is never opened by a plan alone. The turn stops here and the
          * conversation carries the question; the next request arrives with
          * `confirm` set and resumes at the top of this loop.
          */
-        if (opensBrowserTab(call.capability) && !spendAuthorisation(call.capability)) {
+        if (needsPress(call.capability) && !spendAuthorisation(call.capability)) {
           const args = parseCapabilityArgs(call.capability, call.args);
           /*
            * Asked before the press, not after it. A capability that cannot run
@@ -195,6 +227,7 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
             emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
             return;
           }
+          speakNote();
           emit({
             name: "surface",
             timestamp: now(),
@@ -202,7 +235,7 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
             value: composeConfirmSurface(`${runId}-s${++messageCount}`, {
               args,
               capability: call.capability,
-              detail: confirmDetail(call.capability, args),
+              detail: describeCapabilityChange(call.capability, args) ?? confirmDetail(call.capability, args),
               label: confirmLabel(call.capability)
             })
           });
@@ -421,6 +454,32 @@ async function act(
   };
 }
 
+/**
+ * Turns the refs the model can see into the identifiers the tools require.
+ *
+ * The model is shown `b1` and `h2`; it is never shown a booking id, because
+ * `modelView` strips them. So when it wants to explain a verdict it has the row
+ * but not the argument, and the only honest thing it can do is ask the user
+ * which booking they meant — of the one booking it just listed. That was live
+ * behaviour, and it reads as the product forgetting its own last sentence.
+ *
+ * Resolving here rather than widening the view keeps the property that made the
+ * view worth having: the model can only name rows it was actually shown, so an
+ * identifier it invents resolves to nothing instead of to someone's booking.
+ */
+function resolveRefs(args: unknown, refs: Readonly<Record<string, string>>): unknown {
+  if (typeof args === "string") {
+    return refs[args] ?? args;
+  }
+  if (Array.isArray(args)) {
+    return args.map((item) => resolveRefs(item, refs));
+  }
+  if (args !== null && typeof args === "object") {
+    return Object.fromEntries(Object.entries(args).map(([key, value]) => [key, resolveRefs(value, refs)]));
+  }
+  return args;
+}
+
 /** Accumulates what a later recommendation may point at. */
 function mergeSource(source: AdviceSource, acted: ActedTool) {
   Object.assign(source.refs, acted.observation.refs);
@@ -522,6 +581,8 @@ function confirmLabel(capability: string) {
       return "Open Hyatt and collect prices";
     case "get_tax_inclusive_total":
       return "Open Hyatt and get the final total";
+    case "set_watch_plan":
+      return "Save this watch setting";
     case "run_price_check":
       return "Open Hyatt and check this price";
     case "import_account_bookings":

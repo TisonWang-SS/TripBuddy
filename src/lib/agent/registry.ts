@@ -2,6 +2,7 @@ import { explainRecommendation, getBooking, getPriceHistory, listBookings } from
 import { importAccountBookings, listDueChecks, runPriceCheck } from "@/lib/agent/capabilities/checks";
 import { getSearchSession, getTaxInclusiveTotal, searchHotels, setSearchBudget } from "@/lib/agent/capabilities/search";
 import { getProfile, getSettings } from "@/lib/agent/capabilities/setup";
+import { setWatchPlan } from "@/lib/agent/capabilities/watch";
 import { type AnyCapability, type CapabilityParam, requiresConfirmation } from "@/lib/agent/types";
 
 export class UnknownCapabilityError extends Error {
@@ -17,7 +18,7 @@ export class ConfirmationRequiredError extends Error {
   readonly code = "confirmation_required";
 
   constructor(name: string) {
-    super(`"${name}" opens a browser tab for an action that needs explicit confirmation before it runs.`);
+    super(`"${name}" changes something, so it needs explicit confirmation before it runs.`);
     this.name = "ConfirmationRequiredError";
   }
 }
@@ -34,6 +35,7 @@ const CAPABILITIES: readonly AnyCapability[] = [
   setSearchBudget,
   getTaxInclusiveTotal,
   getSearchSession,
+  setWatchPlan,
   getProfile,
   getSettings
 ];
@@ -94,6 +96,33 @@ export function requiresConfirmationByName(name: string) {
   return capability === null || requiresConfirmation(capability);
 }
 
+/**
+ * Whether the loop must stop and ask before running this.
+ *
+ * The same question as `requiresConfirmationByName`, named for what the loop is
+ * deciding. Both a browser task and a write need a press, for different reasons
+ * — one opens a window, the other changes stored data — and the loop should not
+ * have to know which reason applies in order to honour it.
+ */
+export function needsPress(name: string) {
+  return requiresConfirmationByName(name);
+}
+
+/** Every capability, split by whether running it changes anything. */
+export function capabilityEffects() {
+  return CAPABILITIES.map(({ effect, name }) => ({ effect, name, needsPress: requiresConfirmation({ effect } as AnyCapability) }));
+}
+
+/**
+ * What a write is about to change, in the user's terms, or null for anything
+ * that changes nothing. Product-owned copy: the capability writes it, not the
+ * model, because a press must mean what the button said.
+ */
+export function describeCapabilityChange(name: string, args: unknown) {
+  const capability = findCapability(name);
+  return capability?.effect === "write" ? capability.describeChange(args) : null;
+}
+
 /** True when this capability opens a Hyatt tab, whether or not it needs a press. */
 export function opensBrowserTab(name: string) {
   return findCapability(name)?.effect === "browser_task";
@@ -112,14 +141,19 @@ export async function precheckCapability(name: string, args: unknown) {
  * Single entry point for running a capability.
  *
  * The confirmation guard lives here rather than in each handler so it cannot be
- * forgotten by a new capability: browser tasks refuse to run until the caller
- * passes `confirmed`, unless the capability explicitly marks itself read-only.
- * Recognising an intent is never the same thing as being allowed to mutate.
+ * forgotten by a new capability. It asks `requiresConfirmation`, which reads the
+ * effect — so a capability consents to being gated by declaring what it does,
+ * not by remembering to opt in. Recognising an intent is never the same thing as
+ * being allowed to mutate.
+ *
+ * This is the last gate, not the first. The loop stops and asks well before
+ * reaching here; this exists so that a caller which does not — a future route, a
+ * test, a script — cannot write by forgetting to.
  */
 export async function invokeCapability(name: string, rawArgs: unknown, options: { confirmed?: boolean } = {}) {
   const capability = requireCapability(name);
   const args = capability.parseArgs(rawArgs);
-  if (capability.effect === "browser_task" && capability.confirmationRequired !== false && options.confirmed !== true) {
+  if (requiresConfirmation(capability) && options.confirmed !== true) {
     throw new ConfirmationRequiredError(name);
   }
   return { args, capability, result: await capability.run(args) };

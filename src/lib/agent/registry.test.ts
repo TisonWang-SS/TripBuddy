@@ -132,20 +132,29 @@ describe("capability registry", () => {
     expect(mocks.runPriceCheck).toHaveBeenCalledWith({ bookingId: "booking-1", trigger: "manual" });
   });
 
-  it("runs the read-only hotel search without a second confirmation", async () => {
-    mocks.createHotelSearchTask.mockClear().mockResolvedValue({
-      launchUrl: "https://www.hyatt.com/search",
-      searchSessionId: "session-1",
-      taskId: "task-1"
-    });
-    const { result } = await invokeCapability("search_hotels", {
+  /*
+   * Formerly "runs the read-only hotel search without a second confirmation".
+   * That opt-out is gone: the agent loop asked for a press on every browser task
+   * regardless, so the flag was a second rule that disagreed with the first one
+   * about the same button. Opening a tab on someone's screen is an action taken
+   * for them whether or not it writes anything.
+   */
+  it("requires a press before any capability that opens a tab", async () => {
+    mocks.createHotelSearchTask.mockClear();
+    await expect(invokeCapability("search_hotels", {
       checkIn: "2030-09-10",
       checkOut: "2030-09-11",
       city: "Tokyo",
       cityAsAsked: "东京"
+    })).rejects.toMatchObject({ code: "confirmation_required" });
+    expect(mocks.createHotelSearchTask).not.toHaveBeenCalled();
+  });
+
+  /* And a write is gated by the same rule, without opening anything. */
+  it("requires a press before a capability that changes stored data", async () => {
+    await expect(invokeCapability("set_watch_plan", { bookingId: "b1" })).rejects.toMatchObject({
+      code: "confirmation_required"
     });
-    expect(result).toMatchObject({ launchUrl: "https://www.hyatt.com/search", taskId: "task-1" });
-    expect(mocks.createHotelSearchTask).toHaveBeenCalled();
   });
 
   /* Bad arguments fail before the confirmation question is even reached. */

@@ -12,7 +12,7 @@
  * `@/lib/labels`.
  */
 
-export type CapabilityParamType = "string" | "integer" | "number" | "calendar_date" | "enum";
+export type CapabilityParamType = "string" | "integer" | "number" | "boolean" | "calendar_date" | "enum";
 
 export type CapabilityParam = {
   description: string;
@@ -62,30 +62,65 @@ type ReadCapability<TArgs, TResult> = CapabilityBase<TArgs, TResult> & {
 };
 
 /**
+ * Changes stored data without opening a browser.
+ *
+ * The third effect exists because the first two do not divide the space. A
+ * browser task is confirmed for two separate reasons — it opens a visible tab,
+ * and it changes something — and until now anything that changed stored data
+ * had to borrow the tab to inherit the press. That is why the agent could not
+ * be given a watch plan or a baseline: the only gate available also demanded a
+ * Hyatt window it had no use for.
+ *
+ * Confirmation is unconditional here, with no opt-out. A read that turns out
+ * wrong is re-read; a write that turns out wrong has already happened, and the
+ * user is the only one who can say it was wanted.
+ */
+type WriteCapability<TArgs, TResult> = CapabilityBase<TArgs, TResult> & {
+  /** What the press is agreeing to, in the user's terms. Product-owned copy. */
+  describeChange(args: TArgs): string;
+  effect: "write";
+};
+
+/**
  * Opens a Hyatt tab through the Browser Companion. Two consequences, both
  * enforced rather than documented:
  *
- * - it needs explicit user confirmation unless it is explicitly marked as
- *   read-only, because the product never mutates anything without a press;
- * - it needs a route that owns its progress and error notices. The command bar
- *   closes when it runs a command, so a task fired from there would leave its
- *   result nowhere to land. `resultRoute` is where the caller must be standing.
+ * - it needs explicit user confirmation, because a tab opening on someone's
+ *   screen is an action taken on their behalf whether or not it writes
+ *   anything. There is no opt-out: a `confirmationRequired: false` escape used
+ *   to exist for read-only browser work, and the agent loop overrode it on
+ *   every path, leaving two rules that disagreed about the same press. ADR 0005
+ *   settled it — every capability that opens Hyatt stops and asks;
+ * - it needs a route that owns its progress and error notices. A task fired
+ *   from a surface that then closes would leave its result nowhere to land.
+ *   `resultRoute` is where the caller must be standing.
  */
 type BrowserTaskCapability<TArgs, TResult> = CapabilityBase<TArgs, TResult> & {
   effect: "browser_task";
-  /** Read-only browser work may start from a user query without a second press. */
-  confirmationRequired?: boolean;
   resultRoute(args: TArgs): string;
 };
 
 export type Capability<TArgs = never, TResult = unknown> =
   | ReadCapability<TArgs, TResult>
+  | WriteCapability<TArgs, TResult>
   | BrowserTaskCapability<TArgs, TResult>;
 
 /** Erased form, for the registry: the arg type differs per capability. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyCapability = Capability<any, unknown>;
 
+/**
+ * Whether running this needs a press first.
+ *
+ * Stated as one function over the effect rather than checked at each call site,
+ * because "does this need consent" is exactly the question a new capability
+ * must not be able to answer for itself by omission.
+ */
 export function requiresConfirmation(capability: AnyCapability) {
-  return capability.effect === "browser_task" && capability.confirmationRequired !== false;
+  return capability.effect !== "read";
+}
+
+/** True when running this changes stored data or the outside world. */
+export function mutates(capability: AnyCapability) {
+  return capability.effect !== "read";
 }

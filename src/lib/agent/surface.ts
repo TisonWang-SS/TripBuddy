@@ -409,6 +409,21 @@ function composeNodes(capability: string, result: unknown): SurfaceNode[] | null
           props: { text: "The price check finished. Its evidence and verdict are on the booking.", tone: "positive" }
         }
       ];
+    case "set_watch_plan": {
+      const { hotelName, watching } = result as { hotelName: string; watching: boolean };
+      return [
+        {
+          component: "Message",
+          key: "watch",
+          props: {
+            text: watching
+              ? `Watching ${hotelName}. Checks still wait for your press; nothing runs on its own.`
+              : `No longer watching ${hotelName}. Everything already recorded is kept.`,
+            tone: "positive"
+          }
+        }
+      ];
+    }
     case "import_account_bookings":
       return [
         {

@@ -116,6 +116,29 @@ export function requireUpcomingCalendarDate(bag: Record<string, unknown>, key: s
   return value;
 }
 
+/**
+ * A yes/no argument, accepting both the boolean and its string spelling.
+ *
+ * Both, because both really arrive: a model emitting JSON writes `true` as
+ * often as `"true"`, and the caller re-sending parsed arguments after a
+ * confirmation press sends whichever the first parse produced. This was
+ * modelled as an enum of "true"/"false" at first, which rejected the boolean —
+ * a write that had already been confirmed then failed on its own arguments.
+ */
+export function optionalBoolean(bag: Record<string, unknown>, key: string) {
+  const value = bag[key];
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (value === "true" || value === "false") {
+    return value === "true";
+  }
+  return failure(`"${key}" must be true or false.`);
+}
+
 export function optionalEnum<T extends string>(bag: Record<string, unknown>, key: string, allowed: readonly T[]) {
   const value = optionalString(bag, key);
   if (value === undefined) {
