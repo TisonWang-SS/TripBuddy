@@ -187,23 +187,6 @@ function composeLaunchNodes(capability: string, result: unknown, resultRoute: st
   ];
 }
 
-/**
- * The search sessions a surface carries.
- *
- * The client collects these across a conversation and sends them back, which is
- * how the next turn learns that a search already exists. Reading them off the
- * rendered surface rather than a side channel keeps one rule: what the user was
- * shown is what the agent is told it has.
- */
-export function searchSessionIdsOf(surface: Surface | null): string[] {
-  return (surface?.nodes ?? [])
-    .filter(
-      (node): node is Extract<SurfaceNode, { component: "HotelSearchResults" }> =>
-        node.component === "HotelSearchResults"
-    )
-    .map((node) => node.props.session.id);
-}
-
 /** The Hyatt URL a surface says was launched, for a client holding a tab open for it. */
 export function launchUrlOf(surface: Surface | null) {
   const launch = surface?.nodes.find(

@@ -17,6 +17,30 @@ import type { HotelSearchBudget, HotelSearchPriceMode } from "@/lib/providers/ty
 /* Computed once: the registry is static metadata, and the list is provider-driven. */
 const SEARCHABLE_GROUPS = supportedHotelSearchGroups();
 
+export type HotelOfferDetail = {
+  availability: string;
+  checkIn: string;
+  checkOut: string;
+  hotelName: string;
+  location: string | null;
+  offers: {
+    breakfastIncluded: boolean | null;
+    cancellationPolicy: string | null;
+    capturedAt: string;
+    currency: string;
+    evidenceLevel: string;
+    isHyatt: boolean;
+    nightlyRate: number | null;
+    pointsPerNight: number | null;
+    priceBasis: string;
+    ratePlan: string | null;
+    roomType: string | null;
+    source: string;
+    stayTotal: number | null;
+    warnings: string[];
+  }[];
+};
+
 export type SearchHotelsArgs = {
   adults?: number;
   budget: HotelSearchBudget | null;
@@ -429,6 +453,69 @@ export const getTaxInclusiveTotal: Capability<
       throw new Error("The tax-inclusive task was created but its launch state could not be read back.");
     }
     return { launchUrl: task.launchUrl, searchSessionId: task.searchSessionId, taskId: task.taskId };
+  }
+};
+
+/**
+ * One hotel's captured detail, rather than the whole result set again.
+ *
+ * These fields — cancellation terms, room, rate plan, breakfast — have been
+ * collected since the search layer existed and had no way to be read. "Can I
+ * cancel this one for free?" could only be answered by re-listing everything
+ * and hoping the summary happened to mention it.
+ *
+ * Kept as a read over an existing session rather than a fresh capture: the
+ * answer is already stored, and asking Hyatt again would cost a press for
+ * something nobody needs to re-verify.
+ */
+export const getHotelOfferDetail: Capability<
+  { hotelName: string; searchSessionId: string },
+  { hotel: HotelOfferDetail | null }
+> = {
+  name: "get_hotel_offer_detail",
+  keywords: ["cancellation", "policy", "room type", "breakfast", "rate plan", "details", "what is included"],
+  summary:
+    "Read one hotel's captured detail from an existing search: cancellation terms, room and rate plan, breakfast, and where each price came from. Does not open a browser.",
+  effect: "read",
+  params: [
+    { description: "The hotel name exactly as it appears in the search results.", name: "hotelName", required: true, type: "string" },
+    { description: "The search session the hotel was found in.", name: "searchSessionId", required: true, type: "string" }
+  ],
+  parseArgs(raw) {
+    const bag = argsBag(raw, ["hotelName", "searchSessionId"]);
+    return { hotelName: requireString(bag, "hotelName"), searchSessionId: requireString(bag, "searchSessionId") };
+  },
+  async run({ hotelName, searchSessionId }) {
+    const session = await getHotelSearchSession(searchSessionId);
+    const hotel = session?.results.hotels.find((entry) => entry.hotelName === hotelName) ?? null;
+    if (!session || !hotel) {
+      return { hotel: null };
+    }
+    return {
+      hotel: {
+        availability: hotel.availabilityLabel,
+        checkIn: session.query.checkIn,
+        checkOut: session.query.checkOut,
+        hotelName: hotel.hotelName,
+        location: hotel.locationLabel,
+        offers: hotel.offers.map((offer) => ({
+          breakfastIncluded: offer.breakfastIncluded,
+          cancellationPolicy: offer.cancellationPolicy,
+          capturedAt: offer.capturedAt,
+          currency: offer.currency,
+          evidenceLevel: offer.evidenceLevel,
+          isHyatt: offer.sourceType !== "ota",
+          nightlyRate: offer.startingAvgNightlyRate,
+          pointsPerNight: offer.startingPointsPerNight ?? null,
+          priceBasis: offer.displayedPriceBasis,
+          ratePlan: offer.ratePlanName,
+          roomType: offer.roomType,
+          source: offer.sourceName,
+          stayTotal: offer.stayTotal,
+          warnings: offer.comparisonWarnings
+        }))
+      }
+    };
   }
 };
 

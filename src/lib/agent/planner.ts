@@ -448,12 +448,17 @@ function userWording(conversation: readonly AgentConversationMessage[]) {
  * capability becomes reachable the moment it is registered, with no prompt edit.
  */
 export function buildPlannerInstructions(referenceDate = new Date(), stepsRemaining = 6, hasPriorSearches = false) {
-  const catalogue = describeCapabilities().map((capability) => ({
+  /*
+   * Grouped by what a call costs the user, not listed flat.
+   *
+   * Free reads and things that stop the turn to ask for a press are different
+   * kinds of move, and a flat list gave the model no reason to prefer the free
+   * one. It is also the distinction the rules above keep referring to, so the
+   * catalogue should show it rather than leave it to be inferred per entry.
+   */
+  const described = describeCapabilities().map((capability) => ({
     tool: capability.name,
     does: capability.summary,
-    opensABrowserTab: capability.effect === "browser_task",
-    /* Both of these stop the turn and put a button in front of the user. */
-    needsAPress: capability.effect !== "read",
     parameters: capability.params.map((param) => ({
       name: param.name,
       required: param.required,
@@ -461,8 +466,23 @@ export function buildPlannerInstructions(referenceDate = new Date(), stepsRemain
       ...(param.enumValues ? { oneOf: param.enumValues } : {}),
       what: param.description
     })),
-    phrasedAs: capability.keywords
+    phrasedAs: capability.keywords,
+    effect: capability.effect
   }));
+  const withoutEffect = (entry: (typeof described)[number]) => {
+    const { effect, ...rest } = entry;
+    void effect;
+    return rest;
+  };
+  const catalogue = {
+    freeToRun: described.filter((entry) => entry.effect === "read").map(withoutEffect),
+    needsAPress: described
+      .filter((entry) => entry.effect !== "read")
+      .map((entry) => ({
+        ...withoutEffect(entry),
+        costs: entry.effect === "browser_task" ? "opens a Hyatt tab" : "changes a stored setting"
+      }))
+  };
 
   return [
     ROLE,

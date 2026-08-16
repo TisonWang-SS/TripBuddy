@@ -164,6 +164,27 @@ export function observeToolResult(capability: string, result: unknown): ToolObse
       };
     }
 
+    case "get_hotel_offer_detail": {
+      const { hotel } = result as { hotel: { hotelName: string; offers: Record<string, unknown>[] } | null };
+      if (!hotel) {
+        return { capability, refs: {}, view: { note: "That hotel is not in the search session named." } };
+      }
+      return {
+        capability,
+        refs: {},
+        view: {
+          hotel: cap(hotel.hotelName),
+          offers: hotel.offers.map((offer) => ({
+            ...offer,
+            cancellationPolicy: typeof offer.cancellationPolicy === "string" ? cap(offer.cancellationPolicy) : null,
+            ratePlan: typeof offer.ratePlan === "string" ? cap(offer.ratePlan) : null,
+            roomType: typeof offer.roomType === "string" ? cap(offer.roomType) : null,
+            warnings: Array.isArray(offer.warnings) ? offer.warnings.map((w) => cap(String(w))) : []
+          }))
+        }
+      };
+    }
+
     case "set_watch_plan": {
       const { hotelName, watching } = result as { hotelName: string; watching: boolean };
       return { capability, refs: {}, view: { hotel: cap(hotelName), watching } };

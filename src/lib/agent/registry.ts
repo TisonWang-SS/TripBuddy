@@ -1,6 +1,12 @@
 import { explainRecommendation, getBooking, getPriceHistory, listBookings } from "@/lib/agent/capabilities/bookings";
 import { importAccountBookings, listDueChecks, runPriceCheck } from "@/lib/agent/capabilities/checks";
-import { getSearchSession, getTaxInclusiveTotal, searchHotels, setSearchBudget } from "@/lib/agent/capabilities/search";
+import {
+  getHotelOfferDetail,
+  getSearchSession,
+  getTaxInclusiveTotal,
+  searchHotels,
+  setSearchBudget
+} from "@/lib/agent/capabilities/search";
 import { getProfile, getSettings } from "@/lib/agent/capabilities/setup";
 import { setWatchPlan } from "@/lib/agent/capabilities/watch";
 import { type AnyCapability, type CapabilityParam, requiresConfirmation } from "@/lib/agent/types";
@@ -35,6 +41,7 @@ const CAPABILITIES: readonly AnyCapability[] = [
   setSearchBudget,
   getTaxInclusiveTotal,
   getSearchSession,
+  getHotelOfferDetail,
   setWatchPlan,
   getProfile,
   getSettings

@@ -7,14 +7,11 @@
  * 0005). The router survives as the offline path, because a local-first product
  * has to stay usable with no API key, and keyword routing is what it had before.
  *
- * Three properties are worth stating because they are enforced here rather than
- * hoped for:
+ * Four properties, all enforced here rather than hoped for:
  *
- * - **A tab needs a press.** Every capability that opens Hyatt suspends the turn
- *   and asks. The loop is autonomous about reading and reasoning, never about
- *   opening a browser on someone's behalf. PRD "Booking Price Checks" requires
- *   it, and the loop is the place a well-meaning plan would otherwise route
- *   around it.
+ * - **A tab needs a press.** Every capability that opens Hyatt, or writes,
+ *   suspends the turn and asks. The loop is autonomous about reading and
+ *   reasoning, never about acting for someone. One press authorises one call.
  *
  * - **The run outlives the tab.** After a browser task starts, the loop waits on
  *   the server for the Companion's evidence, then feeds it back to the model.
@@ -23,6 +20,13 @@
  *
  * - **Steps are bounded.** A model that keeps proposing tools is stopped and
  *   made to answer from what it already has.
+ *
+ * - **A turn has one ending.** Every path produces a `TurnOutcome` and returns;
+ *   only `concludeTurn` emits a terminal event. This is structural rather than
+ *   stylistic: the invariants that matter — a failure never discards work the
+ *   user already paid for, RUN_ERROR is never followed by RUN_FINISHED — held
+ *   in some of the seven earlier exits and not others, and each new failure
+ *   mode was a new chance to forget one.
  */
 
 import { CapabilityArgsError } from "@/lib/agent/args";
@@ -31,8 +35,8 @@ import { awaitBrowserTask, BrowserTaskWaitError } from "@/lib/agent/browserTaskW
 import type { BookingSummary } from "@/lib/agent/capabilities/bookings";
 import type { AgentEvent } from "@/lib/agent/events";
 import { observeToolResult, type ToolObservation } from "@/lib/agent/modelView";
-import { loadPriorSearches } from "@/lib/agent/priorWork";
 import { isPlannerConfigured, planNextStep, type PlannerStep } from "@/lib/agent/planner";
+import { loadPriorSearches, type PriorSearch } from "@/lib/agent/priorWork";
 import {
   capabilityResultRoute,
   describeCapabilityChange,
@@ -51,8 +55,10 @@ import {
   composeMessageSurface,
   type Surface
 } from "@/lib/agent/surface";
+import { parseTurnMemory, rememberTurn, type TurnMemory } from "@/lib/agent/turnMemory";
 import type { AgentConversationMessage } from "@/lib/agent/types";
 import { getHotelSearchSession, type HotelSearchSessionSnapshot } from "@/lib/hotelSearchSessions";
+import type { Tone } from "@/lib/labels";
 import { LlmError } from "@/lib/providers/llmClient";
 
 /** Enough for search → read a booking → compare → advise, and no more. */
@@ -63,17 +69,13 @@ export type AgentTurnRequest = {
   conversation?: readonly AgentConversationMessage[];
   /** Set when the user pressed the button on a ConfirmAction card. */
   confirm?: { args: unknown; capability: string };
+  /**
+   * What earlier turns of this conversation left behind, as this server handed
+   * it out. The client stores it and returns it untouched; see `turnMemory`.
+   */
+  memory?: unknown;
   /** What the user just said. Absent on a confirmation press. */
   message?: string;
-  /**
-   * Searches earlier turns of this conversation produced.
-   *
-   * Held by the client because the server keeps no conversation of its own. The
-   * ids are re-read here rather than trusted as descriptions, so an expired one
-   * simply drops out and a session that has since gained a total is described as
-   * it now is.
-   */
-  searchSessionIds?: readonly string[];
 };
 
 export type AgentEventSink = (event: AgentEvent) => void;
@@ -85,287 +87,359 @@ export type TurnOptions = {
   signal?: AbortSignal;
 };
 
+/**
+ * How a turn ended, decided before anything terminal is emitted.
+ *
+ * Returning one of these rather than emitting in place is what gives the turn a
+ * single ending. `conductTurn` never emits a terminal event; `concludeTurn`
+ * only ever emits one.
+ */
+type TurnOutcome =
+  /** The assistant has something to say, and that ends the turn. */
+  | { kind: "said"; surface: Surface; text: string }
+  /** A confirmation card is already on screen; the turn waits for the press. */
+  | { kind: "awaiting_press" }
+  /** Nothing usable happened. Downgraded by `concludeTurn` if work survived. */
+  | { code: string; kind: "failed"; message: string };
+
+/** Everything one turn needs, gathered once so the phases below stay pure-ish. */
+type TurnContext = {
+  conversation: AgentConversationMessage[];
+  emit: AgentEventSink;
+  memory: TurnMemory;
+  now: () => number;
+  /** Tool results collected this turn, in order. Read by a failure to see what survived. */
+  observations: ToolObservation[];
+  /** Call signatures already run this turn, so a repeat is skipped rather than re-run. */
+  ranThisTurn: Set<string>;
+  options: TurnOptions;
+  priorSearches: readonly PriorSearch[];
+  runId: string;
+  /** What a recommendation may point at, accumulated as tools run. */
+  source: AdviceSource;
+  surfaceCount: { messages: number; tools: number };
+};
+
 export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSink, options: TurnOptions = {}) {
   const now = options.now ?? (() => Date.now());
   const runId = options.runId ?? globalThis.crypto.randomUUID();
-  let messageCount = 0;
-  let toolCount = 0;
-  /*
-   * Hoisted out of the try so a failure can see what the turn already achieved.
-   * A tab that opened, a wait the user sat through, and a total now stored are
-   * not undone by the next step going wrong.
-   */
-  const observations: ToolObservation[] = [];
+  const memory = parseTurnMemory(request.memory);
+
+  const context: TurnContext = {
+    conversation: [
+      ...(request.conversation ?? []).filter((turn) => typeof turn.content === "string" && turn.content.trim().length > 0),
+      ...(request.message && request.message.trim().length > 0
+        ? [{ content: request.message.trim(), role: "user" as const }]
+        : [])
+    ],
+    emit,
+    memory,
+    now,
+    observations: [],
+    options,
+    ranThisTurn: new Set<string>(),
+    priorSearches: [],
+    runId,
+    /* Seeded from memory: a ref shown last turn still names the same row. */
+    source: { bookings: [], hotelSession: null, refs: { ...(memory.refs ?? {}) } },
+    surfaceCount: { messages: 0, tools: 0 }
+  };
 
   emit({ runId, timestamp: now(), type: "RUN_STARTED" });
 
-  const conversation: AgentConversationMessage[] = [
-    ...(request.conversation ?? []).filter((turn) => typeof turn.content === "string" && turn.content.trim().length > 0),
-    ...(request.message && request.message.trim().length > 0
-      ? [{ content: request.message.trim(), role: "user" as const }]
-      : [])
-  ];
+  let outcome: TurnOutcome;
+  try {
+    outcome = await conductTurn(context, request);
+  } catch (error) {
+    outcome = {
+      code: errorCode(error),
+      kind: "failed",
+      message: error instanceof Error ? error.message : "The request could not be run."
+    };
+  }
+  concludeTurn(context, outcome);
+}
 
-  /** One assistant message, streamed as the protocol expects, plus its surface. */
-  const respond = (text: string, surface: Surface) => {
-    const messageId = `${runId}-m${++messageCount}`;
-    emit({ messageId, role: "assistant", timestamp: now(), type: "TEXT_MESSAGE_START" });
-    emit({ delta: text, messageId, timestamp: now(), type: "TEXT_MESSAGE_CONTENT" });
-    emit({ messageId, timestamp: now(), type: "TEXT_MESSAGE_END" });
-    emit({ name: "surface", timestamp: now(), type: "CUSTOM", value: surface });
+/**
+ * The single ending.
+ *
+ * Two invariants live here and nowhere else. A failure that happened after real
+ * work does not read as a failure — a captured total means a tab opened, the
+ * user waited, and the figure is stored, none of which a later error undoes. And
+ * RUN_ERROR is terminal, so RUN_FINISHED never follows it.
+ */
+function concludeTurn(context: TurnContext, outcome: TurnOutcome) {
+  const { emit, now, runId } = context;
+
+  if (outcome.kind === "failed" && context.observations.length > 0) {
+    const text = partialWork(context.conversation);
+    outcome = { kind: "said", surface: composeMessageSurface(nextSurfaceId(context), text, "caution"), text };
+  }
+
+  if (outcome.kind === "failed") {
+    emit({ code: outcome.code, message: outcome.message, runId, timestamp: now(), type: "RUN_ERROR" });
+    return;
+  }
+
+  if (outcome.kind === "said") {
+    say(context, outcome.text, outcome.surface);
+  }
+
+  /* What this turn learned, for the client to hand back next time. */
+  emit({
+    name: "memory",
+    timestamp: now(),
+    type: "CUSTOM",
+    value: rememberTurn(context.memory, {
+      refs: context.source.refs,
+      searchSessionIds: context.source.hotelSession ? [context.source.hotelSession.id] : []
+    })
+  });
+  emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
+}
+
+/** Decides how the turn ends. Never emits a terminal event. */
+async function conductTurn(context: TurnContext, request: AgentTurnRequest): Promise<TurnOutcome> {
+  const { conversation } = context;
+
+  if (conversation.length === 0 && !request.confirm) {
+    return { code: "empty_request", kind: "failed", message: "Say what you would like to do." };
+  }
+
+  /*
+   * Checked before the model runs, so the refusal cannot be planned around. A
+   * confirmation press carries no new wording, so there is nothing to check.
+   *
+   * Paired with the scope sentence, because this fires on the verb alone and
+   * cannot tell what was being asked for: "book me a flight" trips it and would
+   * otherwise be answered only with what the product does not do to a
+   * reservation — true, but silent on the flight.
+   */
+  const refusal = refusedAction(userWording(conversation).toLowerCase());
+  if (refusal) {
+    return spoke(context, `${refusal}\n\n${UNSUPPORTED_MESSAGE}`, "caution");
+  }
+
+  if (!isPlannerConfigured()) {
+    return runOfflineTurn(context);
+  }
+
+  context.priorSearches = await loadPriorSearches(context.memory.searchSessionIds, context.now);
+  return runPlannedTurn(context, request);
+}
+
+/**
+ * The deliberate → act → observe loop itself.
+ *
+ * One press authorises one call, held as a value that is spent rather than a
+ * predicate over the request: a predicate stays true, so a plan proposing the
+ * same capability again later would open a second tab on the strength of a
+ * press made for the first one.
+ */
+async function runPlannedTurn(context: TurnContext, request: AgentTurnRequest): Promise<TurnOutcome> {
+  let pending = request.confirm;
+  let authorised = request.confirm ?? null;
+
+  const spendAuthorisation = (capability: string) => {
+    if (authorised?.capability !== capability) {
+      return false;
+    }
+    authorised = null;
+    return true;
   };
 
+  for (let step = 0; step < MAX_TOOL_STEPS; step++) {
+    let plan: PlannerStep;
+    if (pending) {
+      /*
+       * The press already decided this call. Re-planning here would let a second
+       * deliberation substitute a different action for the one agreed to.
+       */
+      plan = { calls: [{ args: pending.args, capability: pending.capability }], kind: "tools", message: "" };
+      pending = undefined;
+    } else {
+      plan = await think(context, MAX_TOOL_STEPS - step);
+    }
+
+    if (plan.kind !== "tools") {
+      return conclusionOf(context, plan);
+    }
+
+    const outcome = await runToolStep(context, plan, spendAuthorisation);
+    if (outcome !== "continue") {
+      return outcome;
+    }
+  }
+
+  /*
+   * Out of steps with tools still being proposed. Asking for a conclusion from
+   * what was already collected beats both alternatives: silence, or another
+   * round the budget cannot pay for anyway.
+   */
+  const final = await think(context, 0);
+  return conclusionOf(context, final.kind === "tools" ? { kind: "ask", message: OUT_OF_STEPS } : final);
+}
+
+/**
+ * Runs the calls of one planned step.
+ *
+ * Returns "continue" when the loop should deliberate again — either the calls
+ * all ran, or one failed in a way the model is expected to correct.
+ */
+async function runToolStep(
+  context: TurnContext,
+  plan: Extract<PlannerStep, { kind: "tools" }>,
+  spendAuthorisation: (capability: string) => boolean
+): Promise<TurnOutcome | "continue"> {
+  /*
+   * What the model says before work that costs a press, said once and only once
+   * that work is known to be runnable. Announcing it up front produced "I will
+   * search Shanghai under your ¥1000 budget" immediately followed by a precheck
+   * refusing that very search.
+   *
+   * Only before a press. It was originally spoken before any tool, and the model
+   * took that as an invitation to narrate: four reads produced four near-identical
+   * paragraphs, each repeating what the answer was about to say anyway. A free
+   * read already shows its own progress line and its own result card.
+   */
+  const note = plan.message ?? "";
+  let noteSpoken = note.length === 0;
+  const speakNote = () => {
+    if (!noteSpoken) {
+      noteSpoken = true;
+      say(context, note, composeMessageSurface(nextSurfaceId(context), note, "neutral"));
+    }
+  };
+
+  for (const proposed of plan.calls) {
+    /* The model names rows; the tools take identifiers. */
+    const call = { args: resolveRefs(proposed.args, context.source.refs), capability: proposed.capability };
+
+    /*
+     * The same call twice in one turn is the model losing its place, not a
+     * second question. Observed asking for one hotel's detail three times over
+     * and narrating each. Skipping is safer than running it again: a repeat of a
+     * read wastes a request, and a repeat of anything else is a second action.
+     */
+    const signature = `${call.capability}:${JSON.stringify(call.args)}`;
+    if (context.ranThisTurn.has(signature)) {
+      continue;
+    }
+    context.ranThisTurn.add(signature);
+
+    if (needsPress(call.capability) && !spendAuthorisation(call.capability)) {
+      const args = parseCapabilityArgs(call.capability, call.args);
+      /*
+       * Asked before the press, not after it. A capability that cannot run as
+       * asked should say so while the user still has a choice — not once they
+       * have agreed and a blank tab is already open.
+       */
+      const blocker = await precheckCapability(call.capability, args);
+      if (typeof blocker === "string") {
+        /* Only the user can resolve this one; the wording is product-owned. */
+        return spoke(context, blocker, "caution");
+      }
+      if (blocker) {
+        /*
+         * The model can fix this itself — a stale row reference, usually.
+         * Handed back as an observation it corrects course inside the same turn;
+         * ended here instead, a recoverable mistake becomes a wall.
+         */
+        context.observations.push({ capability: call.capability, refs: {}, view: { error: blocker.retryable } });
+        return "continue";
+      }
+      speakNote();
+      context.emit({
+        name: "surface",
+        timestamp: context.now(),
+        type: "CUSTOM",
+        value: composeConfirmSurface(nextSurfaceId(context), {
+          args,
+          capability: call.capability,
+          detail: describeCapabilityChange(call.capability, args) ?? confirmDetail(call.capability, args),
+          label: confirmLabel(call.capability)
+        })
+      });
+      return { kind: "awaiting_press" };
+    }
+
+    let observed: ActedTool;
+    try {
+      observed = await act(call, {
+        emit: context.emit,
+        now: context.now,
+        runId: context.runId,
+        signal: context.options.signal,
+        toolIndex: ++context.surfaceCount.tools
+      });
+    } catch (error) {
+      /*
+       * A capability refusing its own arguments is a question, not a failed run:
+       * it knows something the planner could not — an expired session, a budget
+       * in a currency the results are not priced in — and it wrote a sentence
+       * saying what to do about it.
+       */
+      if (error instanceof CapabilityArgsError) {
+        return spoke(context, error.message, "caution");
+      }
+      throw error;
+    }
+    context.observations.push(observed.observation);
+    mergeSource(context.source, observed);
+    if (observed.surface) {
+      context.emit({ name: "surface", timestamp: context.now(), type: "CUSTOM", value: observed.surface });
+    }
+  }
+
+  return "continue";
+}
+
+/** One deliberation, bracketed by the step events the interface renders. */
+async function think(context: TurnContext, stepsRemaining: number) {
+  context.emit({ stepName: "think", timestamp: context.now(), type: "STEP_STARTED" });
   try {
-    if (conversation.length === 0 && !request.confirm) {
-      throw new LoopError("empty_request", "Say what you would like to do.");
-    }
-
-    /*
-     * Checked before the model runs, so the refusal cannot be planned around.
-     * A confirmation press carries no new wording, so there is nothing to check.
-     */
-    const refusal = refusedAction(userWording(conversation).toLowerCase());
-    if (refusal) {
-      /*
-       * Paired with the scope sentence, because this refusal fires on the verb
-       * alone and cannot tell what was being asked for. "Book me a flight" trips
-       * it and would otherwise be answered only with what the product does not do
-       * to a reservation — true, but silent on the flight. Saying both keeps the
-       * check deterministic and in front of the model, while still answering.
-       */
-      const text = `${refusal}\n\n${UNSUPPORTED_MESSAGE}`;
-      respond(text, composeMessageSurface(`${runId}-s0`, text, "caution"));
-      emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
-      return;
-    }
-
-    if (!isPlannerConfigured()) {
-      await runOfflineTurn(conversation, { emit, now, options, respond, runId });
-      emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
-      return;
-    }
-
-    /*
-     * What this conversation already paid for. Told to the model as summaries,
-     * so a follow-up about a search it just ran reaches `set_search_budget` or
-     * `get_hotel_search_session` instead of opening Hyatt a second time.
-     */
-    const priorSearches = await loadPriorSearches(request.searchSessionIds, now);
-
-    const source: AdviceSource = { bookings: [], hotelSession: null, refs: {} };
-    /*
-     * One press authorises one call. Held as a value that is spent rather than a
-     * predicate over the request: a predicate stays true, so a plan that proposed
-     * the same capability again later would open a second tab on the strength of
-     * a press the user made for the first one.
-     */
-    let pending = request.confirm;
-    let authorised: { args: unknown; capability: string } | null = request.confirm ?? null;
-
-    for (let step = 0; step < MAX_TOOL_STEPS; step++) {
-      let plan: PlannerStep;
-      if (pending) {
-        /*
-         * The press already decided this call. Re-planning here would let a
-         * second deliberation substitute a different action for the one the user
-         * actually agreed to.
-         */
-        plan = { calls: [{ args: pending.args, capability: pending.capability }], kind: "tools", message: "" };
-        pending = undefined;
-      } else {
-        emit({ stepName: "think", timestamp: now(), type: "STEP_STARTED" });
-        plan = await deliberate({
-          conversation,
-          observations,
-          priorSearches,
-          referenceDate: options.referenceDate,
-          stepsRemaining: MAX_TOOL_STEPS - step
-        });
-        emit({ stepName: "think", timestamp: now(), type: "STEP_FINISHED" });
-      }
-
-      if (plan.kind !== "tools") {
-        concludeWith(plan);
-        emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
-        return;
-      }
-
-      /*
-       * What the model wants to say before the work happens. It matters most
-       * right here: the next thing the user may see is a button that costs them
-       * a press and a wait, and a request the product can only partly serve —
-       * a hotel group it does not collect, a second city it had to drop — has
-       * to say so while declining is still free.
-       *
-       * Said once, and only once the work is known to be runnable. Announcing it
-       * up front produced "I will search Shanghai under your ¥1000 budget"
-       * immediately followed by a precheck refusing that very search.
-       */
-      const note = plan.message ?? "";
-      let noteSpoken = note.length === 0;
-      const speakNote = () => {
-        if (!noteSpoken) {
-          noteSpoken = true;
-          respond(note, composeMessageSurface(`${runId}-s${++messageCount}`, note, "neutral"));
-        }
-      };
-
-      /* Set when a call failed in a way the model is expected to correct. */
-      let retry = false;
-
-      for (const proposed of plan.calls) {
-        /* The model names rows; the tools take identifiers. See `resolveRefs`. */
-        const call = { args: resolveRefs(proposed.args, source.refs), capability: proposed.capability };
-
-        /*
-         * A tab is never opened by a plan alone. The turn stops here and the
-         * conversation carries the question; the next request arrives with
-         * `confirm` set and resumes at the top of this loop.
-         */
-        if (needsPress(call.capability) && !spendAuthorisation(call.capability)) {
-          const args = parseCapabilityArgs(call.capability, call.args);
-          /*
-           * Asked before the press, not after it. A capability that cannot run
-           * as asked should say so while the user still has a choice to make —
-           * not once they have agreed and a blank tab is already open.
-           */
-          const blocker = await precheckCapability(call.capability, args);
-          if (typeof blocker === "string") {
-            /* Only the user can resolve this one; the wording is product-owned. */
-            respond(blocker, composeMessageSurface(`${runId}-s${++messageCount}`, blocker, "caution"));
-            emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
-            return;
-          }
-          if (blocker) {
-            /*
-             * The model can fix this itself — a stale row reference, usually.
-             * Handed back as an observation, it corrects course inside the same
-             * turn; ended here instead, a recoverable mistake becomes a wall.
-             */
-            observations.push({ capability: call.capability, refs: {}, view: { error: blocker.retryable } });
-            retry = true;
-            break;
-          }
-          speakNote();
-          emit({
-            name: "surface",
-            timestamp: now(),
-            type: "CUSTOM",
-            value: composeConfirmSurface(`${runId}-s${++messageCount}`, {
-              args,
-              capability: call.capability,
-              detail: describeCapabilityChange(call.capability, args) ?? confirmDetail(call.capability, args),
-              label: confirmLabel(call.capability)
-            })
-          });
-          emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
-          return;
-        }
-
-        let observed: ActedTool;
-        try {
-          observed = await act(call, { emit, now, runId, signal: options.signal, toolIndex: ++toolCount });
-        } catch (error) {
-          /*
-           * A capability refusing its own arguments is a question, not a failed
-           * run: it knows something the planner could not — an expired session,
-           * a budget in a currency the results are not priced in — and it wrote
-           * a sentence saying what to do about it.
-           */
-          if (error instanceof CapabilityArgsError) {
-            respond(error.message, composeMessageSurface(`${runId}-s${++messageCount}`, error.message, "caution"));
-            emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
-            return;
-          }
-          throw error;
-        }
-        observations.push(observed.observation);
-        mergeSource(source, observed);
-        if (observed.surface) {
-          emit({ name: "surface", timestamp: now(), type: "CUSTOM", value: observed.surface });
-        }
-      }
-
-      if (retry) {
-        continue;
-      }
-    }
-
-    /*
-     * Out of steps with tools still being proposed. Asking for a conclusion from
-     * what was already collected is better than both alternatives: silence, or
-     * another round that the budget cannot pay for anyway.
-     */
-    emit({ stepName: "think", timestamp: now(), type: "STEP_STARTED" });
-    const final = await deliberate({
-      conversation,
-      observations,
-      priorSearches,
-      referenceDate: options.referenceDate,
-      stepsRemaining: 0
+    return await deliberate({
+      conversation: context.conversation,
+      observations: context.observations,
+      priorSearches: context.priorSearches,
+      referenceDate: context.options.referenceDate,
+      stepsRemaining
     });
-    emit({ stepName: "think", timestamp: now(), type: "STEP_FINISHED" });
-    concludeWith(final.kind === "tools" ? { kind: "ask", message: OUT_OF_STEPS } : final);
-    emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
-
-    /** Consumes the press, if it was for this capability. Never grants twice. */
-    function spendAuthorisation(capability: string) {
-      if (authorised?.capability !== capability) {
-        return false;
-      }
-      authorised = null;
-      return true;
-    }
-
-    function concludeWith(plan: Exclude<PlannerStep, { kind: "tools" }>) {
-      if (plan.kind === "answer") {
-        respond(plan.message, composeAdviceSurface(`${runId}-s${++messageCount}`, plan.message, plan.picks, source));
-        return;
-      }
-      respond(
-        plan.message,
-        composeMessageSurface(`${runId}-s${++messageCount}`, plan.message, plan.kind === "refuse" ? "caution" : "neutral")
-      );
-    }
-  } catch (error) {
-    /*
-     * A turn that already collected something does not fail outright.
-     *
-     * Live: a tax-inclusive total was captured — the tab opened, the user
-     * waited, the figure was stored and its card already rendered — and then the
-     * provider returned an empty completion. The turn ended on a technical
-     * string about JSON, saying nothing about the price that had just been
-     * fetched, and the next question had to start over. The cards are real
-     * whatever happened afterwards, so say so and let the user carry on.
-     */
-    if (observations.length > 0) {
-      const text = partialWork(conversation);
-      respond(text, composeMessageSurface(`${runId}-s${++messageCount}`, text, "caution"));
-      emit({ runId, timestamp: now(), type: "RUN_FINISHED" });
-      return;
-    }
-
-    /* RUN_ERROR terminates the run; RUN_FINISHED must not follow it. */
-    emit({
-      code: errorCode(error),
-      message: error instanceof Error ? error.message : "The request could not be run.",
-      runId,
-      timestamp: now(),
-      type: "RUN_ERROR"
-    });
+  } finally {
+    context.emit({ stepName: "think", timestamp: context.now(), type: "STEP_FINISHED" });
   }
 }
 
-/** Product-owned, in the language being spoken. Names what survived, not what broke. */
-function partialWork(conversation: readonly AgentConversationMessage[]) {
-  const chinese = /[\u3400-\u9fff]/.test(conversation.map((turn) => turn.content).join(""));
-  return chinese
-    ? "上面的结果是真的、已经存下来了，但我没能接着往下说。你可以直接看，或者告诉我接下来要做什么——不用重新查一遍。"
-    : "The results above are real and saved, but I could not carry on from them. Read them directly, or tell me what to do next — there is no need to run any of it again.";
+/** Turns a non-tool plan into the turn's ending. */
+function conclusionOf(context: TurnContext, plan: Exclude<PlannerStep, { kind: "tools" }>): TurnOutcome {
+  if (plan.kind === "answer") {
+    return {
+      kind: "said",
+      surface: composeAdviceSurface(nextSurfaceId(context), plan.message, plan.picks, context.source),
+      text: plan.message
+    };
+  }
+  return spoke(context, plan.message, plan.kind === "refuse" ? "caution" : "neutral");
 }
 
-const OUT_OF_STEPS =
-  "I gathered what I could but could not finish this in one turn. Tell me which part matters most and I will go deeper on it.";
+/** An outcome that is just words, with the surface that carries them. */
+function spoke(context: TurnContext, text: string, tone: Tone): TurnOutcome {
+  return { kind: "said", surface: composeMessageSurface(nextSurfaceId(context), text, tone), text };
+}
+
+/** One complete assistant message plus its surface, streamed as the protocol expects. */
+function say(context: TurnContext, text: string, surface: Surface) {
+  const { emit, now, runId } = context;
+  const messageId = `${runId}-m${++context.surfaceCount.messages}`;
+  emit({ messageId, role: "assistant", timestamp: now(), type: "TEXT_MESSAGE_START" });
+  emit({ delta: text, messageId, timestamp: now(), type: "TEXT_MESSAGE_CONTENT" });
+  emit({ messageId, timestamp: now(), type: "TEXT_MESSAGE_END" });
+  emit({ name: "surface", timestamp: now(), type: "CUSTOM", value: surface });
+}
+
+function nextSurfaceId(context: TurnContext) {
+  return `${context.runId}-s${++context.surfaceCount.messages}`;
+}
 
 /**
  * One deliberation, with a single retry and a floor under it.
@@ -599,17 +673,15 @@ function readBookings(capability: string, result: unknown): readonly BookingSumm
  * product's own copy answers. Less capable by design, and honest about it — the
  * alternative is an interface that appears conversational and silently is not.
  */
-async function runOfflineTurn(
-  conversation: readonly AgentConversationMessage[],
-  context: {
-    emit: AgentEventSink;
-    now: () => number;
-    options: TurnOptions;
-    respond: (text: string, surface: Surface) => void;
-    runId: string;
-  }
-) {
-  const { emit, now, respond, runId } = context;
+/**
+ * The offline path.
+ *
+ * No API key means no loop: keyword routing picks one capability, and the
+ * product's own copy answers. Less capable by design, and honest about it — the
+ * alternative is an interface that appears conversational and silently is not.
+ */
+async function runOfflineTurn(context: TurnContext): Promise<TurnOutcome> {
+  const { conversation } = context;
   const last = conversation.filter((turn) => turn.role === "user").at(-1)?.content ?? "";
   const decision = await routeIntent(last, {
     conversation: conversation.slice(0, -1),
@@ -619,38 +691,53 @@ async function runOfflineTurn(
 
   if (decision.kind !== "capability") {
     const text = decision.kind === "clarify" ? decision.question : decision.message;
-    respond(text, composeMessageSurface(`${runId}-s1`, text, decision.kind === "clarify" ? "neutral" : "caution"));
-    return;
+    return spoke(context, text, decision.kind === "clarify" ? "neutral" : "caution");
   }
 
   const capability = requireCapability(decision.capability);
   const args = parseCapabilityArgs(capability.name, decision.args);
-  if (capability.effect === "browser_task") {
-    emit({
+  if (needsPress(capability.name)) {
+    context.emit({
       name: "surface",
-      timestamp: now(),
+      timestamp: context.now(),
       type: "CUSTOM",
-      value: composeConfirmSurface(`${runId}-s1`, {
+      value: composeConfirmSurface(nextSurfaceId(context), {
         args,
         capability: capability.name,
-        detail: confirmDetail(capability.name, args),
+        detail: describeCapabilityChange(capability.name, args) ?? confirmDetail(capability.name, args),
         label: confirmLabel(capability.name)
       })
     });
-    return;
+    return { kind: "awaiting_press" };
   }
 
   const acted = await act({ args: decision.args, capability: capability.name }, {
-    emit,
-    now,
-    runId,
+    emit: context.emit,
+    now: context.now,
+    runId: context.runId,
     signal: context.options.signal,
     toolIndex: 1
   });
+  context.observations.push(acted.observation);
+  mergeSource(context.source, acted);
   if (acted.surface) {
-    emit({ name: "surface", timestamp: now(), type: "CUSTOM", value: acted.surface });
+    context.emit({ name: "surface", timestamp: context.now(), type: "CUSTOM", value: acted.surface });
   }
+  /* Nothing more to say: the surface is the answer on this path. */
+  return { kind: "awaiting_press" };
 }
+
+/** Product-owned, in the language being spoken. Names what survived, not what broke. */
+function partialWork(conversation: readonly AgentConversationMessage[]) {
+  const chinese = /[\u3400-\u9fff]/.test(conversation.map((turn) => turn.content).join(""));
+  return chinese
+    ? "上面的结果是真的、已经存下来了，但我没能接着往下说。你可以直接看，或者告诉我接下来要做什么——不用重新查一遍。"
+    : "The results above are real and saved, but I could not carry on from them. Read them directly, or tell me what to do next — there is no need to run any of it again.";
+}
+
+const OUT_OF_STEPS =
+  "I gathered what I could but could not finish this in one turn. Tell me which part matters most and I will go deeper on it.";
+
 
 
 

@@ -140,7 +140,7 @@ describe("agent loop", () => {
   it("tells the planner about searches this conversation already collected", async () => {
     mocks.planNextStep.mockResolvedValue({ kind: "answer", message: "Using what we already have.", picks: [] });
 
-    await collect({ message: "我的预算在1000元一晚左右", searchSessionIds: ["sess-1"] });
+    await collect({ memory: { searchSessionIds: ["sess-1"] }, message: "我的预算在1000元一晚左右" });
 
     expect(mocks.getHotelSearchSession).toHaveBeenCalledWith("sess-1");
     expect(mocks.planNextStep.mock.calls[0][0].priorSearches).toMatchObject([
@@ -304,6 +304,111 @@ describe("agent loop", () => {
     const events = await collect({ message: "有什么要处理的吗" });
 
     expect(events.at(-1)).toMatchObject({ type: "RUN_ERROR" });
+  });
+
+  /*
+   * The property the restructure exists for. Seven exits each emitted their own
+   * terminal event, so "a failure never discards work" and "RUN_ERROR is
+   * terminal" held at some of them and not others. Asserted over every shape a
+   * turn can end in, rather than one at a time.
+   */
+  it("ends every turn exactly once, however it ends", async () => {
+    const endings: { name: string; arrange: () => void }[] = [
+      {
+        name: "answered",
+        arrange: () => mocks.planNextStep.mockResolvedValue({ kind: "answer", message: "Done.", picks: [] })
+      },
+      {
+        name: "asked",
+        arrange: () => mocks.planNextStep.mockResolvedValue({ kind: "ask", message: "Which city?" })
+      },
+      {
+        name: "refused",
+        arrange: () => mocks.planNextStep.mockResolvedValue({ kind: "refuse", message: "Out of scope." })
+      },
+      {
+        name: "awaiting a press",
+        arrange: () =>
+          mocks.planNextStep.mockResolvedValue({
+            calls: [{ args: { checkIn: "2026-09-01", checkOut: "2026-09-03", city: "Tokyo", cityAsAsked: "东京" }, capability: "search_hotels" }],
+            kind: "tools",
+            message: ""
+          })
+      },
+      {
+        name: "failed outright",
+        arrange: () => mocks.planNextStep.mockRejectedValue(new Error("provider down"))
+      },
+      {
+        name: "failed after collecting something",
+        arrange: () => {
+          mocks.invokeCapability.mockResolvedValue({ result: { bookings: [] } });
+          mocks.planNextStep
+            .mockResolvedValueOnce({ calls: [{ args: {}, capability: "list_bookings" }], kind: "tools", message: "" })
+            .mockRejectedValue(new Error("provider down"));
+        }
+      },
+      {
+        name: "blocked by a precheck",
+        arrange: () => {
+          mocks.precheckCapability.mockResolvedValue("Change the display currency first.");
+          mocks.planNextStep.mockResolvedValue({
+            calls: [{ args: { checkIn: "2026-09-01", checkOut: "2026-09-03", city: "Tokyo", cityAsAsked: "东京" }, capability: "search_hotels" }],
+            kind: "tools",
+            message: ""
+          });
+        }
+      }
+    ];
+
+    for (const ending of endings) {
+      vi.clearAllMocks();
+      mocks.planNextStep.mockReset();
+      mocks.invokeCapability.mockReset();
+      mocks.precheckCapability.mockReset().mockResolvedValue(null);
+      mocks.getHotelSearchSession.mockResolvedValue(session);
+      ending.arrange();
+
+      const events = await collect({ message: "有什么要处理的吗" });
+      const terminal = events.filter((event) => event.type === "RUN_FINISHED" || event.type === "RUN_ERROR");
+
+      expect(terminal, `${ending.name}: exactly one terminal event`).toHaveLength(1);
+      expect(events.at(-1), `${ending.name}: the terminal event is last`).toBe(terminal[0]);
+    }
+  });
+
+  /*
+   * A ref shown last turn still names the same row. Without this the model had
+   * to re-list before every follow-up, and when it forgot, the product asked
+   * which booking was meant about the one it had just listed.
+   */
+  it("carries row references across turns", async () => {
+    mocks.invokeCapability.mockResolvedValue({ result: { recommendation: null } });
+    mocks.planNextStep
+      .mockResolvedValueOnce({ calls: [{ args: { bookingId: "b1" }, capability: "explain_recommendation" }], kind: "tools", message: "" })
+      .mockResolvedValueOnce({ kind: "answer", message: "Read it.", picks: [] });
+
+    await collect({ memory: { refs: { b1: "booking-42" } }, message: "那个值得留着吗？" });
+
+    expect(mocks.invokeCapability).toHaveBeenCalledWith("explain_recommendation", { bookingId: "booking-42" }, expect.anything());
+  });
+
+  it("hands back what the turn learned, for the next one", async () => {
+    mocks.invokeCapability.mockResolvedValue({
+      result: { bookings: [{ bookingId: "booking-42", city: "KL", hotelName: "Grand Hyatt", nights: 2 }] }
+    });
+    mocks.planNextStep
+      .mockResolvedValueOnce({ calls: [{ args: {}, capability: "list_bookings" }], kind: "tools", message: "" })
+      .mockResolvedValueOnce({ kind: "answer", message: "One stay.", picks: [] });
+
+    const events = await collect({ memory: { refs: { h9: "old-hotel" } }, message: "我的预订" });
+
+    const handed = events.find((event) => event.type === "CUSTOM" && event.name === "memory");
+    expect(handed).toBeDefined();
+    /* This turn's rows, merged onto what earlier turns had already established. */
+    expect((handed as Extract<AgentEvent, { type: "CUSTOM" }>).value).toMatchObject({
+      refs: { b1: "booking-42", h9: "old-hotel" }
+    });
   });
 
   it("answers without tools when the planner already knows the answer", async () => {
@@ -502,14 +607,68 @@ describe("agent loop", () => {
   });
 
   it("stops proposing tools once the step budget is spent", async () => {
-    mocks.invokeCapability.mockResolvedValue({ result: { bookings: [] } });
-    mocks.planNextStep.mockResolvedValue({ calls: [{ args: {}, capability: "list_bookings" }], kind: "tools", message: "" });
+    /* `once` queues outlive clearAllMocks and would win over the implementation. */
+    mocks.planNextStep.mockReset();
+    mocks.invokeCapability.mockReset().mockResolvedValue({ result: { booking: null } });
+    /* One capability, distinct arguments: a repeat would be skipped, not counted. */
+    let step = 0;
+    mocks.planNextStep.mockImplementation(async () => ({
+      calls: [{ args: { bookingId: `booking-${step++}` }, capability: "get_booking" }],
+      kind: "tools",
+      message: ""
+    }));
 
     const events = await collect({ message: "keep going" });
 
     /* Six tool steps, then one last deliberation that is made to conclude. */
     expect(mocks.invokeCapability).toHaveBeenCalledTimes(6);
     expect(spoken(events)).toContain("could not finish this in one turn");
+  });
+
+  /*
+   * Live, the model asked for one hotel's detail three times over and narrated
+   * each. A repeat is it losing its place, not a second question.
+   */
+  it("runs the same call once per turn, however often it is proposed", async () => {
+    mocks.planNextStep.mockReset();
+    mocks.invokeCapability.mockReset().mockResolvedValue({ result: { bookings: [] } });
+    mocks.planNextStep
+      .mockResolvedValueOnce({
+        calls: [
+          { args: { scope: "upcoming" }, capability: "list_bookings" },
+          { args: { scope: "upcoming" }, capability: "list_bookings" }
+        ],
+        kind: "tools",
+        message: ""
+      })
+      .mockResolvedValueOnce({ calls: [{ args: { scope: "upcoming" }, capability: "list_bookings" }], kind: "tools", message: "" })
+      .mockResolvedValueOnce({ kind: "answer", message: "Once was enough.", picks: [] });
+
+    await collect({ message: "我的预订" });
+
+    expect(mocks.invokeCapability).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+   * The note is for the moment before a press. Spoken before every tool, it
+   * became narration: four reads produced four near-identical paragraphs, each
+   * saying what the answer was about to say anyway.
+   */
+  it("does not narrate a free read", async () => {
+    mocks.planNextStep.mockReset();
+    mocks.invokeCapability.mockReset().mockResolvedValue({ result: { bookings: [] } });
+    mocks.planNextStep
+      .mockResolvedValueOnce({
+        calls: [{ args: {}, capability: "list_bookings" }],
+        kind: "tools",
+        message: "我先读取你的预订。"
+      })
+      .mockResolvedValueOnce({ kind: "answer", message: "你有一笔预订。", picks: [] });
+
+    const events = await collect({ message: "我的预订" });
+
+    expect(spoken(events)).not.toContain("我先读取");
+    expect(spoken(events)).toBe("你有一笔预订。");
   });
 
   it("reports a failed browser task as an error rather than an empty answer", async () => {

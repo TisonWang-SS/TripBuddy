@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { streamAgentRun } from "@/lib/agent/client";
-import { searchSessionIdsOf, type Surface } from "@/lib/agent/surface";
+import type { Surface } from "@/lib/agent/surface";
 import type { AgentConversationMessage } from "@/lib/agent/types";
 import { Button } from "@/ui";
 import styles from "./Chat.module.css";
@@ -45,11 +45,11 @@ export function Chat() {
   const [busy, setBusy] = useState(false);
   const conversationRef = useRef<AgentConversationMessage[]>([]);
   /*
-   * Search sessions this conversation has produced. Sent back with every turn so
-   * the agent knows a search already exists — the server holds no conversation
-   * of its own, and tool results do not survive a turn.
+   * What earlier turns left behind, as the server handed it out. Stored and
+   * returned untouched: its shape is the server's business, and a client that
+   * does not read it cannot invent an entry it does not understand.
    */
-  const searchSessionsRef = useRef<string[]>([]);
+  const memoryRef = useRef<unknown>(undefined);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const idRef = useRef(0);
 
@@ -89,7 +89,7 @@ export function Chat() {
 
       try {
         await streamAgentRun(
-          { ...request, conversation: conversationRef.current, searchSessionIds: searchSessionsRef.current },
+          { ...request, conversation: conversationRef.current, memory: memoryRef.current },
           (event) => {
             if (event.type === "STEP_STARTED" && event.stepName === "think") {
               replaceStatus("Thinking…");
@@ -104,13 +104,10 @@ export function Chat() {
                 launched = true;
               }
               replaceStatus("Reading the Hyatt tab… leave it open until it finishes.");
+            } else if (event.type === "CUSTOM" && event.name === "memory") {
+              memoryRef.current = event.value;
             } else if (event.type === "CUSTOM" && event.name === "surface") {
               const surface = event.value as Surface;
-              for (const sessionId of searchSessionIdsOf(surface)) {
-                if (!searchSessionsRef.current.includes(sessionId)) {
-                  searchSessionsRef.current = [...searchSessionsRef.current, sessionId].slice(-5);
-                }
-              }
               /*
                * Read out before the reset, and into entries built here rather
                * than inside the updater. A React updater runs later than the
