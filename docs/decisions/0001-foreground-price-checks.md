@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. Its "explicitly started by the user" clause is read by [ADR 0007](0007-agent-opens-the-tab.md) as covering a request made in conversation, not only a button press. The due queue described below is unchanged: those entries are reminders that still start on a click.
 
 ## Context
 

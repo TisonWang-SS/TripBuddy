@@ -161,17 +161,28 @@ describe("agent loop", () => {
    * produced a Hyatt search card with nothing said about the brand swap, and
    * asking to compare two cities produced one card with no mention of the other.
    */
-  it("says what it is about to do before asking for the press", async () => {
-    mocks.planNextStep.mockResolvedValue({
-      calls: [{ args: { checkIn: "2026-09-01", checkOut: "2026-09-03", city: "Shanghai", cityAsAsked: "上海" }, capability: "search_hotels" }],
-      kind: "tools",
-      message: "您提到的是希尔顿，但本产品只收集凯悦。"
+  it("says what it is about to do before work with a cost", async () => {
+    mocks.invokeCapability.mockResolvedValue({
+      result: { launchUrl: "https://www.hyatt.com/search", searchSessionId: "sess-1", taskId: "task-1" }
     });
+    mocks.awaitBrowserTask.mockResolvedValue({ errorMessage: null, result: {}, status: "succeeded", taskId: "task-1" });
+    mocks.planNextStep
+      .mockResolvedValueOnce({
+        calls: [{ args: { checkIn: "2026-09-01", checkOut: "2026-09-03", city: "Shanghai", cityAsAsked: "上海" }, capability: "search_hotels" }],
+        kind: "tools",
+        message: "您提到的是希尔顿，但本产品只收集凯悦。"
+      })
+      .mockResolvedValueOnce({ kind: "answer", message: "找到了几家。", picks: [] });
 
     const events = await collect({ message: "查上海希尔顿" });
 
-    expect(spoken(events)).toContain("只收集凯悦");
-    expect(surfaces(events).map((surface) => surface.nodes[0].component)).toEqual(["Message", "ConfirmAction"]);
+    /* Said before the tab opens, which is while declining is still free. */
+    const launchIndex = events.findIndex((event) => event.type === "CUSTOM" && event.name === "browser_task_launch");
+    const spokenIndex = events.findIndex(
+      (event) => event.type === "TEXT_MESSAGE_CONTENT" && event.delta.includes("只收集凯悦")
+    );
+    expect(spokenIndex).toBeGreaterThanOrEqual(0);
+    expect(spokenIndex).toBeLessThan(launchIndex);
   });
 
   /*
@@ -436,23 +447,46 @@ describe("agent loop", () => {
   });
 
   /*
-   * The property PRD "Booking Price Checks" requires: recognising an intent is
-   * never permission to open a browser.
+   * Browser work runs on the strength of the request (ADR 0007). Asking for a
+   * search is the initiation; a button that always appeared and was always
+   * pressed had stopped being consent and become a second step.
    */
-  it("stops and asks before opening a Hyatt tab", async () => {
-    mocks.planNextStep.mockResolvedValue({
-      calls: [{ args: { checkIn: "2026-09-01", checkOut: "2026-09-03", city: "Tokyo", cityAsAsked: "东京" }, capability: "search_hotels" }],
-      kind: "tools"
+  it("runs a browser task without a separate press", async () => {
+    mocks.invokeCapability.mockResolvedValue({
+      result: { launchUrl: "https://www.hyatt.com/search", searchSessionId: "sess-1", taskId: "task-1" }
     });
+    mocks.awaitBrowserTask.mockResolvedValue({ errorMessage: null, result: {}, status: "succeeded", taskId: "task-1" });
+    mocks.planNextStep
+      .mockResolvedValueOnce({
+        calls: [{ args: { checkIn: "2026-09-01", checkOut: "2026-09-03", city: "Tokyo", cityAsAsked: "东京" }, capability: "search_hotels" }],
+        kind: "tools",
+        message: ""
+      })
+      .mockResolvedValueOnce({ kind: "answer", message: "Found some.", picks: [] });
 
     const events = await collect({ message: "查东京的酒店" });
+
+    expect(mocks.invokeCapability).toHaveBeenCalled();
+    expect(surfaces(events).some((surface) => surface.nodes[0]?.component === "ConfirmAction")).toBe(false);
+    /* The client still needs the address, since only it can open a tab. */
+    expect(events.some((event) => event.type === "CUSTOM" && event.name === "browser_task_launch")).toBe(true);
+  });
+
+  /* A write still asks: it changes stored state the user would undo by hand. */
+  it("still stops and asks before a write", async () => {
+    mocks.planNextStep.mockResolvedValue({
+      calls: [{ args: { bookingId: "b-1" }, capability: "set_watch_plan" }],
+      kind: "tools",
+      message: ""
+    });
+
+    const events = await collect({ message: "帮我盯着它" });
 
     expect(mocks.invokeCapability).not.toHaveBeenCalled();
     expect(surfaces(events).at(-1)?.nodes[0]).toMatchObject({
       component: "ConfirmAction",
-      props: { capability: "search_hotels" }
+      props: { capability: "set_watch_plan" }
     });
-    expect(events.at(-1)?.type).toBe("RUN_FINISHED");
   });
 
   it("runs the confirmed action, waits for the tab, and advises on what came back", async () => {
@@ -489,113 +523,22 @@ describe("agent loop", () => {
   });
 
   /*
-   * One press authorises one call. Without this, a plan that proposes the same
-   * capability again later opens a second tab on the strength of the first press.
-   */
-  it("does not let one press authorise a second tab", async () => {
-    mocks.invokeCapability.mockResolvedValue({
-      result: { launchUrl: "https://www.hyatt.com/search", searchSessionId: "sess-1", taskId: "task-1" }
-    });
-    mocks.awaitBrowserTask.mockResolvedValue({ errorMessage: null, result: {}, status: "succeeded", taskId: "task-1" });
-    mocks.planNextStep.mockResolvedValueOnce({
-      calls: [{ args: { checkIn: "2026-09-04", checkOut: "2026-09-05", city: "Osaka", cityAsAsked: "大阪" }, capability: "search_hotels" }],
-      kind: "tools"
-    });
-
-    const events = await collect({
-      confirm: { args: { checkIn: "2026-09-01", checkOut: "2026-09-03", city: "Tokyo", cityAsAsked: "东京" }, capability: "search_hotels" },
-      conversation: [{ content: "查东京的酒店", role: "user" }]
-    });
-
-    expect(mocks.invokeCapability).toHaveBeenCalledTimes(1);
-    expect(surfaces(events).at(-1)?.nodes[0]).toMatchObject({ component: "ConfirmAction" });
-  });
-
-  /*
-   * A condition added to results already on the desk must not become a second
-   * trip to Hyatt for the same stay. Live, "我的预算在1000元一晚左右" after a
-   * finished search produced a fresh confirmation card for the identical city
-   * and dates.
-   */
-  it("applies a budget to an existing search without opening a tab", async () => {
-    mocks.invokeCapability.mockResolvedValue({ result: { session } });
-    mocks.planNextStep
-      .mockResolvedValueOnce({
-        calls: [
-          {
-            args: { budgetAmount: 1000, budgetQuote: "1000元一晚左右", searchSessionId: "sess-1" },
-            capability: "set_search_budget"
-          }
-        ],
-        kind: "tools"
-      })
-      .mockResolvedValueOnce({ kind: "answer", message: "按这个预算，还需要含税总价才能确认。", picks: [] });
-
-    const events = await collect({
-      conversation: [{ content: "上海 9月1日 酒店", role: "user" }],
-      message: "我的预算在1000元一晚左右"
-    });
-
-    expect(surfaces(events).some((surface) => surface.nodes[0]?.component === "ConfirmAction")).toBe(false);
-    expect(mocks.invokeCapability).toHaveBeenCalledWith("set_search_budget", expect.anything(), expect.anything());
-    expect(spoken(events)).toContain("含税总价");
-  });
-
-  /*
    * A capability refusing its own arguments knows something the planner could
-   * not. Live, a budget stated in CNY against a USD-priced search failed the run
-   * with the provider's own wording, after the user had already pressed.
+   * not — an expired session, a stay that has already happened — and it wrote a
+   * sentence saying what to do about it. That is a question, not a failed run.
    */
   it("turns a capability's own argument refusal into a question", async () => {
-    mocks.invokeCapability.mockRejectedValue(
-      new CapabilityArgsError("These prices are in USD and the budget is in CNY. TripBuddy does not convert between them.")
-    );
-    mocks.planNextStep.mockResolvedValueOnce({
-      calls: [
-        {
-          args: { budgetAmount: 1000, budgetQuote: "1000元", currency: "CNY", searchSessionId: "sess-1" },
-          capability: "set_search_budget"
-        }
-      ],
-      kind: "tools"
-    });
-
-    const events = await collect({ message: "我的预算在1000元一晚左右" });
-
-    expect(events.at(-1)?.type).toBe("RUN_FINISHED");
-    expect(spoken(events)).toContain("does not convert");
-  });
-
-  /*
-   * And a browser task that cannot run as asked says so before the press, not
-   * after it — otherwise the user agrees, a blank tab opens, and the answer is a
-   * wall.
-   */
-  it("asks before offering to open a tab the capability would refuse", async () => {
-    mocks.precheckCapability.mockResolvedValue("Prices here are collected in USD, and you gave a budget in CNY.");
+    mocks.invokeCapability.mockRejectedValue(new CapabilityArgsError('"checkIn" is 2020-01-01, which has already passed.'));
     mocks.planNextStep.mockResolvedValue({
-      calls: [
-        {
-          args: {
-            budgetAmount: 1000,
-            budgetQuote: "1000元",
-            checkIn: "2026-09-01",
-            checkOut: "2026-09-03",
-            city: "Shanghai",
-            cityAsAsked: "上海",
-            currency: "CNY"
-          },
-          capability: "search_hotels"
-        }
-      ],
-      kind: "tools"
+      calls: [{ args: { checkIn: "2020-01-01", checkOut: "2020-01-02", city: "Tokyo", cityAsAsked: "东京" }, capability: "search_hotels" }],
+      kind: "tools",
+      message: ""
     });
 
-    const events = await collect({ message: "查上海的酒店，预算1000元一晚" });
+    const events = await collect({ message: "查2020年的东京酒店" });
 
-    expect(surfaces(events).some((surface) => surface.nodes[0]?.component === "ConfirmAction")).toBe(false);
-    expect(mocks.invokeCapability).not.toHaveBeenCalled();
-    expect(spoken(events)).toContain("collected in USD");
+    expect(events.some((event) => event.type === "RUN_ERROR")).toBe(false);
+    expect(spoken(events)).toContain("already passed");
   });
 
   /* Deterministic, and in front of the model rather than behind it. */
@@ -609,8 +552,40 @@ describe("agent loop", () => {
   it("stops proposing tools once the step budget is spent", async () => {
     /* `once` queues outlive clearAllMocks and would win over the implementation. */
     mocks.planNextStep.mockReset();
+    /* Each capability needs its own result shape, or composing its surface throws. */
+    mocks.invokeCapability.mockReset().mockImplementation(async (name: string) => ({
+      result:
+        name === "get_price_history"
+          ? { observations: [], runs: [] }
+          : name === "explain_recommendation"
+            ? { bookingFound: true, recommendation: null }
+            : { booking: null }
+    }));
+    /*
+     * Distinct arguments and rotating capabilities: an exact repeat is skipped,
+     * and any one capability is capped at four calls a turn.
+     */
+    const rotation = ["get_booking", "get_price_history", "explain_recommendation"];
+    let step = 0;
+    mocks.planNextStep.mockImplementation(async () => {
+      const capability = rotation[step % rotation.length];
+      return { calls: [{ args: { bookingId: `booking-${step++}` }, capability }], kind: "tools", message: "" };
+    });
+
+    const events = await collect({ message: "keep going" });
+
+    /* Twelve tool steps, then one last deliberation that is made to conclude. */
+    expect(mocks.invokeCapability).toHaveBeenCalledTimes(12);
+    expect(spoken(events)).toContain("could not finish this in one turn");
+  });
+
+  /*
+   * Different arguments are different questions, so they are not deduplicated —
+   * but a model working through a list of twenty is not asking twenty questions.
+   */
+  it("caps how many times one capability runs in a turn", async () => {
+    mocks.planNextStep.mockReset();
     mocks.invokeCapability.mockReset().mockResolvedValue({ result: { booking: null } });
-    /* One capability, distinct arguments: a repeat would be skipped, not counted. */
     let step = 0;
     mocks.planNextStep.mockImplementation(async () => ({
       calls: [{ args: { bookingId: `booking-${step++}` }, capability: "get_booking" }],
@@ -618,11 +593,9 @@ describe("agent loop", () => {
       message: ""
     }));
 
-    const events = await collect({ message: "keep going" });
+    await collect({ message: "keep going" });
 
-    /* Six tool steps, then one last deliberation that is made to conclude. */
-    expect(mocks.invokeCapability).toHaveBeenCalledTimes(6);
-    expect(spoken(events)).toContain("could not finish this in one turn");
+    expect(mocks.invokeCapability).toHaveBeenCalledTimes(4);
   });
 
   /*

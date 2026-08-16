@@ -102,59 +102,45 @@ describe("capability registry", () => {
   });
 
   /*
-   * Recognising an intent is not permission to act on it. This is the guard the
-   * whole agent layer rests on, so it is asserted by its effect — the runner is
-   * never reached — rather than only by the thrown type.
+   * Browser work runs on the strength of the request (ADR 0007): asking for a
+   * price check is the initiation, and the tab is still visible and still the
+   * user's own Chrome.
    */
-  it("refuses to open a browser tab without explicit confirmation", async () => {
-    mocks.runPriceCheck.mockClear();
-    await expect(invokeCapability("run_price_check", { bookingId: "booking-1" })).rejects.toThrow(ConfirmationRequiredError);
-    expect(mocks.runPriceCheck).not.toHaveBeenCalled();
-
-    await expect(invokeCapability("import_account_bookings", {})).rejects.toThrow(ConfirmationRequiredError);
-    expect(mocks.createAccountImportTask).not.toHaveBeenCalled();
-  });
-
-  it("treats any value other than true as unconfirmed", async () => {
-    mocks.runPriceCheck.mockClear();
-    for (const confirmed of [false, undefined]) {
-      await expect(invokeCapability("run_price_check", { bookingId: "booking-1" }, { confirmed })).rejects.toThrow(
-        ConfirmationRequiredError
-      );
-    }
-    expect(mocks.runPriceCheck).not.toHaveBeenCalled();
-  });
-
-  it("runs a browser task once it is confirmed", async () => {
+  it("runs a browser task without confirmation", async () => {
     mocks.runPriceCheck.mockClear().mockResolvedValue({ taskId: "task-1" });
-    const { result } = await invokeCapability("run_price_check", { bookingId: "booking-1" }, { confirmed: true });
+    const { result } = await invokeCapability("run_price_check", { bookingId: "booking-1" });
     expect(result).toEqual({ taskId: "task-1" });
     expect(mocks.runPriceCheck).toHaveBeenCalledWith({ bookingId: "booking-1", trigger: "manual" });
   });
 
   /*
-   * Formerly "runs the read-only hotel search without a second confirmation".
-   * That opt-out is gone: the agent loop asked for a press on every browser task
-   * regardless, so the flag was a second rule that disagreed with the first one
-   * about the same button. Opening a tab on someone's screen is an action taken
-   * for them whether or not it writes anything.
+   * A write still refuses. Recognising an intent is not permission to change
+   * stored state, and this is the last gate — asserted by its effect, the
+   * handler never being reached, rather than only by the thrown type.
    */
-  it("requires a press before any capability that opens a tab", async () => {
-    mocks.createHotelSearchTask.mockClear();
-    await expect(invokeCapability("search_hotels", {
+  it("refuses a write without explicit confirmation", async () => {
+    await expect(invokeCapability("set_watch_plan", { bookingId: "b1" })).rejects.toThrow(ConfirmationRequiredError);
+    for (const confirmed of [false, undefined]) {
+      await expect(invokeCapability("set_watch_plan", { bookingId: "b1" }, { confirmed })).rejects.toThrow(
+        ConfirmationRequiredError
+      );
+    }
+  });
+
+  /* A search now runs on request; only a write is gated. */
+  it("starts a hotel search without a press", async () => {
+    mocks.createHotelSearchTask.mockClear().mockResolvedValue({
+      launchUrl: "https://www.hyatt.com/search",
+      searchSessionId: "session-1",
+      taskId: "task-1"
+    });
+    await invokeCapability("search_hotels", {
       checkIn: "2030-09-10",
       checkOut: "2030-09-11",
       city: "Tokyo",
       cityAsAsked: "东京"
-    })).rejects.toMatchObject({ code: "confirmation_required" });
-    expect(mocks.createHotelSearchTask).not.toHaveBeenCalled();
-  });
-
-  /* And a write is gated by the same rule, without opening anything. */
-  it("requires a press before a capability that changes stored data", async () => {
-    await expect(invokeCapability("set_watch_plan", { bookingId: "b1" })).rejects.toMatchObject({
-      code: "confirmation_required"
     });
+    expect(mocks.createHotelSearchTask).toHaveBeenCalled();
   });
 
   /* Bad arguments fail before the confirmation question is even reached. */

@@ -41,6 +41,7 @@ import {
   capabilityResultRoute,
   describeCapabilityChange,
   invokeCapability,
+  mutatesByName,
   needsPress,
   parseCapabilityArgs,
   precheckCapability,
@@ -61,8 +62,24 @@ import { getHotelSearchSession, type HotelSearchSessionSnapshot } from "@/lib/ho
 import type { Tone } from "@/lib/labels";
 import { LlmError } from "@/lib/providers/llmClient";
 
-/** Enough for search → read a booking → compare → advise, and no more. */
-const MAX_TOOL_STEPS = 6;
+/**
+ * How many deliberations one turn may spend on tools.
+ *
+ * Raised from six once browser work stopped needing a press: a turn can now run
+ * search → verify a total → apply a budget → compare against a booking without
+ * the user re-entering between each, and six ran out mid-thought.
+ */
+const MAX_TOOL_STEPS = 12;
+
+/**
+ * How often one capability may run in a turn, whatever the arguments.
+ *
+ * Different arguments are a different question — three hotels' details is three
+ * legitimate calls — so this is not deduplication; exact repeats are dropped
+ * separately and for a different reason. This is the ceiling on a model that has
+ * decided to work through a list of twenty.
+ */
+const MAX_CALLS_PER_CAPABILITY = 4;
 
 export type AgentTurnRequest = {
   /** The exchange so far, oldest first, not including `message`. */
@@ -110,7 +127,9 @@ type TurnContext = {
   now: () => number;
   /** Tool results collected this turn, in order. Read by a failure to see what survived. */
   observations: ToolObservation[];
-  /** Call signatures already run this turn, so a repeat is skipped rather than re-run. */
+  /** How many times each capability has run this turn. Bounded by `MAX_CALLS_PER_CAPABILITY`. */
+  callsPerCapability: Map<string, number>;
+  /** Call signatures already run this turn, so an exact repeat is skipped rather than re-run. */
   ranThisTurn: Set<string>;
   options: TurnOptions;
   priorSearches: readonly PriorSearch[];
@@ -135,6 +154,7 @@ export async function runAgentTurn(request: AgentTurnRequest, emit: AgentEventSi
     emit,
     memory,
     now,
+    callsPerCapability: new Map<string, number>(),
     observations: [],
     options,
     ranThisTurn: new Set<string>(),
@@ -316,39 +336,79 @@ async function runToolStep(
     const call = { args: resolveRefs(proposed.args, context.source.refs), capability: proposed.capability };
 
     /*
-     * The same call twice in one turn is the model losing its place, not a
-     * second question. Observed asking for one hotel's detail three times over
-     * and narrating each. Skipping is safer than running it again: a repeat of a
-     * read wastes a request, and a repeat of anything else is a second action.
+     * An exact repeat — same capability, same arguments — is the model losing
+     * its place rather than asking a second question. Observed requesting one
+     * hotel's detail three times over and narrating each. Skipping is safer than
+     * running it again: repeating a read wastes a request, and repeating
+     * anything else is a second action.
      */
     const signature = `${call.capability}:${JSON.stringify(call.args)}`;
     if (context.ranThisTurn.has(signature)) {
       continue;
     }
+
+    /*
+     * A ceiling on how far one capability can be worked, separate from the
+     * above: asking four hotels for their cancellation terms is four real
+     * questions, asking twenty is a model that has mistaken the tool for a
+     * loop. Silently stopping is right — the results already gathered are
+     * good, and the answer is built from those.
+     */
+    const used = context.callsPerCapability.get(call.capability) ?? 0;
+    if (used >= MAX_CALLS_PER_CAPABILITY) {
+      continue;
+    }
+    context.callsPerCapability.set(call.capability, used + 1);
     context.ranThisTurn.add(signature);
 
-    if (needsPress(call.capability) && !spendAuthorisation(call.capability)) {
-      const args = parseCapabilityArgs(call.capability, call.args);
+    /*
+     * Checked before the call runs, whether or not it will also ask for a press.
+     * It used to live inside the confirmation branch, which meant that when
+     * browser work stopped needing one, the currency check stopped running with
+     * it — a budget in the wrong currency would have reached Hyatt.
+     */
+    let args: unknown;
+    let blocker: Awaited<ReturnType<typeof precheckCapability>>;
+    try {
+      args = parseCapabilityArgs(call.capability, call.args);
+      blocker = await precheckCapability(call.capability, args);
+    } catch (error) {
       /*
-       * Asked before the press, not after it. A capability that cannot run as
-       * asked should say so while the user still has a choice — not once they
-       * have agreed and a blank tab is already open.
+       * A capability refusing its own arguments is a question, not a failed
+       * run: it knows something the planner could not — a stay that has already
+       * happened, an expired session — and it wrote a sentence saying what to
+       * do about it. Parsing moved out of the confirmation branch when browser
+       * work stopped needing one, and briefly moved outside this net with it.
        */
-      const blocker = await precheckCapability(call.capability, args);
-      if (typeof blocker === "string") {
-        /* Only the user can resolve this one; the wording is product-owned. */
-        return spoke(context, blocker, "caution");
+      if (error instanceof CapabilityArgsError) {
+        return spoke(context, error.message, "caution");
       }
-      if (blocker) {
-        /*
-         * The model can fix this itself — a stale row reference, usually.
-         * Handed back as an observation it corrects course inside the same turn;
-         * ended here instead, a recoverable mistake becomes a wall.
-         */
-        context.observations.push({ capability: call.capability, refs: {}, view: { error: blocker.retryable } });
-        return "continue";
-      }
+      throw error;
+    }
+    if (typeof blocker === "string") {
+      /* Only the user can resolve this one; the wording is product-owned. */
+      return spoke(context, blocker, "caution");
+    }
+    if (blocker) {
+      /*
+       * The model can fix this itself — a stale row reference, usually. Handed
+       * back as an observation it corrects course inside the same turn; ended
+       * here instead, a recoverable mistake becomes a wall.
+       */
+      context.observations.push({ capability: call.capability, refs: {}, view: { error: blocker.retryable } });
+      return "continue";
+    }
+
+    /*
+     * Said before anything with a cost — a tab that will open, a setting that
+     * will change — and not before a plain read, which has its own progress line
+     * and its own result card. Spoken before every tool it became narration.
+     */
+    if (mutatesByName(call.capability)) {
       speakNote();
+    }
+
+    if (needsPress(call.capability) && !spendAuthorisation(call.capability)) {
       context.emit({
         name: "surface",
         timestamp: context.now(),
@@ -579,6 +639,18 @@ async function act(
   }
   const finished = await awaitBrowserTask(launch.taskId, { signal: context.signal });
   emit({ content: JSON.stringify({ status: finished.status }), timestamp: now(), toolCallId, type: "TOOL_CALL_RESULT" });
+
+  /*
+   * No tab ever picked this up. Distinct from a failure, and the difference is
+   * what the user can do: the task is still live, so opening the link finishes
+   * the same run rather than starting a new one.
+   */
+  if (finished.status === "never_started") {
+    throw new LoopError(
+      "browser_task_never_started",
+      "The Hyatt tab did not open, so there is nothing to read yet. Open it from the link above and I will pick up from there, or ask again and I will start over."
+    );
+  }
 
   if (finished.status === "failed") {
     throw new LoopError(

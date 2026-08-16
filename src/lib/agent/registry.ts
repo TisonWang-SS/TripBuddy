@@ -9,7 +9,7 @@ import {
 } from "@/lib/agent/capabilities/search";
 import { getProfile, getSettings } from "@/lib/agent/capabilities/setup";
 import { setWatchPlan } from "@/lib/agent/capabilities/watch";
-import { type AnyCapability, type CapabilityParam, requiresConfirmation } from "@/lib/agent/types";
+import { type AnyCapability, type CapabilityParam, mutates, requiresConfirmation } from "@/lib/agent/types";
 
 export class UnknownCapabilityError extends Error {
   readonly code = "unknown_capability";
@@ -106,10 +106,9 @@ export function requiresConfirmationByName(name: string) {
 /**
  * Whether the loop must stop and ask before running this.
  *
- * The same question as `requiresConfirmationByName`, named for what the loop is
- * deciding. Both a browser task and a write need a press, for different reasons
- * — one opens a window, the other changes stored data — and the loop should not
- * have to know which reason applies in order to honour it.
+ * Only a write, since ADR 0007. Named for what the loop is deciding rather than
+ * for the effect it reads, so the loop does not have to know which kinds of
+ * capability happen to qualify today.
  */
 export function needsPress(name: string) {
   return requiresConfirmationByName(name);
@@ -128,6 +127,12 @@ export function capabilityEffects() {
 export function describeCapabilityChange(name: string, args: unknown) {
   const capability = findCapability(name);
   return capability?.effect === "write" ? capability.describeChange(args) : null;
+}
+
+/** True when running this changes stored data or opens a tab. Unknown names count. */
+export function mutatesByName(name: string) {
+  const capability = findCapability(name);
+  return capability === null || mutates(capability);
 }
 
 /** True when this capability opens a Hyatt tab, whether or not it needs a press. */

@@ -126,19 +126,14 @@ describe("conversation", () => {
   });
 
   /*
-   * The tab has to be opened inside the press. Chrome only allows `window.open`
-   * during a gesture, and the launch URL is not known until the run answers.
+   * The tab has to be opened inside a gesture — Chrome allows `window.open`
+   * nowhere else — and since ADR 0007 removed the confirmation press, the send
+   * keystroke is the only gesture the turn gets.
    */
-  it("opens the Hyatt tab from the confirmation press, then points it at the launch", async () => {
+  it("opens the Hyatt tab from the send gesture and points it at the launch", async () => {
     const tab = { close: vi.fn(), location: { href: "about:blank" } };
     vi.stubGlobal("open", vi.fn(() => tab));
-    mocks.streamAgentRun.mockImplementationOnce(emitting(confirmSurface));
-
-    ask("查东京的酒店");
-    await waitFor(() => expect(screen.getByRole("button", { name: /Open Hyatt and collect prices/ })).toBeInTheDocument());
-    expect(window.open).not.toHaveBeenCalled();
-
-    mocks.streamAgentRun.mockImplementationOnce(
+    mocks.streamAgentRun.mockImplementation(
       emitting({
         name: "browser_task_launch",
         timestamp: 5,
@@ -146,26 +141,51 @@ describe("conversation", () => {
         value: { capability: "search_hotels", launchUrl: "https://www.hyatt.com/search", resultRoute: "/hotel-search" }
       })
     );
-    fireEvent.click(screen.getByRole("button", { name: /Open Hyatt and collect prices/ }));
+
+    ask("查一下上海的酒店价格");
 
     expect(window.open).toHaveBeenCalledWith("about:blank", "_blank");
     await waitFor(() => expect(tab.location.href).toBe("https://www.hyatt.com/search"));
-    /* And the confirmed action goes back so the run resumes where it stopped. */
-    expect(mocks.streamAgentRun.mock.calls[1][0].confirm).toMatchObject({ capability: "search_hotels" });
   });
 
-  it("closes a tab the run never launched", async () => {
-    const tab = { close: vi.fn(), location: { href: "about:blank" } };
-    vi.stubGlobal("open", vi.fn(() => tab));
+  /*
+   * The guess is allowed to be wrong. A launch arriving with no tab waiting
+   * renders a link instead — the server is already waiting on the task, so
+   * opening it any time before the task expires completes the same run.
+   */
+  it("offers a link when no tab was opened for the launch", async () => {
+    vi.stubGlobal("open", vi.fn(() => null));
+    mocks.streamAgentRun.mockImplementation(
+      emitting({
+        name: "browser_task_launch",
+        timestamp: 5,
+        type: "CUSTOM",
+        value: { capability: "search_hotels", launchUrl: "https://www.hyatt.com/search", resultRoute: "/hotel-search" }
+      })
+    );
+
+    ask("我的预订还好吗");
+
+    await waitFor(() => expect(screen.getByRole("link", { name: /Open the Hyatt tab/i })).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: /Open the Hyatt tab/i })).toHaveAttribute(
+      "href",
+      "https://www.hyatt.com/search"
+    );
+  });
+
+  /* A write still asks, and its press opens nothing. */
+  it("sends a confirmed write without opening a tab", async () => {
+    vi.stubGlobal("open", vi.fn());
     mocks.streamAgentRun.mockImplementationOnce(emitting(confirmSurface));
 
-    ask("查东京的酒店");
-    await waitFor(() => expect(screen.getByRole("button", { name: /Open Hyatt/ })).toBeInTheDocument());
+    ask("帮我盯着它");
+    await waitFor(() => expect(screen.getByRole("button", { name: /Open Hyatt and collect prices/ })).toBeInTheDocument());
 
-    mocks.streamAgentRun.mockImplementationOnce(emitting(...spoke("那次搜索没有跑起来。")));
-    fireEvent.click(screen.getByRole("button", { name: /Open Hyatt/ }));
+    mocks.streamAgentRun.mockImplementationOnce(emitting(...spoke("好的。")));
+    fireEvent.click(screen.getByRole("button", { name: /Open Hyatt and collect prices/ }));
 
-    await waitFor(() => expect(tab.close).toHaveBeenCalled());
+    expect(window.open).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.streamAgentRun.mock.calls[1][0].confirm).toMatchObject({ capability: "search_hotels" }));
   });
 
   it("reports a failed run in the conversation rather than silently", async () => {

@@ -215,3 +215,18 @@
     display: none;
   }
 }
+
+/* The fallback when no tab was open to receive a launch. */
+.launch {
+  align-self: flex-start;
+  padding: var(--space-2) var(--space-4);
+  background: var(--desk-accent);
+  color: var(--desk-accent-ink);
+  font-family: var(--desk-font-mono);
+  font-size: var(--desk-text-sm);
+  text-decoration: none;
+}
+
+.launch:hover {
+  background: var(--desk-ink);
+}

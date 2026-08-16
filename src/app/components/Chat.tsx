@@ -30,6 +30,8 @@ type Entry =
   | { id: string; kind: "assistant"; text: string }
   | { id: string; kind: "surface"; surface: Surface }
   | { id: string; kind: "status"; text: string }
+  /** The safety net when a tab could not be opened for us. See `send`. */
+  | { id: string; kind: "launch"; url: string }
   | { id: string; kind: "error"; text: string };
 
 /** Suggestions, not commands. They fill the field so the sentence stays editable. */
@@ -102,8 +104,17 @@ export function Chat() {
               if (browserTab && launchUrl) {
                 browserTab.location.href = launchUrl;
                 launched = true;
+                replaceStatus("Reading the Hyatt tab… leave it open until it finishes.");
+              } else if (launchUrl) {
+                /*
+                 * No tab was waiting — either the guess was wrong or Chrome
+                 * blocked it. The server is already waiting on the task, so a
+                 * link is enough: opening it any time before the task expires
+                 * completes the same run.
+                 */
+                setEntries((current) => [...current, { id: nextId(), kind: "launch", url: launchUrl }]);
+                replaceStatus("Waiting for the Hyatt tab — open it above.");
               }
-              replaceStatus("Reading the Hyatt tab… leave it open until it finishes.");
             } else if (event.type === "CUSTOM" && event.name === "memory") {
               memoryRef.current = event.value;
             } else if (event.type === "CUSTOM" && event.name === "surface") {
@@ -172,31 +183,30 @@ export function Chat() {
     setDraft("");
     setEntries((current) => [...current, { id: nextId(), kind: "user", text: message }]);
     remember({ content: message, role: "user" });
-    void send({ message }, null);
+
+    /*
+     * The tab, opened here or not at all.
+     *
+     * Chrome only allows `window.open` inside a gesture, and this keystroke is
+     * the only gesture the turn gets now that browser work runs without a
+     * separate press. The address is not known until the run answers, so an
+     * empty tab is opened and pointed somewhere later.
+     *
+     * Opened only when the message looks like it will need one — the guess is
+     * cheap and wrong sometimes, which is why `send` renders a link when a
+     * launch arrives with no tab waiting for it. Opening one every time would
+     * flash a blank tab for the three questions in four that never need it.
+     */
+    const browserTab = mayNeedHyatt(message) ? window.open("about:blank", "_blank") : null;
+    void send({ message }, browserTab);
   }
 
-  /**
-   * The press a browser task cannot start without — and the gesture the tab is
-   * opened inside. Both at once, deliberately: separating them is what puts the
-   * `window.open` outside a gesture and gets it blocked.
-   */
+  /** The press a write still asks for. Nothing here opens a tab. */
   function confirm(action: { args: unknown; capability: string }) {
     if (busy) {
       return;
     }
-    const browserTab = window.open("about:blank", "_blank");
-    if (!browserTab) {
-      setEntries((current) => [
-        ...current,
-        {
-          id: nextId(),
-          kind: "error",
-          text: "Chrome blocked the Hyatt tab. Allow pop-ups for TripBuddy and press the button again."
-        }
-      ]);
-      return;
-    }
-    void send({ confirm: action }, browserTab);
+    void send({ confirm: action }, null);
   }
 
   return (
@@ -284,9 +294,28 @@ function EntryView({
           {entry.text}
         </p>
       );
+    case "launch":
+      return (
+        <a className={styles.launch} href={entry.url} rel="noreferrer" target="_blank">
+          Open the Hyatt tab to continue
+        </a>
+      );
     case "error":
       return <p className={styles.error}>{entry.text}</p>;
   }
+}
+
+/**
+ * A cheap guess at whether this turn will want a Hyatt tab.
+ *
+ * Deliberately loose. Being wrong the safe way costs a blank tab that is closed
+ * again; being wrong the other way costs a link the user clicks. Neither is a
+ * correctness problem, which is what allows the guess to stay this simple —
+ * anything sharper would be predicting the planner, and the planner is the part
+ * that is allowed to change its mind.
+ */
+function mayNeedHyatt(message: string) {
+  return /查|搜|找|价|费|积分|点数|多少钱|导入|同步|hotel|search|price|rate|check|import|sync|points|award/i.test(message);
 }
 
 /** Product-owned progress copy, keyed by capability rather than written by the model. */

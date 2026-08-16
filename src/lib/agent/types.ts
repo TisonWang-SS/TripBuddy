@@ -97,18 +97,16 @@ type WriteCapability<TArgs, TResult> = CapabilityBase<TArgs, TResult> & {
 };
 
 /**
- * Opens a Hyatt tab through the Browser Companion. Two consequences, both
- * enforced rather than documented:
+ * Opens a Hyatt tab through the Browser Companion.
  *
- * - it needs explicit user confirmation, because a tab opening on someone's
- *   screen is an action taken on their behalf whether or not it writes
- *   anything. There is no opt-out: a `confirmationRequired: false` escape used
- *   to exist for read-only browser work, and the agent loop overrode it on
- *   every path, leaving two rules that disagreed about the same press. ADR 0005
- *   settled it — every capability that opens Hyatt stops and asks;
- * - it needs a route that owns its progress and error notices. A task fired
- *   from a surface that then closes would leave its result nowhere to land.
- *   `resultRoute` is where the caller must be standing.
+ * It runs without a separate press. Asking for a search *is* the initiation —
+ * requiring a button as well made every price question a two-step exchange, and
+ * a confirmation that always arrives and is always accepted stops being consent
+ * and becomes friction. The tab is still visible and still opened in the user's
+ * own Chrome; what went away is the second click. See ADR 0007.
+ *
+ * It still needs a route that owns its progress and error notices: a task fired
+ * from a surface that then closes would leave its result nowhere to land.
  */
 type BrowserTaskCapability<TArgs, TResult> = CapabilityBase<TArgs, TResult> & {
   effect: "browser_task";
@@ -127,12 +125,16 @@ export type AnyCapability = Capability<any, unknown>;
 /**
  * Whether running this needs a press first.
  *
+ * Only a write does. A browser task reads — a search, a price check, an account
+ * import — and reading on request is what the user asked for; a write changes
+ * stored state that they would have to undo by hand.
+ *
  * Stated as one function over the effect rather than checked at each call site,
  * because "does this need consent" is exactly the question a new capability
  * must not be able to answer for itself by omission.
  */
 export function requiresConfirmation(capability: AnyCapability) {
-  return capability.effect !== "read";
+  return capability.effect === "write";
 }
 
 /** True when running this changes stored data or the outside world. */

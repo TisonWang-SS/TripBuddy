@@ -21,9 +21,24 @@ const POLL_INTERVAL_MS = 900;
 /** Comfortably past any task TTL. Only reached when a task stops advancing at all. */
 const WAIT_CEILING_MS = 6 * 60 * 1000;
 
+/**
+ * How long a task may sit untouched before we conclude no tab is working on it.
+ *
+ * The Companion moves a task to `running` on its first snapshot, so a task still
+ * `pending` after this long was never picked up — the tab was not opened, was
+ * blocked, or was closed. Waiting out the full TTL for that tells the user
+ * nothing for three minutes and then reports a timeout, when the answer was
+ * knowable in twenty seconds and is actionable: open the tab.
+ *
+ * Generous relative to what it measures. A tab that opens at all reports its
+ * first snapshot within a second or two of loading.
+ */
+const PICKUP_GRACE_MS = 25 * 1000;
+
 export type FinishedBrowserTask = {
   errorMessage: string | null;
   result: unknown;
+  /** `never_started` when no tab ever picked the task up. See `PICKUP_GRACE_MS`. */
   status: string;
   taskId: string;
 };
@@ -52,7 +67,8 @@ export async function awaitBrowserTask(
 ): Promise<FinishedBrowserTask> {
   const now = options.now ?? (() => Date.now());
   const interval = options.pollIntervalMs ?? POLL_INTERVAL_MS;
-  const abandonAt = now() + WAIT_CEILING_MS;
+  const startedAt = now();
+  const abandonAt = startedAt + WAIT_CEILING_MS;
 
   for (;;) {
     if (options.signal?.aborted) {
@@ -71,6 +87,16 @@ export async function awaitBrowserTask(
         status: task.status,
         taskId
       };
+    }
+
+    /*
+     * Still untouched well past the point a real tab would have reported in.
+     * Reported as its own outcome rather than waited out: "the tab never
+     * opened" and "the page would not give up its prices" are different
+     * problems with different things for the user to do about them.
+     */
+    if (task.status === "pending" && now() >= startedAt + PICKUP_GRACE_MS) {
+      return { errorMessage: null, result: null, status: "never_started", taskId };
     }
 
     if (now() >= abandonAt) {
