@@ -44,6 +44,14 @@ It writes the reasoning; the product writes the numbers. A recommendation points
 
 With no API key the loop does not run: keyword routing picks one capability over the same catalogue and product copy answers. Score both paths with `npm run eval:intent-router`; the deterministic router is the checked-in baseline that the model must match. See [ADR 0002](docs/decisions/0002-model-influenced-routing.md).
 
+Conversation scenarios live in [`src/lib/agent/loop.fixtures.ts`](src/lib/agent/loop.fixtures.ts) and run against the real loop and the real model:
+
+```bash
+npm run eval:agent-loop
+```
+
+`npm run eval:agent-loop:smoke` runs the boundary group alone; `-- --group=followup` or `-- --scenario=<id>` narrows further. They are not tests: a live model varies, so a miss is a prompt to read the transcript rather than a broken build, and only the coarse structural expectations — which tool ran, whether a press was asked for, whether a tab opened — are checked mechanically. Every defect in `docs/CODE_REVIEW.zh-CN.md` §3.32, §3.34, §3.36 and §3.37 was found here rather than by a unit test, because each one completed successfully and simply did the wrong thing.
+
 API references: [Create Chat Completion](https://api-docs.deepseek.com/api/create-chat-completion), [JSON Output](https://api-docs.deepseek.com/guides/json_mode/), and [Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode).
 
 ## Browser Companion

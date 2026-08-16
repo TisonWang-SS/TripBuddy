@@ -91,6 +91,7 @@
 | 项 | 结果 | 复现 |
 |---|---|---|
 | 单元 / 集成测试 | 62 文件 428 项通过 | `npm test` |
+| **(未提交工作树)对话场景评测** | 28 条场景(搜索 / 缺参 / 边界 / 读取 / corner / 追问)全部 clean;`npm run eval:agent-loop`,场景定义在 `src/lib/agent/loop.fixtures.ts` | `npm run eval:agent-loop` |
 | **(未提交工作树)Agent loop 重构 + ADR 0007** | 69 文件 517 项通过;typecheck、lint 均无告警;build 成功,`/` 与 `/desk` 为 dynamic(`ƒ`) | `npm test` / `npm run typecheck` / `npm run lint` / `npm run build` |
 | 类型检查 | 无错误 | `npm run typecheck` |
 | Lint | 无告警 | `npm run lint` |
