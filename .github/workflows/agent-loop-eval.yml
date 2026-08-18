@@ -25,6 +25,14 @@ on:
 jobs:
   evaluate:
     runs-on: ubuntu-latest
+
+    # A throwaway database, for the whole job. The scenarios read bookings and
+    # seed a search session; none of that should touch anyone's real desk. It is
+    # set here rather than per step because `prisma generate` also needs it —
+    # prisma.config.ts resolves DATABASE_URL eagerly, connection or not.
+    env:
+      DATABASE_URL: file:./ci-eval.db
+
     steps:
       - uses: actions/checkout@v4
 
@@ -36,12 +44,8 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
 
-      # A throwaway database. The scenarios read bookings and seed a search
-      # session; none of that should touch anyone's real desk.
       - name: Prepare an empty database
         run: npx prisma migrate deploy
-        env:
-          DATABASE_URL: file:./ci-eval.db
 
       - name: Run the scenarios
         run: |
@@ -49,7 +53,6 @@ jobs:
             ${{ inputs.scenario && format('--scenario={0}', inputs.scenario) || '' }} \
             ${{ !inputs.scenario && inputs.group && format('--group={0}', inputs.group) || '' }}
         env:
-          DATABASE_URL: file:./ci-eval.db
           TRIPBUDDY_LLM_API_KEY: ${{ secrets.TRIPBUDDY_LLM_API_KEY }}
           TRIPBUDDY_LLM_BASE_URL: ${{ vars.TRIPBUDDY_LLM_BASE_URL }}
           TRIPBUDDY_LLM_MODEL: ${{ vars.TRIPBUDDY_LLM_MODEL }}

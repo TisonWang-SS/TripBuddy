@@ -15,6 +15,15 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
+
+    # Every Prisma command loads prisma.config.ts, which resolves DATABASE_URL
+    # eagerly — including `prisma generate`, which never opens a connection.
+    # Locally that comes from .env, which is not checked in, so without this the
+    # first Prisma command fails before a single real check has run. A throwaway
+    # file: nothing here should touch anyone's real desk.
+    env:
+      DATABASE_URL: file:./ci.db
+
     steps:
       - uses: actions/checkout@v4
 
@@ -35,6 +44,11 @@ jobs:
       # Integration tests build their own SQLite file from the checked-in
       # migrations, so no database service is needed here.
       - run: npm test
+
+      # `next build` prerenders /profile, and that page reads and writes the
+      # database for real. An empty file is not enough — the tables have to be
+      # there, so the migrations run first.
+      - run: npx prisma migrate deploy
 
       - run: npm run build
 
