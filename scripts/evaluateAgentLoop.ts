@@ -211,6 +211,90 @@ async function seedSearchSession() {
   return { sessionId: session.id, spokenStay };
 }
 
+/**
+ * CI starts from a migrated database, not from somebody's desk. Read and
+ * action scenarios still need one unambiguous stay, while a developer's local
+ * run should keep using the booking they already have. The temporary row is
+ * removed at the end of the run if this evaluator had to create it.
+ */
+async function seedBookingWhenEmpty(scenario: LoopScenario) {
+  if (!scenario.needsBooking || await prisma.hotelBooking.count()) {
+    return null;
+  }
+  const booking = await prisma.hotelBooking.create({
+    data: {
+      baselineCashTotal: 314.23,
+      baselineType: "cash",
+      bookingChannel: "direct",
+      cancellationDeadline: new Date(`${offsetDate(23)}T04:00:00.000Z`),
+      checkIn: new Date(`${offsetDate(25)}T00:00:00.000Z`),
+      checkOut: new Date(`${offsetDate(27)}T00:00:00.000Z`),
+      city: "Kuala Lumpur",
+      currency: "USD",
+      guests: 2,
+      hotelGroup: "Hyatt",
+      hotelName: "Grand Hyatt Kuala Lumpur",
+      loyaltyEligible: true,
+      notes: "Temporary agent-loop evaluation fixture",
+      roomType: "1 King Bed",
+      watchPlan: {
+        create: {
+          awardEnabled: true,
+          cashEnabled: true,
+          enabled: scenario.id !== "action-enable-watch" && scenario.id !== "followup-booking-chain"
+        }
+      }
+    }
+  });
+  const observation = await prisma.priceObservation.create({
+    data: {
+      bookingId: booking.id,
+      cashCurrency: "USD",
+      cashTotal: 340.46,
+      collectionMethod: "manual",
+      sourceName: "Hyatt official",
+      sourceType: "direct"
+    }
+  });
+  await prisma.recommendation.create({
+    data: {
+      blockersJson: "[]",
+      bookingId: booking.id,
+      candidateObservationId: observation.id,
+      cashDifference: 26.23,
+      costBreakdownJson: "{}",
+      creditCardValueDifference: 0,
+      currency: "USD",
+      decisionProvider: "deterministic",
+      decisionVersion: "v3",
+      estimatedSavings: 26.23,
+      explanation: "The observed alternative does not reach the configured savings threshold.",
+      pointsValueDifference: 0,
+      promotionValueDifference: 0,
+      qualityLevel: "high",
+      riskLevel: "low",
+      verdict: "keep",
+      warningsJson: "[]"
+    }
+  });
+  return booking;
+}
+
+/** The CI database is migrated but intentionally not populated by app seed data. */
+async function ensureEvaluationDefaults() {
+  const [profile, setting] = await Promise.all([
+    prisma.userProfile.findUnique({ select: { id: true }, where: { id: "primary" } }),
+    prisma.systemSetting.findUnique({ select: { id: true }, where: { id: "primary" } })
+  ]);
+  if (!profile) {
+    await prisma.userProfile.create({ data: { id: "primary", name: "Evaluation Traveler" } });
+  }
+  if (!setting) {
+    await prisma.systemSetting.create({ data: { id: "primary" } });
+  }
+  return { createdProfile: !profile, createdSetting: !setting };
+}
+
 function offsetDate(days: number) {
   const date = new Date();
   date.setDate(date.getDate() + days);
@@ -338,9 +422,7 @@ async function runScenario(scenario: LoopScenario, sessionId: string, stay: stri
   return { reports, turns };
 }
 
-const seeded = selected.some((scenario) => scenario.needsSession)
-  ? await seedSearchSession()
-  : { sessionId: "", spokenStay: "" };
+const defaults = await ensureEvaluationDefaults();
 try {
   persistedRun.commit = (await import("node:child_process")).execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 } catch {
@@ -348,6 +430,11 @@ try {
 }
 
 for (const scenario of selected) {
+  const seededBooking = await seedBookingWhenEmpty(scenario);
+  /* A fresh session per scenario prevents one follow-up's writes leaking into the next. */
+  const seeded = scenario.needsSession
+    ? await seedSearchSession()
+    : { sessionId: "", spokenStay: "" };
   const { reports, turns } = await runScenario(scenario, seeded.sessionId, seeded.spokenStay);
   const scenarioReport: PersistedScenario = {
     expect: scenario.expect,
@@ -362,6 +449,12 @@ for (const scenario of selected) {
   await persistTrace();
   if (scenarioReport.threw) {
     console.log(`  Trace checkpoint written after ${scenario.id}.`);
+  }
+  if (seeded.sessionId) {
+    await prisma.hotelSearchSession.deleteMany({ where: { id: seeded.sessionId } });
+  }
+  if (seededBooking) {
+    await prisma.hotelBooking.delete({ where: { id: seededBooking.id } });
   }
 }
 
@@ -384,8 +477,11 @@ await persistTrace();
 
 /* The console summary remains the quick terminal view; the JSON and Markdown
  * checkpoints above are the durable analysis artifacts. */
-if (seeded.sessionId) {
-  await prisma.hotelSearchSession.deleteMany({ where: { id: seeded.sessionId } });
+if (defaults.createdProfile) {
+  await prisma.userProfile.delete({ where: { id: "primary" } });
+}
+if (defaults.createdSetting) {
+  await prisma.systemSetting.delete({ where: { id: "primary" } });
 }
 
 console.log(`\n${"=".repeat(60)}`);

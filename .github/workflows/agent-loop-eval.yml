@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       group:
-        description: "Scenario group (search, gaps, boundary, reads, corner, followup). Empty runs all."
+        description: "Scenario group (search, gaps, boundary, reads, corner, actions, followup). Empty runs all."
         required: false
         type: string
       scenario:

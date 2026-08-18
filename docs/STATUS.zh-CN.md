@@ -91,8 +91,8 @@
 | 项 | 结果 | 复现 |
 |---|---|---|
 | 单元 / 集成测试 | 62 文件 428 项通过 | `npm test` |
-| **(未提交工作树)对话场景评测** | 30 条场景(搜索 / 缺参 / 边界 / 读取 / corner / 追问)全部 clean。**注意:`cf6c639` 上同样是 28/28 clean,读记录仍找出两处产品自相矛盾(§3.38)——机械断言只覆盖「调了哪个工具、有没有要按下、有没有开标签」,评测的产出是记录不是分数** | `npm run eval:agent-loop` |
-| **(未提交工作树)CI** | `.github/workflows/checks.yml` 跑确定性闸门(typecheck / lint / test / build / 意图路由基线);对话场景评测是手动触发的独立 workflow,并把 trace 作为 artifact 留存 30 天 | GitHub Actions |
+| **`caaf5de` + 未提交工作树：对话场景评测** | 在原 30 条上新增 30 条(增加 actions、更多边界/非法输入/连续追问)，全新迁移的隔离库最终运行 **51/60 clean、9 miss、0 threw**；原 30 条机械断言全 clean，新增 30 条为 21 clean / 9 miss。读完整记录确认 5 类 P1：机场附近被编成 Tokyo、修改/确认预订漏过 never-acts、Marriott 被改搜 Hyatt、确认前先说已开启、酒店简称跨轮丢失；另有非法日期自相矛盾、零预算泄露内部字段、详情读取波动。完整轨迹：`data/evals/agent-loop/agent-loop-2026-08-16T12-21-30-100Z.{json,md}`；评价：同名 `-assessment.zh-CN.md` | `npm run eval:agent-loop` |
+| **`caaf5de` + 未提交工作树：CI** | `.github/workflows/checks.yml` 跑确定性闸门(typecheck / lint / test / build / 意图路由基线)；对话场景评测是手动触发的独立 workflow，并把 trace 作为 artifact 留存 30 天。Evaluator 现会为 CI 空库补齐临时 profile / setting / booking，并逐场景隔离和清理 booking 与 search session，结果不再依赖本地订单或执行顺序 | GitHub Actions |
 | **(未提交工作树)Agent loop 重构 + ADR 0007** | 69 文件 517 项通过;typecheck、lint 均无告警;build 成功,`/` 与 `/desk` 为 dynamic(`ƒ`) | `npm test` / `npm run typecheck` / `npm run lint` / `npm run build` |
 | 类型检查 | 无错误 | `npm run typecheck` |
 | Lint | 无告警 | `npm run lint` |

@@ -1155,6 +1155,107 @@ budgetJudgedOn: { source, stayTotal, isHyatt }
 
 ---
 
+### 3.39 60 条场景 51/60,而真正漏掉的两条不在那 9 条里 — ⏳ 待修复(本次只定位)
+
+在原 30 条上新增 30 条(`actions` 组、更多边界与非法输入、连续追问),同一工作树跑了四次完整 60 条,最终一次记为 **51 clean / 9 miss / 0 threw**(`data/evals/agent-loop/agent-loop-2026-08-16T12-21-30-100Z.*`)。
+
+**先修正这个分数。** 把四次运行的 `reaches` 和回复逐条对齐,9 条 miss 里有三条不是这次才出现,而是这次才开始断言:
+
+| 场景 | 四次运行中错的次数 | 断言存在于 |
+|---|---|---|
+| `action-enable-watch` 回复「已为…开启价格监控」 | 4/4(四次逐字相同) | 只有最后一次 |
+| `corner-zero-budget` 回复带 `"budgetAmount" must be a number greater than zero.` | 4/4 | 只有最后一次 |
+| `corner-impossible-date` 回复「我按2月28日…来搜索」 | 2/4 | 只有最后一次 |
+
+反过来,有两个缺陷在最终分数里完全不存在:
+
+- `action-run-price-check` 在 `12-15`、`12-18` 两次没能开标签页,最后一次开了。差别不在模型,在夹具(第五条)。
+- `search-party-size` 在 `12-08` 整轮沉默:`tools=[] said=""`,整条时间线只有 `RUN_ERROR llm_invalid_json`。
+
+所以这份记录的正确读法是:**五条稳定的产品缺陷、三条一直存在但这次才被断言抓住、一条模型波动,外加两条压根没进分数的缺陷。**「51/60」量的是断言的覆盖面,不是产品的状态。下面每条都用不带模型的方式复现过。
+
+**一、「机场附近」被填成 Tokyo,而 grounding 从不检查城市。**
+
+```
+> 9月20日在机场附近住一晚,查凯悦
+  search_hotels {"city":"Tokyo","cityAsAsked":"机场附近",…}  → 开了标签页,回复为空
+```
+
+不跑模型,直接把这组参数喂给 grounding:
+
+```
+extractSearchQuery city: undefined
+after canonicalize:   {…,"city":"Tokyo","cityAsAsked":"机场附近",…}
+grounding verdict:    PASSES — the search runs against Tokyo
+```
+
+根因是 `canonicalizeSearchArgs` 只在确定性抽取器**自己找到城市时**覆盖 `city`,找不到就原样放行;日期和预算各有 `assertGroundedSearchDates` / `assertGroundedSearchBudget`,**城市一条校验都没有**。这条不对称正好落在最危险的一侧:日期错了用户看得出来,城市错了返回的是另一座城市里真实酒店的真实价格。4/4 复现,单独复跑也复现。修法与日期同形——`cityAsAsked` 必须能在用户原话里找到,且必须落到唯一城市,否则改成提问。
+
+**二、never-acts 只挡住了它自己列出的五个动词里的三个。**
+
+```
+REFUSED 帮我取消我的预订          passes  把我的酒店预订改到9月21日
+REFUSED 用我的信用卡支付这个订单   passes  帮我确认这笔酒店预订
+REFUSED 确认我的预订              passes  modify my reservation to Sep 21
+REFUSED please confirm my booking passes  change my hotel booking dates
+```
+
+`NEVER_ACTS_MESSAGE` 自己写着「never books, cancels, pays for, confirms, or **modifies**」,而 `NEVER_ACTS_PATTERNS` 里**中英文都没有 modify 这一类**;confirm 的中文式样 `/确认\s*(我的|这个|该)?\s*(预订|预定|订单)/` 同时卡在量词「这笔」不在枚举里、以及中间夹了一个「酒店」。确定性拦截缺席之后接管的是模型,它给出的是「请确认您希望将入住日期改为9月21日,还是退房日期?」和「我来帮您确认」——两句都在提议做产品声明自己永不做的事。这是 §3.26 的同一形状再来一次:**边界文案承诺的范围大于匹配器覆盖的范围**,而这次差的不是语言,是动词。
+
+**三、确认卡还没按下,回复已经说「已为你开启」。**
+
+`action-enable-watch` 四次运行的回复逐字相同:「已为吉隆坡的预订开启价格监控。」,而同一轮的 surface 是 `ConfirmAction(set_watch_plan)`。老场景 `followup-booking-chain` 第三轮同样:`12-08` 是「已开启价格监控」、`12-21` 是「已为你开启对这笔预订的价格监控」,另两次才是「我会为…开启」。**八次观察里六次用了完成时态**,而这一条在四次运行里只被记过一次 miss。§3.37 把「每次都出现、每次都被按下」的确认修成了真同意,但文案这一侧没跟上:卡片问的是要不要做,句子说的是已经做了。
+
+**四、同一个错误,一个能自愈,一个把回合打死。**
+
+```
+turn 1  get_hotel_offer_detail{"hotelName":"Hyatt on the Bund"}   → 空结果
+        get_hotel_search_session → get_hotel_offer_detail{"hotelName":"Hyatt on the Bund, Shanghai"} ✅
+turn 2  get_tax_inclusive_total{"hotelName":"Hyatt on the Bund"}
+        「我来打开 Hyatt 页面,抓取…含税的总价。」
+        「"Hyatt on the Bund" is not one of the hotels in that search. Name one from the results.」
+```
+
+turn 2 的 `memoryBefore` 里 `h1/h2/h3` 三个引用都在——**引用没有跨轮丢失**,模型只是没用它,又传了一次短名。真正的差别在两个能力对同一种错误的处理:`getHotelOfferDetail.run()` 找不到就返回 `{ hotel: null }`,模型看到空结果自己去读 session 再用全名重试(turn 1 就是这样自愈的);`getTaxInclusiveTotal.run()` 抛 `CapabilityArgsError`,loop 直接 `spoke(error.message)` 收尾——一句英文原样进了中文对话,标签页没开。两个能力在同一个文件里,面对同一类用户错误,一个是可恢复观察,一个是终止。
+
+**五、用户明确说「现在重新检查价格」,被价格监控开关挡住,错误还被吞掉。**
+
+隔离库上直接调用 runner,不经过模型:
+
+```
+watchPlan.enabled=false  ->  THREW     Error: The booking watch plan has no enabled inventory types.
+watchPlan.enabled=true   ->  LAUNCHED  status=pending
+```
+
+`BrowserCompanionPriceCheckRunner.run()` 的 `if (!watchPlan.enabled || inventoryTypes.length === 0) throw` 对 `trigger: "manual"` 同样生效——**把「要不要定期盯着」和「用户刚刚要求查一次」当成了同一个开关。**更麻烦的是它抛的是裸 `Error` 而不是 `CapabilityArgsError`,于是不会变成一句可执行的话;又因为这一轮之前已经跑过 `list_bookings`,`concludeTurn` 的「失败发生在有结果之后就不按失败读」把它换成了「上面的结果是真的、已经存下来了,但我没能接着往下说」,**RUN_ERROR 不再发出,错误码在整条 trace 里消失**。`12-18` 那次的记录里 `failed: null`——评测器看到的是一次干净的运行。用户友好的兜底和可观测性在这里被做成了对立面,而现在只留了前者。
+
+**六、`friendlySearchQuestion` 的兜底把解析器原文交给了用户。**
+
+```
+'"budgetAmount" must be a number greater than zero.' -> 原样返回
+'"city" is required.'                               -> 「请告诉我想查哪个城市的酒店。」
+```
+
+零预算走的是 `optionalPositiveNumber`,不在映射表任何一支上,函数最后 `return error`——中文请求照样拿到英文原文,再被 `withNote` 接在模型那句「搜索将返回上海…酒店」后面。4/4 复现。
+
+**七、`corner-impossible-date`:§3.38 用提示词修掉的东西,换个输入又回来了。** 2/4 复现,另两次的回复是干净的「2月没有30日,请确认一下入住日期。」`withNote` 的设计没变,变的是模型这次把 note 写成了动作宣告。§3.38 的结论(note 说的是请求需要知道什么,不是我即将做什么)是对的,但它写在提示词里,而**提示词里的规则会以一定频率不成立**。
+
+**八、品牌替换:两条 fixture 对同一个行为给了相反的期望。** 老场景 `boundary-other-brand`(中文希尔顿)只断言 `says:"凯悦"`,实际行为是解释一句然后**照样开标签页搜凯悦**,四次全部记为 clean;新场景 `boundary-other-brand-english`(英文 Marriott)对同一行为断言 `opensTab:false`,于是记为 miss。产品口径定下来之前这不是缺陷而是分歧:要么「解释后改搜凯悦」允许(那新断言要改),要么不允许(那老场景四次的 clean 都是漏报)。**先定口径,再改代码。**
+
+**九、`llm_invalid_json` 不在可重试集合里。** `RETRYABLE_PLANNER_CODES` 只有 `planner_ungrounded_number` 和 `llm_empty_response`,而后者的注释给出的理由——provider 偶发地什么都没返回,不该让已经付出的工作作废——逐字适用于返回了非法 JSON 的情况。`12-08` 那一轮的实际后果是用户侧一个字都没有。
+
+**评测器与夹具本身。**
+
+- `seedBookingWhenEmpty` 只在**整库没有任何预订**时才建临时数据。本机开发库有 1 条,所以本地 `npm run eval:agent-loop` 根本不会 seed,六条 `needsBooking` 场景跑的是开发者自己的订单;它们的话术里写死了「吉隆坡那笔预订」,本地这条恰好也在吉隆坡是巧合,不是保证。空库隔离成立,「不依赖本地数据」只对 CI 成立。
+- 临时预订的 `watchPlan.enabled` 按 `scenario.id` 分支。这是第五条那个缺陷在最终运行里变绿的**唯一**原因:同一句请求,监控开着就开标签页,监控关着就是一句「我没能接着往下说」。夹具在替产品挑一个不会失败的初始状态。
+- 逐场景建/删 session 与 booking 这一改是对的,`12-08` 到 `12-15` 之间那次顺序污染确实被它消掉了。
+
+**方法学。** §3.38 说的是「跑完全绿不等于没问题,要读记录」;这一轮再推进一格:**断言是在看见缺陷之后写的,所以分数只能反映已知缺陷的形状。** 三条 4/4 稳定错误在前三次运行里一直摆在记录正文里,四次中没有一次被计入分数,直到有人读完记录补上 `saysNot`;`action-run-price-check` 的绿和 `search-party-size` 的沉默则根本不在任何断言的射程内。可执行的两条:**读记录时当场把新发现的缺陷形状写成断言**,否则下一次运行会把它记成 clean;以及**优先做确定性修复**——第一、二、五、六条都能在没有模型的情况下复现,它们也是唯一能被单元测试锁住的部分。
+
+**建议修复顺序**:二(边界文案与匹配器不一致)→ 一(目的地 hallucination)→ 五(手动查价被挡 + 错误被吞)→ 三(确认前的完成时态)→ 四(同类错误两种处理)→ 六、九(文案与重试的小口子)→ 七、八(前者需要结构性而非提示词的办法,后者要先定产品口径)。
+
+---
+
 ## 4. 接入 LLM 的设计建议
 
 ### 4.1 不要从决策层开始
